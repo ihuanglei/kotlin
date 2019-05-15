@@ -6,6 +6,7 @@
 package org.jetbrains.kotlin.backend.jvm
 
 import org.jetbrains.kotlin.backend.common.phaser.PhaseConfig
+import org.jetbrains.kotlin.backend.jvm.lower.serializeModule
 import org.jetbrains.kotlin.codegen.CompilationErrorHandler
 import org.jetbrains.kotlin.codegen.state.GenerationState
 import org.jetbrains.kotlin.ir.declarations.IrModuleFragment
@@ -38,6 +39,7 @@ object JvmBackendFacade {
         val jvmBackendContext = JvmBackendContext(
             state, psi2irContext.sourceManager, psi2irContext.irBuiltIns, irModuleFragment, psi2irContext.symbolTable, phaseConfig
         )
+
         //TODO
         ExternalDependenciesGenerator(
             irModuleFragment.descriptor,
@@ -45,6 +47,11 @@ object JvmBackendFacade {
             psi2irContext.irBuiltIns,
             JvmGeneratorExtensions.externalDeclarationOrigin
         ).generateUnboundSymbolsAsDependencies()
+
+        // TODO: need a more sophisticated naming algorithm for file
+        val fname = irModuleFragment.name.asString() + ".ir"
+
+        serializeModule(jvmBackendContext, irModuleFragment, fname)
 
         val jvmBackend = JvmBackend(jvmBackendContext)
 
