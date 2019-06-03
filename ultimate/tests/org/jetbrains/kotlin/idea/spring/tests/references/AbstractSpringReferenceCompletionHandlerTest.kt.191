@@ -16,19 +16,24 @@
 
 package org.jetbrains.kotlin.idea.spring.tests.references
 
-import org.jetbrains.kotlin.idea.completion.test.AbstractJvmBasicCompletionTest
+import com.intellij.util.PathUtil
+import org.jetbrains.kotlin.idea.completion.test.handlers.AbstractBasicCompletionHandlerTest
 import org.jetbrains.kotlin.idea.spring.tests.SpringTestFixtureExtension
-import org.jetbrains.kotlin.idea.spring.tests.loadConfigByMainFilePath
 import org.jetbrains.kotlin.idea.test.TestFixtureExtension
+import java.io.File
 
-abstract class AbstractSpringReferenceCompletionTest : AbstractJvmBasicCompletionTest() {
+abstract class AbstractSpringReferenceCompletionHandlerTest : AbstractBasicCompletionHandlerTest() {
     override fun setUpFixture(testPath: String) {
-        TestFixtureExtension.loadFixture<SpringTestFixtureExtension>(module).loadConfigByMainFilePath(testPath, myFixture)
         super.setUpFixture(testPath)
+
+        TestFixtureExtension
+                .loadFixture<SpringTestFixtureExtension>(myModule)
+                .configureFileSet(myFixture, listOf(PathUtil.toSystemIndependentName(File(testPath).parent + "/spring-config.xml")))
     }
 
     override fun tearDownFixture() {
         TestFixtureExtension.unloadFixture<SpringTestFixtureExtension>()
+
         super.tearDownFixture()
     }
 }
