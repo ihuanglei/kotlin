@@ -16,10 +16,12 @@
 
 package org.jetbrains.kotlin.backend.jvm
 
+import org.jetbrains.kotlin.backend.common.LoggingContext
 import org.jetbrains.kotlin.backend.common.phaser.PhaseConfig
 import org.jetbrains.kotlin.codegen.*
 import org.jetbrains.kotlin.codegen.state.GenerationState
 import org.jetbrains.kotlin.descriptors.PackageFragmentDescriptor
+import org.jetbrains.kotlin.ir.backend.jvm.lower.serialization.ir.JvmIrDeserializer
 import org.jetbrains.kotlin.name.FqName
 import org.jetbrains.kotlin.psi.KtFile
 import org.jetbrains.kotlin.psi2ir.Psi2IrTranslator
@@ -29,8 +31,16 @@ class JvmIrCodegenFactory(private val phaseConfig: PhaseConfig) : CodegenFactory
     override fun generateModule(state: GenerationState, files: Collection<KtFile>, errorHandler: CompilationErrorHandler) {
         val psi2ir = Psi2IrTranslator(state.languageVersionSettings)
         val psi2irContext = psi2ir.createGeneratorContext(state.module, state.bindingContext, extensions = JvmGeneratorExtensions)
-        val irModuleFragment = psi2ir.generateModuleFragment(psi2irContext, files)
-        JvmBackendFacade.doGenerateFilesInternal(state, errorHandler, irModuleFragment, psi2irContext, phaseConfig)
+        /**///TODO
+        val logger = object : LoggingContext {
+            override var inVerbosePhase = false
+            override fun log(message: () -> String) {
+                println(message())
+            }
+        }
+        val deserializer = JvmIrDeserializer(state.module, logger, psi2irContext.irBuiltIns, psi2irContext.symbolTable, state.languageVersionSettings)
+        val irModuleFragment = psi2ir.generateModuleFragment(psi2irContext, files, deserializer)
+        JvmBackendFacade.doGenerateFilesInternal(state, errorHandler, irModuleFragment, psi2irContext, phaseConfig, deserializer)
     }
 
     override fun createPackageCodegen(state: GenerationState, files: Collection<KtFile>, fqName: FqName): PackageCodegen {

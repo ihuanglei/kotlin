@@ -1029,7 +1029,7 @@ public final class KotlinIr {
           org.jetbrains.kotlin.protobuf.ByteString.newOutput();
       org.jetbrains.kotlin.protobuf.CodedOutputStream unknownFieldsCodedOutput =
           org.jetbrains.kotlin.protobuf.CodedOutputStream.newInstance(
-              unknownFieldsOutput);
+              unknownFieldsOutput, 1);
       try {
         boolean done = false;
         while (!done) {
@@ -2353,7 +2353,7 @@ public final class KotlinIr {
           org.jetbrains.kotlin.protobuf.ByteString.newOutput();
       org.jetbrains.kotlin.protobuf.CodedOutputStream unknownFieldsCodedOutput =
           org.jetbrains.kotlin.protobuf.CodedOutputStream.newInstance(
-              unknownFieldsOutput);
+              unknownFieldsOutput, 1);
       try {
         boolean done = false;
         while (!done) {
@@ -2799,7 +2799,7 @@ public final class KotlinIr {
           org.jetbrains.kotlin.protobuf.ByteString.newOutput();
       org.jetbrains.kotlin.protobuf.CodedOutputStream unknownFieldsCodedOutput =
           org.jetbrains.kotlin.protobuf.CodedOutputStream.newInstance(
-              unknownFieldsOutput);
+              unknownFieldsOutput, 1);
       try {
         boolean done = false;
         while (!done) {
@@ -3236,7 +3236,7 @@ public final class KotlinIr {
           org.jetbrains.kotlin.protobuf.ByteString.newOutput();
       org.jetbrains.kotlin.protobuf.CodedOutputStream unknownFieldsCodedOutput =
           org.jetbrains.kotlin.protobuf.CodedOutputStream.newInstance(
-              unknownFieldsOutput);
+              unknownFieldsOutput, 1);
       try {
         boolean done = false;
         while (!done) {
@@ -3640,7 +3640,7 @@ public final class KotlinIr {
           org.jetbrains.kotlin.protobuf.ByteString.newOutput();
       org.jetbrains.kotlin.protobuf.CodedOutputStream unknownFieldsCodedOutput =
           org.jetbrains.kotlin.protobuf.CodedOutputStream.newInstance(
-              unknownFieldsOutput);
+              unknownFieldsOutput, 1);
       try {
         boolean done = false;
         while (!done) {
@@ -4053,7 +4053,7 @@ public final class KotlinIr {
           org.jetbrains.kotlin.protobuf.ByteString.newOutput();
       org.jetbrains.kotlin.protobuf.CodedOutputStream unknownFieldsCodedOutput =
           org.jetbrains.kotlin.protobuf.CodedOutputStream.newInstance(
-              unknownFieldsOutput);
+              unknownFieldsOutput, 1);
       try {
         boolean done = false;
         while (!done) {
@@ -4596,7 +4596,7 @@ public final class KotlinIr {
           org.jetbrains.kotlin.protobuf.ByteString.newOutput();
       org.jetbrains.kotlin.protobuf.CodedOutputStream unknownFieldsCodedOutput =
           org.jetbrains.kotlin.protobuf.CodedOutputStream.newInstance(
-              unknownFieldsOutput);
+              unknownFieldsOutput, 1);
       try {
         boolean done = false;
         while (!done) {
@@ -5097,7 +5097,7 @@ public final class KotlinIr {
           org.jetbrains.kotlin.protobuf.ByteString.newOutput();
       org.jetbrains.kotlin.protobuf.CodedOutputStream unknownFieldsCodedOutput =
           org.jetbrains.kotlin.protobuf.CodedOutputStream.newInstance(
-              unknownFieldsOutput);
+              unknownFieldsOutput, 1);
       try {
         boolean done = false;
         while (!done) {
@@ -5689,7 +5689,7 @@ public final class KotlinIr {
           org.jetbrains.kotlin.protobuf.ByteString.newOutput();
       org.jetbrains.kotlin.protobuf.CodedOutputStream unknownFieldsCodedOutput =
           org.jetbrains.kotlin.protobuf.CodedOutputStream.newInstance(
-              unknownFieldsOutput);
+              unknownFieldsOutput, 1);
       try {
         boolean done = false;
         while (!done) {
@@ -6792,7 +6792,7 @@ public final class KotlinIr {
           org.jetbrains.kotlin.protobuf.ByteString.newOutput();
       org.jetbrains.kotlin.protobuf.CodedOutputStream unknownFieldsCodedOutput =
           org.jetbrains.kotlin.protobuf.CodedOutputStream.newInstance(
-              unknownFieldsOutput);
+              unknownFieldsOutput, 1);
       try {
         boolean done = false;
         while (!done) {
@@ -7759,7 +7759,7 @@ public final class KotlinIr {
           org.jetbrains.kotlin.protobuf.ByteString.newOutput();
       org.jetbrains.kotlin.protobuf.CodedOutputStream unknownFieldsCodedOutput =
           org.jetbrains.kotlin.protobuf.CodedOutputStream.newInstance(
-              unknownFieldsOutput);
+              unknownFieldsOutput, 1);
       try {
         boolean done = false;
         while (!done) {
@@ -8129,7 +8129,7 @@ public final class KotlinIr {
           org.jetbrains.kotlin.protobuf.ByteString.newOutput();
       org.jetbrains.kotlin.protobuf.CodedOutputStream unknownFieldsCodedOutput =
           org.jetbrains.kotlin.protobuf.CodedOutputStream.newInstance(
-              unknownFieldsOutput);
+              unknownFieldsOutput, 1);
       try {
         boolean done = false;
         while (!done) {
@@ -8609,7 +8609,7 @@ public final class KotlinIr {
           org.jetbrains.kotlin.protobuf.ByteString.newOutput();
       org.jetbrains.kotlin.protobuf.CodedOutputStream unknownFieldsCodedOutput =
           org.jetbrains.kotlin.protobuf.CodedOutputStream.newInstance(
-              unknownFieldsOutput);
+              unknownFieldsOutput, 1);
       try {
         boolean done = false;
         while (!done) {
@@ -9455,7 +9455,7 @@ public final class KotlinIr {
           org.jetbrains.kotlin.protobuf.ByteString.newOutput();
       org.jetbrains.kotlin.protobuf.CodedOutputStream unknownFieldsCodedOutput =
           org.jetbrains.kotlin.protobuf.CodedOutputStream.newInstance(
-              unknownFieldsOutput);
+              unknownFieldsOutput, 1);
       try {
         boolean done = false;
         while (!done) {
@@ -9820,7 +9820,7 @@ public final class KotlinIr {
           org.jetbrains.kotlin.protobuf.ByteString.newOutput();
       org.jetbrains.kotlin.protobuf.CodedOutputStream unknownFieldsCodedOutput =
           org.jetbrains.kotlin.protobuf.CodedOutputStream.newInstance(
-              unknownFieldsOutput);
+              unknownFieldsOutput, 1);
       try {
         boolean done = false;
         while (!done) {
@@ -10313,7 +10313,7 @@ public final class KotlinIr {
           org.jetbrains.kotlin.protobuf.ByteString.newOutput();
       org.jetbrains.kotlin.protobuf.CodedOutputStream unknownFieldsCodedOutput =
           org.jetbrains.kotlin.protobuf.CodedOutputStream.newInstance(
-              unknownFieldsOutput);
+              unknownFieldsOutput, 1);
       try {
         boolean done = false;
         while (!done) {
@@ -10806,7 +10806,7 @@ public final class KotlinIr {
           org.jetbrains.kotlin.protobuf.ByteString.newOutput();
       org.jetbrains.kotlin.protobuf.CodedOutputStream unknownFieldsCodedOutput =
           org.jetbrains.kotlin.protobuf.CodedOutputStream.newInstance(
-              unknownFieldsOutput);
+              unknownFieldsOutput, 1);
       try {
         boolean done = false;
         while (!done) {
@@ -11294,7 +11294,7 @@ public final class KotlinIr {
           org.jetbrains.kotlin.protobuf.ByteString.newOutput();
       org.jetbrains.kotlin.protobuf.CodedOutputStream unknownFieldsCodedOutput =
           org.jetbrains.kotlin.protobuf.CodedOutputStream.newInstance(
-              unknownFieldsOutput);
+              unknownFieldsOutput, 1);
       try {
         boolean done = false;
         while (!done) {
@@ -11655,7 +11655,7 @@ public final class KotlinIr {
           org.jetbrains.kotlin.protobuf.ByteString.newOutput();
       org.jetbrains.kotlin.protobuf.CodedOutputStream unknownFieldsCodedOutput =
           org.jetbrains.kotlin.protobuf.CodedOutputStream.newInstance(
-              unknownFieldsOutput);
+              unknownFieldsOutput, 1);
       try {
         boolean done = false;
         while (!done) {
@@ -12155,7 +12155,7 @@ public final class KotlinIr {
           org.jetbrains.kotlin.protobuf.ByteString.newOutput();
       org.jetbrains.kotlin.protobuf.CodedOutputStream unknownFieldsCodedOutput =
           org.jetbrains.kotlin.protobuf.CodedOutputStream.newInstance(
-              unknownFieldsOutput);
+              unknownFieldsOutput, 1);
       try {
         boolean done = false;
         while (!done) {
@@ -12751,7 +12751,7 @@ public final class KotlinIr {
           org.jetbrains.kotlin.protobuf.ByteString.newOutput();
       org.jetbrains.kotlin.protobuf.CodedOutputStream unknownFieldsCodedOutput =
           org.jetbrains.kotlin.protobuf.CodedOutputStream.newInstance(
-              unknownFieldsOutput);
+              unknownFieldsOutput, 1);
       try {
         boolean done = false;
         while (!done) {
@@ -13561,7 +13561,7 @@ public final class KotlinIr {
           org.jetbrains.kotlin.protobuf.ByteString.newOutput();
       org.jetbrains.kotlin.protobuf.CodedOutputStream unknownFieldsCodedOutput =
           org.jetbrains.kotlin.protobuf.CodedOutputStream.newInstance(
-              unknownFieldsOutput);
+              unknownFieldsOutput, 1);
       try {
         boolean done = false;
         while (!done) {
@@ -13965,7 +13965,7 @@ public final class KotlinIr {
           org.jetbrains.kotlin.protobuf.ByteString.newOutput();
       org.jetbrains.kotlin.protobuf.CodedOutputStream unknownFieldsCodedOutput =
           org.jetbrains.kotlin.protobuf.CodedOutputStream.newInstance(
-              unknownFieldsOutput);
+              unknownFieldsOutput, 1);
       try {
         boolean done = false;
         while (!done) {
@@ -14387,7 +14387,7 @@ public final class KotlinIr {
           org.jetbrains.kotlin.protobuf.ByteString.newOutput();
       org.jetbrains.kotlin.protobuf.CodedOutputStream unknownFieldsCodedOutput =
           org.jetbrains.kotlin.protobuf.CodedOutputStream.newInstance(
-              unknownFieldsOutput);
+              unknownFieldsOutput, 1);
       try {
         boolean done = false;
         while (!done) {
@@ -15090,7 +15090,7 @@ public final class KotlinIr {
           org.jetbrains.kotlin.protobuf.ByteString.newOutput();
       org.jetbrains.kotlin.protobuf.CodedOutputStream unknownFieldsCodedOutput =
           org.jetbrains.kotlin.protobuf.CodedOutputStream.newInstance(
-              unknownFieldsOutput);
+              unknownFieldsOutput, 1);
       try {
         boolean done = false;
         while (!done) {
@@ -15578,7 +15578,7 @@ public final class KotlinIr {
           org.jetbrains.kotlin.protobuf.ByteString.newOutput();
       org.jetbrains.kotlin.protobuf.CodedOutputStream unknownFieldsCodedOutput =
           org.jetbrains.kotlin.protobuf.CodedOutputStream.newInstance(
-              unknownFieldsOutput);
+              unknownFieldsOutput, 1);
       try {
         boolean done = false;
         while (!done) {
@@ -15947,7 +15947,7 @@ public final class KotlinIr {
           org.jetbrains.kotlin.protobuf.ByteString.newOutput();
       org.jetbrains.kotlin.protobuf.CodedOutputStream unknownFieldsCodedOutput =
           org.jetbrains.kotlin.protobuf.CodedOutputStream.newInstance(
-              unknownFieldsOutput);
+              unknownFieldsOutput, 1);
       try {
         boolean done = false;
         while (!done) {
@@ -16438,7 +16438,7 @@ public final class KotlinIr {
           org.jetbrains.kotlin.protobuf.ByteString.newOutput();
       org.jetbrains.kotlin.protobuf.CodedOutputStream unknownFieldsCodedOutput =
           org.jetbrains.kotlin.protobuf.CodedOutputStream.newInstance(
-              unknownFieldsOutput);
+              unknownFieldsOutput, 1);
       try {
         boolean done = false;
         while (!done) {
@@ -17078,7 +17078,7 @@ public final class KotlinIr {
           org.jetbrains.kotlin.protobuf.ByteString.newOutput();
       org.jetbrains.kotlin.protobuf.CodedOutputStream unknownFieldsCodedOutput =
           org.jetbrains.kotlin.protobuf.CodedOutputStream.newInstance(
-              unknownFieldsOutput);
+              unknownFieldsOutput, 1);
       try {
         boolean done = false;
         while (!done) {
@@ -17960,7 +17960,7 @@ public final class KotlinIr {
           org.jetbrains.kotlin.protobuf.ByteString.newOutput();
       org.jetbrains.kotlin.protobuf.CodedOutputStream unknownFieldsCodedOutput =
           org.jetbrains.kotlin.protobuf.CodedOutputStream.newInstance(
-              unknownFieldsOutput);
+              unknownFieldsOutput, 1);
       try {
         boolean done = false;
         while (!done) {
@@ -18889,7 +18889,7 @@ public final class KotlinIr {
           org.jetbrains.kotlin.protobuf.ByteString.newOutput();
       org.jetbrains.kotlin.protobuf.CodedOutputStream unknownFieldsCodedOutput =
           org.jetbrains.kotlin.protobuf.CodedOutputStream.newInstance(
-              unknownFieldsOutput);
+              unknownFieldsOutput, 1);
       try {
         boolean done = false;
         while (!done) {
@@ -19509,7 +19509,7 @@ public final class KotlinIr {
           org.jetbrains.kotlin.protobuf.ByteString.newOutput();
       org.jetbrains.kotlin.protobuf.CodedOutputStream unknownFieldsCodedOutput =
           org.jetbrains.kotlin.protobuf.CodedOutputStream.newInstance(
-              unknownFieldsOutput);
+              unknownFieldsOutput, 1);
       try {
         boolean done = false;
         while (!done) {
@@ -20187,7 +20187,7 @@ public final class KotlinIr {
           org.jetbrains.kotlin.protobuf.ByteString.newOutput();
       org.jetbrains.kotlin.protobuf.CodedOutputStream unknownFieldsCodedOutput =
           org.jetbrains.kotlin.protobuf.CodedOutputStream.newInstance(
-              unknownFieldsOutput);
+              unknownFieldsOutput, 1);
       try {
         boolean done = false;
         while (!done) {
@@ -21108,7 +21108,7 @@ public final class KotlinIr {
           org.jetbrains.kotlin.protobuf.ByteString.newOutput();
       org.jetbrains.kotlin.protobuf.CodedOutputStream unknownFieldsCodedOutput =
           org.jetbrains.kotlin.protobuf.CodedOutputStream.newInstance(
-              unknownFieldsOutput);
+              unknownFieldsOutput, 1);
       try {
         boolean done = false;
         while (!done) {
@@ -22115,7 +22115,7 @@ public final class KotlinIr {
           org.jetbrains.kotlin.protobuf.ByteString.newOutput();
       org.jetbrains.kotlin.protobuf.CodedOutputStream unknownFieldsCodedOutput =
           org.jetbrains.kotlin.protobuf.CodedOutputStream.newInstance(
-              unknownFieldsOutput);
+              unknownFieldsOutput, 1);
       try {
         boolean done = false;
         while (!done) {
@@ -22732,7 +22732,7 @@ public final class KotlinIr {
           org.jetbrains.kotlin.protobuf.ByteString.newOutput();
       org.jetbrains.kotlin.protobuf.CodedOutputStream unknownFieldsCodedOutput =
           org.jetbrains.kotlin.protobuf.CodedOutputStream.newInstance(
-              unknownFieldsOutput);
+              unknownFieldsOutput, 1);
       try {
         boolean done = false;
         while (!done) {
@@ -23338,7 +23338,7 @@ public final class KotlinIr {
           org.jetbrains.kotlin.protobuf.ByteString.newOutput();
       org.jetbrains.kotlin.protobuf.CodedOutputStream unknownFieldsCodedOutput =
           org.jetbrains.kotlin.protobuf.CodedOutputStream.newInstance(
-              unknownFieldsOutput);
+              unknownFieldsOutput, 1);
       try {
         boolean done = false;
         while (!done) {
@@ -24485,7 +24485,7 @@ public final class KotlinIr {
           org.jetbrains.kotlin.protobuf.ByteString.newOutput();
       org.jetbrains.kotlin.protobuf.CodedOutputStream unknownFieldsCodedOutput =
           org.jetbrains.kotlin.protobuf.CodedOutputStream.newInstance(
-              unknownFieldsOutput);
+              unknownFieldsOutput, 1);
       try {
         boolean done = false;
         while (!done) {
@@ -24971,7 +24971,7 @@ public final class KotlinIr {
           org.jetbrains.kotlin.protobuf.ByteString.newOutput();
       org.jetbrains.kotlin.protobuf.CodedOutputStream unknownFieldsCodedOutput =
           org.jetbrains.kotlin.protobuf.CodedOutputStream.newInstance(
-              unknownFieldsOutput);
+              unknownFieldsOutput, 1);
       try {
         boolean done = false;
         while (!done) {
@@ -25496,7 +25496,7 @@ public final class KotlinIr {
           org.jetbrains.kotlin.protobuf.ByteString.newOutput();
       org.jetbrains.kotlin.protobuf.CodedOutputStream unknownFieldsCodedOutput =
           org.jetbrains.kotlin.protobuf.CodedOutputStream.newInstance(
-              unknownFieldsOutput);
+              unknownFieldsOutput, 1);
       try {
         boolean done = false;
         while (!done) {
@@ -25909,7 +25909,7 @@ public final class KotlinIr {
           org.jetbrains.kotlin.protobuf.ByteString.newOutput();
       org.jetbrains.kotlin.protobuf.CodedOutputStream unknownFieldsCodedOutput =
           org.jetbrains.kotlin.protobuf.CodedOutputStream.newInstance(
-              unknownFieldsOutput);
+              unknownFieldsOutput, 1);
       try {
         boolean done = false;
         while (!done) {
@@ -26434,7 +26434,7 @@ public final class KotlinIr {
           org.jetbrains.kotlin.protobuf.ByteString.newOutput();
       org.jetbrains.kotlin.protobuf.CodedOutputStream unknownFieldsCodedOutput =
           org.jetbrains.kotlin.protobuf.CodedOutputStream.newInstance(
-              unknownFieldsOutput);
+              unknownFieldsOutput, 1);
       try {
         boolean done = false;
         while (!done) {
@@ -26838,7 +26838,7 @@ public final class KotlinIr {
           org.jetbrains.kotlin.protobuf.ByteString.newOutput();
       org.jetbrains.kotlin.protobuf.CodedOutputStream unknownFieldsCodedOutput =
           org.jetbrains.kotlin.protobuf.CodedOutputStream.newInstance(
-              unknownFieldsOutput);
+              unknownFieldsOutput, 1);
       try {
         boolean done = false;
         while (!done) {
@@ -27260,7 +27260,7 @@ public final class KotlinIr {
           org.jetbrains.kotlin.protobuf.ByteString.newOutput();
       org.jetbrains.kotlin.protobuf.CodedOutputStream unknownFieldsCodedOutput =
           org.jetbrains.kotlin.protobuf.CodedOutputStream.newInstance(
-              unknownFieldsOutput);
+              unknownFieldsOutput, 1);
       try {
         boolean done = false;
         while (!done) {
@@ -27907,7 +27907,7 @@ public final class KotlinIr {
           org.jetbrains.kotlin.protobuf.ByteString.newOutput();
       org.jetbrains.kotlin.protobuf.CodedOutputStream unknownFieldsCodedOutput =
           org.jetbrains.kotlin.protobuf.CodedOutputStream.newInstance(
-              unknownFieldsOutput);
+              unknownFieldsOutput, 1);
       try {
         boolean done = false;
         while (!done) {
@@ -28437,7 +28437,7 @@ public final class KotlinIr {
           org.jetbrains.kotlin.protobuf.ByteString.newOutput();
       org.jetbrains.kotlin.protobuf.CodedOutputStream unknownFieldsCodedOutput =
           org.jetbrains.kotlin.protobuf.CodedOutputStream.newInstance(
-              unknownFieldsOutput);
+              unknownFieldsOutput, 1);
       try {
         boolean done = false;
         while (!done) {
@@ -28958,7 +28958,7 @@ public final class KotlinIr {
           org.jetbrains.kotlin.protobuf.ByteString.newOutput();
       org.jetbrains.kotlin.protobuf.CodedOutputStream unknownFieldsCodedOutput =
           org.jetbrains.kotlin.protobuf.CodedOutputStream.newInstance(
-              unknownFieldsOutput);
+              unknownFieldsOutput, 1);
       try {
         boolean done = false;
         while (!done) {
@@ -29362,7 +29362,7 @@ public final class KotlinIr {
           org.jetbrains.kotlin.protobuf.ByteString.newOutput();
       org.jetbrains.kotlin.protobuf.CodedOutputStream unknownFieldsCodedOutput =
           org.jetbrains.kotlin.protobuf.CodedOutputStream.newInstance(
-              unknownFieldsOutput);
+              unknownFieldsOutput, 1);
       try {
         boolean done = false;
         while (!done) {
@@ -29802,7 +29802,7 @@ public final class KotlinIr {
           org.jetbrains.kotlin.protobuf.ByteString.newOutput();
       org.jetbrains.kotlin.protobuf.CodedOutputStream unknownFieldsCodedOutput =
           org.jetbrains.kotlin.protobuf.CodedOutputStream.newInstance(
-              unknownFieldsOutput);
+              unknownFieldsOutput, 1);
       try {
         boolean done = false;
         while (!done) {
@@ -30643,7 +30643,7 @@ public final class KotlinIr {
           org.jetbrains.kotlin.protobuf.ByteString.newOutput();
       org.jetbrains.kotlin.protobuf.CodedOutputStream unknownFieldsCodedOutput =
           org.jetbrains.kotlin.protobuf.CodedOutputStream.newInstance(
-              unknownFieldsOutput);
+              unknownFieldsOutput, 1);
       try {
         boolean done = false;
         while (!done) {
@@ -31186,7 +31186,7 @@ public final class KotlinIr {
           org.jetbrains.kotlin.protobuf.ByteString.newOutput();
       org.jetbrains.kotlin.protobuf.CodedOutputStream unknownFieldsCodedOutput =
           org.jetbrains.kotlin.protobuf.CodedOutputStream.newInstance(
-              unknownFieldsOutput);
+              unknownFieldsOutput, 1);
       try {
         boolean done = false;
         while (!done) {
@@ -31846,7 +31846,7 @@ public final class KotlinIr {
           org.jetbrains.kotlin.protobuf.ByteString.newOutput();
       org.jetbrains.kotlin.protobuf.CodedOutputStream unknownFieldsCodedOutput =
           org.jetbrains.kotlin.protobuf.CodedOutputStream.newInstance(
-              unknownFieldsOutput);
+              unknownFieldsOutput, 1);
       try {
         boolean done = false;
         while (!done) {
@@ -32497,7 +32497,7 @@ public final class KotlinIr {
           org.jetbrains.kotlin.protobuf.ByteString.newOutput();
       org.jetbrains.kotlin.protobuf.CodedOutputStream unknownFieldsCodedOutput =
           org.jetbrains.kotlin.protobuf.CodedOutputStream.newInstance(
-              unknownFieldsOutput);
+              unknownFieldsOutput, 1);
       try {
         boolean done = false;
         while (!done) {
@@ -33027,7 +33027,7 @@ public final class KotlinIr {
           org.jetbrains.kotlin.protobuf.ByteString.newOutput();
       org.jetbrains.kotlin.protobuf.CodedOutputStream unknownFieldsCodedOutput =
           org.jetbrains.kotlin.protobuf.CodedOutputStream.newInstance(
-              unknownFieldsOutput);
+              unknownFieldsOutput, 1);
       try {
         boolean done = false;
         while (!done) {
@@ -33515,7 +33515,7 @@ public final class KotlinIr {
           org.jetbrains.kotlin.protobuf.ByteString.newOutput();
       org.jetbrains.kotlin.protobuf.CodedOutputStream unknownFieldsCodedOutput =
           org.jetbrains.kotlin.protobuf.CodedOutputStream.newInstance(
-              unknownFieldsOutput);
+              unknownFieldsOutput, 1);
       try {
         boolean done = false;
         while (!done) {
@@ -33942,7 +33942,7 @@ public final class KotlinIr {
           org.jetbrains.kotlin.protobuf.ByteString.newOutput();
       org.jetbrains.kotlin.protobuf.CodedOutputStream unknownFieldsCodedOutput =
           org.jetbrains.kotlin.protobuf.CodedOutputStream.newInstance(
-              unknownFieldsOutput);
+              unknownFieldsOutput, 1);
       try {
         boolean done = false;
         while (!done) {
@@ -34689,7 +34689,7 @@ public final class KotlinIr {
           org.jetbrains.kotlin.protobuf.ByteString.newOutput();
       org.jetbrains.kotlin.protobuf.CodedOutputStream unknownFieldsCodedOutput =
           org.jetbrains.kotlin.protobuf.CodedOutputStream.newInstance(
-              unknownFieldsOutput);
+              unknownFieldsOutput, 1);
       try {
         boolean done = false;
         while (!done) {
@@ -35315,7 +35315,7 @@ public final class KotlinIr {
           org.jetbrains.kotlin.protobuf.ByteString.newOutput();
       org.jetbrains.kotlin.protobuf.CodedOutputStream unknownFieldsCodedOutput =
           org.jetbrains.kotlin.protobuf.CodedOutputStream.newInstance(
-              unknownFieldsOutput);
+              unknownFieldsOutput, 1);
       try {
         boolean done = false;
         while (!done) {
@@ -35936,7 +35936,7 @@ public final class KotlinIr {
           org.jetbrains.kotlin.protobuf.ByteString.newOutput();
       org.jetbrains.kotlin.protobuf.CodedOutputStream unknownFieldsCodedOutput =
           org.jetbrains.kotlin.protobuf.CodedOutputStream.newInstance(
-              unknownFieldsOutput);
+              unknownFieldsOutput, 1);
       try {
         boolean done = false;
         while (!done) {
@@ -36526,7 +36526,7 @@ public final class KotlinIr {
           org.jetbrains.kotlin.protobuf.ByteString.newOutput();
       org.jetbrains.kotlin.protobuf.CodedOutputStream unknownFieldsCodedOutput =
           org.jetbrains.kotlin.protobuf.CodedOutputStream.newInstance(
-              unknownFieldsOutput);
+              unknownFieldsOutput, 1);
       try {
         boolean done = false;
         while (!done) {
@@ -37134,7 +37134,7 @@ public final class KotlinIr {
           org.jetbrains.kotlin.protobuf.ByteString.newOutput();
       org.jetbrains.kotlin.protobuf.CodedOutputStream unknownFieldsCodedOutput =
           org.jetbrains.kotlin.protobuf.CodedOutputStream.newInstance(
-              unknownFieldsOutput);
+              unknownFieldsOutput, 1);
       try {
         boolean done = false;
         while (!done) {
@@ -37547,7 +37547,7 @@ public final class KotlinIr {
           org.jetbrains.kotlin.protobuf.ByteString.newOutput();
       org.jetbrains.kotlin.protobuf.CodedOutputStream unknownFieldsCodedOutput =
           org.jetbrains.kotlin.protobuf.CodedOutputStream.newInstance(
-              unknownFieldsOutput);
+              unknownFieldsOutput, 1);
       try {
         boolean done = false;
         while (!done) {
@@ -38095,7 +38095,7 @@ public final class KotlinIr {
           org.jetbrains.kotlin.protobuf.ByteString.newOutput();
       org.jetbrains.kotlin.protobuf.CodedOutputStream unknownFieldsCodedOutput =
           org.jetbrains.kotlin.protobuf.CodedOutputStream.newInstance(
-              unknownFieldsOutput);
+              unknownFieldsOutput, 1);
       try {
         boolean done = false;
         while (!done) {
@@ -39386,7 +39386,7 @@ public final class KotlinIr {
           org.jetbrains.kotlin.protobuf.ByteString.newOutput();
       org.jetbrains.kotlin.protobuf.CodedOutputStream unknownFieldsCodedOutput =
           org.jetbrains.kotlin.protobuf.CodedOutputStream.newInstance(
-              unknownFieldsOutput);
+              unknownFieldsOutput, 1);
       try {
         boolean done = false;
         while (!done) {
@@ -43645,7 +43645,7 @@ public final class KotlinIr {
           org.jetbrains.kotlin.protobuf.ByteString.newOutput();
       org.jetbrains.kotlin.protobuf.CodedOutputStream unknownFieldsCodedOutput =
           org.jetbrains.kotlin.protobuf.CodedOutputStream.newInstance(
-              unknownFieldsOutput);
+              unknownFieldsOutput, 1);
       try {
         boolean done = false;
         while (!done) {
@@ -44291,7 +44291,7 @@ public final class KotlinIr {
           org.jetbrains.kotlin.protobuf.ByteString.newOutput();
       org.jetbrains.kotlin.protobuf.CodedOutputStream unknownFieldsCodedOutput =
           org.jetbrains.kotlin.protobuf.CodedOutputStream.newInstance(
-              unknownFieldsOutput);
+              unknownFieldsOutput, 1);
       try {
         boolean done = false;
         while (!done) {
@@ -44685,7 +44685,7 @@ public final class KotlinIr {
           org.jetbrains.kotlin.protobuf.ByteString.newOutput();
       org.jetbrains.kotlin.protobuf.CodedOutputStream unknownFieldsCodedOutput =
           org.jetbrains.kotlin.protobuf.CodedOutputStream.newInstance(
-              unknownFieldsOutput);
+              unknownFieldsOutput, 1);
       try {
         boolean done = false;
         while (!done) {
@@ -45029,7 +45029,7 @@ public final class KotlinIr {
           org.jetbrains.kotlin.protobuf.ByteString.newOutput();
       org.jetbrains.kotlin.protobuf.CodedOutputStream unknownFieldsCodedOutput =
           org.jetbrains.kotlin.protobuf.CodedOutputStream.newInstance(
-              unknownFieldsOutput);
+              unknownFieldsOutput, 1);
       try {
         boolean done = false;
         while (!done) {
@@ -46157,7 +46157,7 @@ public final class KotlinIr {
           org.jetbrains.kotlin.protobuf.ByteString.newOutput();
       org.jetbrains.kotlin.protobuf.CodedOutputStream unknownFieldsCodedOutput =
           org.jetbrains.kotlin.protobuf.CodedOutputStream.newInstance(
-              unknownFieldsOutput);
+              unknownFieldsOutput, 1);
       try {
         boolean done = false;
         while (!done) {
@@ -47655,7 +47655,7 @@ public final class KotlinIr {
           org.jetbrains.kotlin.protobuf.ByteString.newOutput();
       org.jetbrains.kotlin.protobuf.CodedOutputStream unknownFieldsCodedOutput =
           org.jetbrains.kotlin.protobuf.CodedOutputStream.newInstance(
-              unknownFieldsOutput);
+              unknownFieldsOutput, 1);
       try {
         boolean done = false;
         while (!done) {
@@ -48320,7 +48320,7 @@ public final class KotlinIr {
           org.jetbrains.kotlin.protobuf.ByteString.newOutput();
       org.jetbrains.kotlin.protobuf.CodedOutputStream unknownFieldsCodedOutput =
           org.jetbrains.kotlin.protobuf.CodedOutputStream.newInstance(
-              unknownFieldsOutput);
+              unknownFieldsOutput, 1);
       try {
         boolean done = false;
         while (!done) {
@@ -49489,7 +49489,7 @@ public final class KotlinIr {
           org.jetbrains.kotlin.protobuf.ByteString.newOutput();
       org.jetbrains.kotlin.protobuf.CodedOutputStream unknownFieldsCodedOutput =
           org.jetbrains.kotlin.protobuf.CodedOutputStream.newInstance(
-              unknownFieldsOutput);
+              unknownFieldsOutput, 1);
       try {
         boolean done = false;
         while (!done) {
@@ -50666,7 +50666,7 @@ public final class KotlinIr {
           org.jetbrains.kotlin.protobuf.ByteString.newOutput();
       org.jetbrains.kotlin.protobuf.CodedOutputStream unknownFieldsCodedOutput =
           org.jetbrains.kotlin.protobuf.CodedOutputStream.newInstance(
-              unknownFieldsOutput);
+              unknownFieldsOutput, 1);
       try {
         boolean done = false;
         while (!done) {
@@ -52189,7 +52189,7 @@ public final class KotlinIr {
           org.jetbrains.kotlin.protobuf.ByteString.newOutput();
       org.jetbrains.kotlin.protobuf.CodedOutputStream unknownFieldsCodedOutput =
           org.jetbrains.kotlin.protobuf.CodedOutputStream.newInstance(
-              unknownFieldsOutput);
+              unknownFieldsOutput, 1);
       try {
         boolean done = false;
         while (!done) {
@@ -53246,7 +53246,7 @@ public final class KotlinIr {
           org.jetbrains.kotlin.protobuf.ByteString.newOutput();
       org.jetbrains.kotlin.protobuf.CodedOutputStream unknownFieldsCodedOutput =
           org.jetbrains.kotlin.protobuf.CodedOutputStream.newInstance(
-              unknownFieldsOutput);
+              unknownFieldsOutput, 1);
       try {
         boolean done = false;
         while (!done) {
@@ -54407,7 +54407,7 @@ public final class KotlinIr {
           org.jetbrains.kotlin.protobuf.ByteString.newOutput();
       org.jetbrains.kotlin.protobuf.CodedOutputStream unknownFieldsCodedOutput =
           org.jetbrains.kotlin.protobuf.CodedOutputStream.newInstance(
-              unknownFieldsOutput);
+              unknownFieldsOutput, 1);
       try {
         boolean done = false;
         while (!done) {
@@ -55386,7 +55386,7 @@ public final class KotlinIr {
           org.jetbrains.kotlin.protobuf.ByteString.newOutput();
       org.jetbrains.kotlin.protobuf.CodedOutputStream unknownFieldsCodedOutput =
           org.jetbrains.kotlin.protobuf.CodedOutputStream.newInstance(
-              unknownFieldsOutput);
+              unknownFieldsOutput, 1);
       try {
         boolean done = false;
         while (!done) {
@@ -56004,7 +56004,7 @@ public final class KotlinIr {
           org.jetbrains.kotlin.protobuf.ByteString.newOutput();
       org.jetbrains.kotlin.protobuf.CodedOutputStream unknownFieldsCodedOutput =
           org.jetbrains.kotlin.protobuf.CodedOutputStream.newInstance(
-              unknownFieldsOutput);
+              unknownFieldsOutput, 1);
       try {
         boolean done = false;
         while (!done) {
@@ -57827,7 +57827,7 @@ public final class KotlinIr {
           org.jetbrains.kotlin.protobuf.ByteString.newOutput();
       org.jetbrains.kotlin.protobuf.CodedOutputStream unknownFieldsCodedOutput =
           org.jetbrains.kotlin.protobuf.CodedOutputStream.newInstance(
-              unknownFieldsOutput);
+              unknownFieldsOutput, 1);
       try {
         boolean done = false;
         while (!done) {
@@ -58595,7 +58595,7 @@ public final class KotlinIr {
           org.jetbrains.kotlin.protobuf.ByteString.newOutput();
       org.jetbrains.kotlin.protobuf.CodedOutputStream unknownFieldsCodedOutput =
           org.jetbrains.kotlin.protobuf.CodedOutputStream.newInstance(
-              unknownFieldsOutput);
+              unknownFieldsOutput, 1);
       try {
         boolean done = false;
         while (!done) {
@@ -59224,7 +59224,7 @@ public final class KotlinIr {
           org.jetbrains.kotlin.protobuf.ByteString.newOutput();
       org.jetbrains.kotlin.protobuf.CodedOutputStream unknownFieldsCodedOutput =
           org.jetbrains.kotlin.protobuf.CodedOutputStream.newInstance(
-              unknownFieldsOutput);
+              unknownFieldsOutput, 1);
       try {
         boolean done = false;
         while (!done) {
@@ -61040,7 +61040,7 @@ public final class KotlinIr {
           org.jetbrains.kotlin.protobuf.ByteString.newOutput();
       org.jetbrains.kotlin.protobuf.CodedOutputStream unknownFieldsCodedOutput =
           org.jetbrains.kotlin.protobuf.CodedOutputStream.newInstance(
-              unknownFieldsOutput);
+              unknownFieldsOutput, 1);
       try {
         boolean done = false;
         while (!done) {
@@ -61816,7 +61816,7 @@ public final class KotlinIr {
           org.jetbrains.kotlin.protobuf.ByteString.newOutput();
       org.jetbrains.kotlin.protobuf.CodedOutputStream unknownFieldsCodedOutput =
           org.jetbrains.kotlin.protobuf.CodedOutputStream.newInstance(
-              unknownFieldsOutput);
+              unknownFieldsOutput, 1);
       try {
         boolean done = false;
         while (!done) {
@@ -62346,7 +62346,7 @@ public final class KotlinIr {
           org.jetbrains.kotlin.protobuf.ByteString.newOutput();
       org.jetbrains.kotlin.protobuf.CodedOutputStream unknownFieldsCodedOutput =
           org.jetbrains.kotlin.protobuf.CodedOutputStream.newInstance(
-              unknownFieldsOutput);
+              unknownFieldsOutput, 1);
       try {
         boolean done = false;
         while (!done) {
@@ -62843,7 +62843,7 @@ public final class KotlinIr {
           org.jetbrains.kotlin.protobuf.ByteString.newOutput();
       org.jetbrains.kotlin.protobuf.CodedOutputStream unknownFieldsCodedOutput =
           org.jetbrains.kotlin.protobuf.CodedOutputStream.newInstance(
-              unknownFieldsOutput);
+              unknownFieldsOutput, 1);
       try {
         boolean done = false;
         while (!done) {
@@ -63368,7 +63368,7 @@ public final class KotlinIr {
           org.jetbrains.kotlin.protobuf.ByteString.newOutput();
       org.jetbrains.kotlin.protobuf.CodedOutputStream unknownFieldsCodedOutput =
           org.jetbrains.kotlin.protobuf.CodedOutputStream.newInstance(
-              unknownFieldsOutput);
+              unknownFieldsOutput, 1);
       try {
         boolean done = false;
         while (!done) {
@@ -63796,7 +63796,7 @@ public final class KotlinIr {
           org.jetbrains.kotlin.protobuf.ByteString.newOutput();
       org.jetbrains.kotlin.protobuf.CodedOutputStream unknownFieldsCodedOutput =
           org.jetbrains.kotlin.protobuf.CodedOutputStream.newInstance(
-              unknownFieldsOutput);
+              unknownFieldsOutput, 1);
       try {
         boolean done = false;
         while (!done) {

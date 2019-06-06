@@ -1042,7 +1042,7 @@ open class IrModuleSerializer(
         return proto.build()
     }
 
-    private fun serializeIrDeclarationContainer(declarations: List<IrDeclaration>): KotlinIr.IrDeclarationContainer {
+    protected fun serializeIrDeclarationContainer(declarations: List<IrDeclaration>): KotlinIr.IrDeclarationContainer {
         val proto = KotlinIr.IrDeclarationContainer.newBuilder()
         declarations.forEach {
             //if (it is IrDeclarationWithVisibility && it.visibility == Visibilities.INVISIBLE_FAKE) return@forEach
@@ -1060,7 +1060,7 @@ open class IrModuleSerializer(
         OBJECT -> KotlinIr.ClassKind.OBJECT
     }
 
-    private fun serializeIrClass(clazz: IrClass): KotlinIr.IrClass {
+    protected fun serializeIrClass(clazz: IrClass): KotlinIr.IrClass {
         val proto = KotlinIr.IrClass.newBuilder()
             .setName(serializeName(clazz.name))
             .setSymbol(serializeIrSymbol(clazz.symbol))

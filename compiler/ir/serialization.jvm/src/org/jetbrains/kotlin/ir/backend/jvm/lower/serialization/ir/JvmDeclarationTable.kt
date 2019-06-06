@@ -13,16 +13,4 @@ import org.jetbrains.kotlin.ir.descriptors.IrBuiltIns
 
 class JvmDeclarationTable(builtIns: IrBuiltIns, descriptorTable: DescriptorTable) : DeclarationTable(builtIns, descriptorTable, JvmMangler) {
     override var currentIndex = 0x1_0000_0000L
-
-    private val FUNCTION_INDEX_START: Long = loadKnownBuiltins()
-
-    init {
-        currentIndex += BUILT_IN_UNIQ_ID_GAP
-    }
-
-    override fun computeUniqIdByDeclaration(value: IrDeclaration) =
-        if (isBuiltInFunction(value)) {
-            UniqId(FUNCTION_INDEX_START + builtInFunctionId(value), false)
-        } else super.computeUniqIdByDeclaration(value)
-
 }

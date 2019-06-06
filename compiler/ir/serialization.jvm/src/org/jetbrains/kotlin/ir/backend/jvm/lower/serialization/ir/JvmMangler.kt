@@ -9,5 +9,7 @@ import org.jetbrains.kotlin.backend.common.serialization.KotlinManglerImpl
 
 object JvmMangler : KotlinManglerImpl() {
     // TODO: think about this
-    override val String.hashMangle: Long get() = this.hashCode().toLong()
+    override val String.hashMangle: Long
+        get() =
+            this.hashCode().toLong()
 }

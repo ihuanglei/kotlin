@@ -5,22 +5,20 @@
 
 package org.jetbrains.kotlin.backend.jvm.lower
 
-import org.jetbrains.kotlin.backend.common.serialization.DeclarationTable
-import org.jetbrains.kotlin.backend.common.serialization.DescriptorTable
 import org.jetbrains.kotlin.backend.jvm.JvmBackendContext
-import org.jetbrains.kotlin.ir.backend.jvm.lower.serialization.ir.JvmDeclarationTable
 import org.jetbrains.kotlin.ir.backend.jvm.lower.serialization.ir.JvmIrModuleSerializer
-import org.jetbrains.kotlin.ir.declarations.IrModuleFragment
-import java.io.File
+import org.jetbrains.kotlin.ir.declarations.IrClass
+import org.jetbrains.kotlin.ir.declarations.IrFile
 
-fun serializeModule(context: JvmBackendContext, irModuleFragment: IrModuleFragment, fileName: String): DeclarationTable {
-    val declarationTable = JvmDeclarationTable(irModuleFragment.irBuiltins, DescriptorTable())
-    val serializedIr = JvmIrModuleSerializer(context, declarationTable, bodiesOnlyForInlines = false).serializedIrModule(irModuleFragment)
-    val moduleFile = File(fileName)
-    moduleFile.writeBytes(serializedIr.module)
-    return declarationTable
+fun serializeIrFile(context: JvmBackendContext, irFile: IrFile): ByteArray {
+    return JvmIrModuleSerializer(context, context.declarationTable, context.psiSourceManager, bodiesOnlyForInlines = true).serializeJvmIrFile(irFile).toByteArray()
 }
 
-fun deserializeModule(fileName: String) {
-
+fun serializeToplevelIrClass(context: JvmBackendContext, irClass: IrClass): ByteArray {
+    assert(irClass.parent is IrFile)
+    return JvmIrModuleSerializer(context, context.declarationTable, context.psiSourceManager, bodiesOnlyForInlines = true).serializeJvmToplevelClass(irClass)
+        .toByteArray()
 }
+
+//fun deserializeModule(context: JvmBackendContext, fileName: String): IrModuleFragment {
+//}
