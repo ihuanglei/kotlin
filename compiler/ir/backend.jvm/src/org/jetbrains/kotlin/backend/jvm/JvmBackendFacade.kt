@@ -5,6 +5,7 @@
 
 package org.jetbrains.kotlin.backend.jvm
 
+import org.jetbrains.kotlin.backend.common.EmptyLoggingContext
 import org.jetbrains.kotlin.backend.common.phaser.PhaseConfig
 import org.jetbrains.kotlin.backend.jvm.lower.serializeIrFile
 import org.jetbrains.kotlin.backend.jvm.lower.serializeToplevelIrClass
@@ -29,9 +30,10 @@ object JvmBackendFacade {
     ) {
         val psi2ir = Psi2IrTranslator(state.languageVersionSettings)
         val psi2irContext = psi2ir.createGeneratorContext(state.module, state.bindingContext, extensions = JvmGeneratorExtensions)
-        val irModuleFragment = psi2ir.generateModuleFragment(psi2irContext, files)
+        val deserializer = JvmIrDeserializer(state.module, EmptyLoggingContext, psi2irContext.irBuiltIns, psi2irContext.symbolTable, state.languageVersionSettings)
+        val irModuleFragment = psi2ir.generateModuleFragment(psi2irContext, files, deserializer)
 
-        doGenerateFilesInternal(state, errorHandler, irModuleFragment, psi2irContext, phaseConfig)
+        doGenerateFilesInternal(state, errorHandler, irModuleFragment, psi2irContext, phaseConfig, deserializer)
     }
 
     internal fun doGenerateFilesInternal(
@@ -40,7 +42,7 @@ object JvmBackendFacade {
         irModuleFragment: IrModuleFragment,
         psi2irContext: GeneratorContext,
         phaseConfig: PhaseConfig,
-        deserializer: IrDeserializer? = null // TODO: keep track of all the calls to this function
+        deserializer: IrDeserializer?
     ) {
         val jvmBackendContext = JvmBackendContext(
             state, psi2irContext.sourceManager, psi2irContext.irBuiltIns, irModuleFragment, psi2irContext.symbolTable, phaseConfig
