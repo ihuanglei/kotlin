@@ -11,12 +11,12 @@ import org.jetbrains.kotlin.ir.declarations.IrClass
 import org.jetbrains.kotlin.ir.declarations.IrFile
 
 fun serializeIrFile(context: JvmBackendContext, irFile: IrFile): ByteArray {
-    return JvmIrModuleSerializer(context, context.declarationTable, context.psiSourceManager, bodiesOnlyForInlines = true).serializeJvmIrFile(irFile).toByteArray()
+    return JvmIrModuleSerializer(context, context.declarationTable, context.psiSourceManager, externallyVisibleOnly = true).serializeJvmIrFile(irFile).toByteArray()
 }
 
 fun serializeToplevelIrClass(context: JvmBackendContext, irClass: IrClass): ByteArray {
     assert(irClass.parent is IrFile)
-    return JvmIrModuleSerializer(context, context.declarationTable, context.psiSourceManager, bodiesOnlyForInlines = true).serializeJvmToplevelClass(irClass)
+    return JvmIrModuleSerializer(context, context.declarationTable, context.psiSourceManager, externallyVisibleOnly = true).serializeJvmToplevelClass(irClass)
         .toByteArray()
 }
 

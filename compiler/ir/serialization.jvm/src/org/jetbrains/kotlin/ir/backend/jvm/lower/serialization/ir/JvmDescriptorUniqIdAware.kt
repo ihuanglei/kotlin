@@ -56,7 +56,7 @@ class JvmDescriptorUniqIdAware(val symbolTable: SymbolTable, val stubGenerator: 
 
 
     private fun referenceWithParents(descriptor: DeclarationDescriptor): IrDeclaration {
-        val original = descriptor.original // !!!!!! Fromm here ??????
+        val original = descriptor.original
         val result = stubGenerator.generateMemberStub(original)
         var currentDescriptor = original
         var current = result
