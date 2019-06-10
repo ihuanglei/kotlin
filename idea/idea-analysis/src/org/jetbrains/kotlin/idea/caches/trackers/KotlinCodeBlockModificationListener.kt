@@ -64,7 +64,8 @@ class KotlinCodeBlockModificationListener(
 
             override fun getModificationCount(): Long {
                 @Suppress("DEPRECATION")
-                return super.getModificationCount() + modificationTracker.outOfCodeBlockModificationCount
+                val count = super.getModificationCount() + modificationTracker.outOfCodeBlockModificationCount
+                return count
             }
         }
     }
@@ -99,6 +100,10 @@ class KotlinCodeBlockModificationListener(
                     if (ktFile.isPhysical && !isReplLine(ktFile.virtualFile)) {
                         kotlinOutOfCodeBlockTrackerImpl.incModificationCount()
                         perModuleOutOfCodeBlockTrackerUpdater.onKotlinPhysicalFileOutOfBlockChange(ktFile)
+
+                        if (!isLanguageTrackerEnabled) {
+                            modificationTrackerImpl.incCounter()
+                        }
                     }
 
                     incOutOfBlockModificationCount(ktFile)

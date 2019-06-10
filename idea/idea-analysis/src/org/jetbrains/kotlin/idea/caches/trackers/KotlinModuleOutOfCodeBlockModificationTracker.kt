@@ -42,6 +42,11 @@ class KotlinModuleOutOfCodeBlockModificationTracker private constructor(private 
     }
 
     override fun getModificationCount(): Long {
+        val temp = getModificationCountImpl()
+        return temp
+    }
+
+    private fun getModificationCountImpl(): Long {
         val currentGlobalCount = kotlinOutOfCodeBlockTracker.modificationCount
 
         if (updater.hasPerModuleModificationCounts()) {
