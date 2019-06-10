@@ -69,7 +69,7 @@ rootProject.apply {
 val flags = LocalBuildProperties(project)
 
 val isTeamcityBuild = project.hasProperty("teamcity") || System.getenv("TEAMCITY_VERSION") != null
-val intellijUltimateEnabled by extra(flags.intellijUltimateEnabled)
+val intellijUltimateEnabled by extra(flags.intellijUltimateEnabled || isTeamcityBuild)
 val intellijSeparateSdks by extra(project.getBooleanProperty("intellijSeparateSdks") ?: false)
 val verifyDependencyOutput by extra( getBooleanProperty("kotlin.build.dependency.output.verification") ?: isTeamcityBuild)
 
