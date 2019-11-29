@@ -16,12 +16,10 @@
 
 package org.jetbrains.kotlin.psi2ir.generators
 
-import org.jetbrains.kotlin.descriptors.CallableMemberDescriptor
-import org.jetbrains.kotlin.descriptors.FunctionDescriptor
-import org.jetbrains.kotlin.descriptors.PropertyDescriptor
-import org.jetbrains.kotlin.descriptors.TypeParameterDescriptor
+import org.jetbrains.kotlin.descriptors.*
 import org.jetbrains.kotlin.ir.declarations.*
 import org.jetbrains.kotlin.ir.declarations.impl.IrErrorDeclarationImpl
+import org.jetbrains.kotlin.ir.declarations.impl.IrTypeAliasImpl
 import org.jetbrains.kotlin.ir.expressions.IrExpressionBody
 import org.jetbrains.kotlin.ir.symbols.IrSymbol
 import org.jetbrains.kotlin.ir.util.withScope
@@ -49,7 +47,9 @@ class DeclarationGenerator(override val context: GeneratorContext) : Generator {
             is KtClassOrObject ->
                 generateClassOrObjectDeclaration(ktDeclaration)
             is KtTypeAlias ->
-                null
+                generateTypeAliasDeclaration(ktDeclaration)
+            is KtScript ->
+                ScriptGenerator(this).generateScriptDeclaration(ktDeclaration)
             else ->
                 IrErrorDeclarationImpl(
                     ktDeclaration.startOffsetSkippingComments, ktDeclaration.endOffset,
@@ -79,6 +79,19 @@ class DeclarationGenerator(override val context: GeneratorContext) : Generator {
     fun generateClassOrObjectDeclaration(ktClassOrObject: KtPureClassOrObject): IrClass =
         ClassGenerator(this).generateClass(ktClassOrObject)
 
+    private fun generateTypeAliasDeclaration(ktTypeAlias: KtTypeAlias): IrTypeAlias {
+        val typeAliasDescriptor = getOrFail(BindingContext.TYPE_ALIAS, ktTypeAlias)
+        val irTypeAlias = context.symbolTable.declareTypeAlias(typeAliasDescriptor) { symbol ->
+            IrTypeAliasImpl.fromSymbolDescriptor(
+                ktTypeAlias.startOffsetSkippingComments, ktTypeAlias.endOffset,
+                symbol,
+                typeAliasDescriptor.expandedType.toIrType(),
+                IrDeclarationOrigin.DEFINED
+            )
+        }
+        generateGlobalTypeParametersDeclarations(irTypeAlias, typeAliasDescriptor.declaredTypeParameters)
+        return irTypeAlias
+    }
 
     fun generateGlobalTypeParametersDeclarations(
         irTypeParametersOwner: IrTypeParametersContainer,

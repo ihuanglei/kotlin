@@ -16,37 +16,21 @@
 
 package org.jetbrains.kotlin.idea.caches.resolve
 
-import com.intellij.openapi.components.ServiceManager
 import com.intellij.openapi.project.Project
 import com.intellij.psi.PsiElement
 import com.intellij.psi.util.CachedValueProvider
 import com.intellij.psi.util.CachedValuesManager
-import com.intellij.psi.util.PsiModificationTracker
 import com.intellij.util.containers.SLRUCache
 import org.jetbrains.kotlin.analyzer.*
-import org.jetbrains.kotlin.analyzer.common.CommonAnalysisParameters
-import org.jetbrains.kotlin.builtins.KotlinBuiltIns
-import org.jetbrains.kotlin.builtins.jvm.JvmBuiltIns
-import org.jetbrains.kotlin.caches.resolve.resolution
 import org.jetbrains.kotlin.context.GlobalContextImpl
-import org.jetbrains.kotlin.context.ProjectContext
 import org.jetbrains.kotlin.context.withProject
 import org.jetbrains.kotlin.descriptors.ModuleDescriptor
 import org.jetbrains.kotlin.idea.caches.project.*
 import org.jetbrains.kotlin.idea.caches.project.IdeaModuleInfo
-import org.jetbrains.kotlin.idea.caches.project.getNullableModuleInfo
-import org.jetbrains.kotlin.idea.compiler.IDELanguageSettingsProvider
-import org.jetbrains.kotlin.idea.project.IdeaEnvironment
-import org.jetbrains.kotlin.load.java.structure.JavaClass
-import org.jetbrains.kotlin.load.java.structure.impl.JavaClassImpl
-import org.jetbrains.kotlin.platform.idePlatformKind
-import org.jetbrains.kotlin.platform.isCommon
-import org.jetbrains.kotlin.platform.jvm.JvmPlatforms
-import org.jetbrains.kotlin.platform.jvm.isJvm
+import org.jetbrains.kotlin.idea.caches.trackers.KotlinCodeBlockModificationListener
 import org.jetbrains.kotlin.psi.KtElement
 import org.jetbrains.kotlin.psi.KtFile
 import org.jetbrains.kotlin.resolve.CompositeBindingContext
-import org.jetbrains.kotlin.resolve.jvm.JvmPlatformParameters
 import org.jetbrains.kotlin.utils.addToStdlib.firstNotNullResult
 
 internal class ProjectResolutionFacade(
@@ -85,7 +69,8 @@ internal class ProjectResolutionFacade(
                 }
             }
 
-            val allDependencies = resolverForProjectDependencies + listOf(PsiModificationTracker.MODIFICATION_COUNT)
+            val allDependencies =
+                resolverForProjectDependencies + listOf(KotlinCodeBlockModificationListener.getInstance(project).kotlinOutOfCodeBlockTracker)
             CachedValueProvider.Result.create(results, allDependencies)
         }, false
     )
@@ -94,23 +79,15 @@ internal class ProjectResolutionFacade(
 
     private fun computeModuleResolverProvider(): ResolverForProject<IdeaModuleInfo> {
         val delegateResolverForProject: ResolverForProject<IdeaModuleInfo>
-        val delegateBuiltIns: KotlinBuiltIns?
 
         if (reuseDataFrom != null) {
             delegateResolverForProject = reuseDataFrom.cachedResolverForProject
-            delegateBuiltIns = delegateResolverForProject.builtIns
         } else {
             delegateResolverForProject = EmptyResolverForProject()
-            delegateBuiltIns = null
         }
-        val projectContext = globalContext.withProject(project)
 
-        val builtIns = delegateBuiltIns ?: createBuiltIns(
-            settings,
-            projectContext
-        )
-
-        val allModuleInfos = (allModules ?: getModuleInfosFromIdeaModel(project, settings.platform)).toMutableSet()
+        val allModuleInfos = (allModules ?: getModuleInfosFromIdeaModel(project, (settings as? PlatformAnalysisSettingsImpl)?.platform))
+            .toMutableSet()
 
         val syntheticFilesByModule = syntheticFiles.groupBy(KtFile::getModuleInfo)
         val syntheticFilesModules = syntheticFilesByModule.keys
@@ -118,56 +95,16 @@ internal class ProjectResolutionFacade(
 
         val modulesToCreateResolversFor = allModuleInfos.filter(moduleFilter)
 
-        val modulesContentFactory = { module: IdeaModuleInfo ->
-            ModuleContent(module, syntheticFilesByModule[module] ?: listOf(), module.contentScope())
-        }
-
-        val jvmPlatformParameters = JvmPlatformParameters(
-            packagePartProviderFactory = { IDEPackagePartProvider(it.moduleContentScope) },
-            moduleByJavaClass = { javaClass: JavaClass ->
-                val psiClass = (javaClass as JavaClassImpl).psi
-                psiClass.getPlatformModuleInfo(JvmPlatforms.unspecifiedJvmPlatform)?.platformModule ?: psiClass.getNullableModuleInfo()
-            }
-        )
-
-        val commonPlatformParameters = CommonAnalysisParameters(
-            metadataPartProviderFactory = { IDEPackagePartProvider(it.moduleContentScope) }
-        )
-
-        val resolverForProject = ResolverForProjectImpl(
+        val resolverForProject = IdeaResolverForProject(
             resolverDebugName,
-            projectContext,
+            globalContext.withProject(project),
             modulesToCreateResolversFor,
-            modulesContentFactory,
-            moduleLanguageSettingsProvider = IDELanguageSettingsProvider,
-            resolverForModuleFactoryByPlatform = { modulePlatform ->
-                val platform = modulePlatform ?: settings.platform
-                platform.idePlatformKind.resolution.resolverForModuleFactory
-            },
-            platformParameters = { platform ->
-                when {
-                    platform.isJvm() -> jvmPlatformParameters
-                    platform.isCommon() -> commonPlatformParameters
-                    else -> PlatformAnalysisParameters.Empty
-                }
-            },
-            targetEnvironment = IdeaEnvironment,
-            builtIns = builtIns,
-            delegateResolver = delegateResolverForProject,
-            firstDependency = settings.sdk?.let { SdkInfo(project, it) },
-            packageOracleFactory = ServiceManager.getService(project, IdePackageOracleFactory::class.java),
-            invalidateOnOOCB = invalidateOnOOCB,
-            isReleaseCoroutines = settings.isReleaseCoroutines
+            syntheticFilesByModule,
+            delegateResolverForProject,
+            if (invalidateOnOOCB) KotlinModificationTrackerService.getInstance(project).outOfBlockModificationTracker else null,
+            settings.isReleaseCoroutines,
+            constantSdkDependencyIfAny = if (settings is PlatformAnalysisSettingsImpl) settings.sdk?.let { SdkInfo(project, it) } else null
         )
-
-        if (delegateBuiltIns == null && builtIns is JvmBuiltIns) {
-            val sdkModuleDescriptor = settings.sdk!!.let {
-                resolverForProject.descriptorForModule(
-                    SdkInfo(project, it)
-                )
-            }
-            builtIns.initialize(sdkModuleDescriptor, settings.isAdditionalBuiltInFeaturesSupported)
-        }
 
         return resolverForProject
     }
@@ -211,11 +148,5 @@ internal class ProjectResolutionFacade(
 
     override fun toString(): String {
         return "$debugString@${Integer.toHexString(hashCode())}"
-    }
-
-    private companion object {
-        private fun createBuiltIns(settings: PlatformAnalysisSettings, projectContext: ProjectContext): KotlinBuiltIns {
-            return settings.platform.idePlatformKind.resolution.createBuiltIns(settings, projectContext)
-        }
     }
 }

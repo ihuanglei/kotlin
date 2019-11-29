@@ -5,13 +5,14 @@
 
 package org.jetbrains.kotlin.nj2k.conversions
 
-import org.jetbrains.kotlin.nj2k.tree.ExtraModifier
+import org.jetbrains.kotlin.nj2k.NewJ2kConverterContext
+import org.jetbrains.kotlin.nj2k.isLocalClass
 import org.jetbrains.kotlin.nj2k.tree.JKClass
+import org.jetbrains.kotlin.nj2k.tree.JKOtherModifierElement
 import org.jetbrains.kotlin.nj2k.tree.JKTreeElement
-import org.jetbrains.kotlin.nj2k.tree.impl.JKExtraModifierElementImpl
-import org.jetbrains.kotlin.nj2k.tree.isLocalClass
+import org.jetbrains.kotlin.nj2k.tree.OtherModifier
 
-class InnerClassConversion : RecursiveApplicableConversionBase() {
+class InnerClassConversion(context : NewJ2kConverterContext) : RecursiveApplicableConversionBase(context) {
     override fun applyToElement(element: JKTreeElement): JKTreeElement {
         if (element !is JKClass) return recurse(element)
         return recurseArmed(element, element)
@@ -26,14 +27,14 @@ class InnerClassConversion : RecursiveApplicableConversionBase() {
         if (element.classKind == JKClass.ClassKind.COMPANION) return recurseArmed(element, outer)
         if (element.isLocalClass()) return recurseArmed(element, outer)
 
-        val static = element.extraModifierElements.find { it.extraModifier == ExtraModifier.STATIC }
+        val static = element.otherModifierElements.find { it.otherModifier == OtherModifier.STATIC }
         if (static != null) {
-            element.extraModifierElements -= static
+            element.otherModifierElements -= static
         } else if (element.classKind != JKClass.ClassKind.INTERFACE &&
             outer.classKind != JKClass.ClassKind.INTERFACE &&
             element.classKind != JKClass.ClassKind.ENUM
         ) {
-            element.extraModifierElements += JKExtraModifierElementImpl(ExtraModifier.INNER)
+            element.otherModifierElements += JKOtherModifierElement(OtherModifier.INNER)
         }
         return recurseArmed(element, element)
     }

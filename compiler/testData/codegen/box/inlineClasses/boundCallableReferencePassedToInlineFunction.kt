@@ -1,5 +1,5 @@
+// IGNORE_BACKEND_FIR: JVM_IR
 // WITH_RUNTIME
-// IGNORE_BACKEND: JVM_IR
 
 inline class IcInt(val i: Int) {
     fun simple(): String = i.toString()

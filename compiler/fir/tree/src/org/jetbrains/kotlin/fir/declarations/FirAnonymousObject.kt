@@ -6,19 +6,30 @@
 package org.jetbrains.kotlin.fir.declarations
 
 import org.jetbrains.kotlin.descriptors.ClassKind
-import org.jetbrains.kotlin.fir.VisitedSupertype
+import org.jetbrains.kotlin.fir.FirPureAbstractElement
+import org.jetbrains.kotlin.fir.FirSession
+import org.jetbrains.kotlin.fir.FirSourceElement
+import org.jetbrains.kotlin.fir.expressions.FirAnnotationCall
 import org.jetbrains.kotlin.fir.expressions.FirExpression
-import org.jetbrains.kotlin.fir.visitors.FirVisitor
+import org.jetbrains.kotlin.fir.symbols.impl.FirAnonymousObjectSymbol
+import org.jetbrains.kotlin.fir.types.FirTypeRef
+import org.jetbrains.kotlin.fir.visitors.*
 
-interface FirAnonymousObject : @VisitedSupertype FirClass, FirExpression {
-    override val classKind: ClassKind
-        get() = ClassKind.OBJECT
+/*
+ * This file was generated automatically
+ * DO NOT MODIFY IT MANUALLY
+ */
 
-    override fun <R, D> accept(visitor: FirVisitor<R, D>, data: D): R =
-        visitor.visitAnonymousObject(this, data)
+abstract class FirAnonymousObject : FirPureAbstractElement(), FirClass<FirAnonymousObject>, FirExpression {
+    abstract override val source: FirSourceElement?
+    abstract override val session: FirSession
+    abstract override val resolvePhase: FirResolvePhase
+    abstract override val classKind: ClassKind
+    abstract override val superTypeRefs: List<FirTypeRef>
+    abstract override val declarations: List<FirDeclaration>
+    abstract override val annotations: List<FirAnnotationCall>
+    abstract override val typeRef: FirTypeRef
+    abstract override val symbol: FirAnonymousObjectSymbol
 
-    override fun <R, D> acceptChildren(visitor: FirVisitor<R, D>, data: D) {
-        super<FirClass>.acceptChildren(visitor, data)
-        super<FirExpression>.acceptChildren(visitor, data)
-    }
+    override fun <R, D> accept(visitor: FirVisitor<R, D>, data: D): R = visitor.visitAnonymousObject(this, data)
 }

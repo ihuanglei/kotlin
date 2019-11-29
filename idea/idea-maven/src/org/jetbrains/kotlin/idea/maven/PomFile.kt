@@ -257,11 +257,11 @@ class PomFile private constructor(private val xmlFile: XmlFile, val domModel: Ma
         }
 
         if (isPluginExecutionMissing(plugin, "default-compile", "compile")) {
-            addExecution(javacPlugin, "compile", PomFile.DefaultPhases.Compile, listOf("compile"))
+            addExecution(javacPlugin, "compile", DefaultPhases.Compile, listOf("compile"))
         }
 
         if (isPluginExecutionMissing(plugin, "default-testCompile", "testCompile")) {
-            addExecution(javacPlugin, "testCompile", PomFile.DefaultPhases.TestCompile, listOf("testCompile"))
+            addExecution(javacPlugin, "testCompile", DefaultPhases.TestCompile, listOf("testCompile"))
         }
     }
 
@@ -711,7 +711,7 @@ fun PomFile.changeFeatureConfiguration(
         }
 
     argsSubTag.findSubTags("arg").filter { feature.name in it.value.text }.forEach { it.deleteCascade() }
-    val featureArgumentString = feature.buildArgumentString(state)
+    val featureArgumentString = feature.buildArgumentString(state, kotlinPlugin.version.stringValue)
     val childTag = argsSubTag.createChildTag("arg", featureArgumentString)
     return argsSubTag.add(childTag)
 }

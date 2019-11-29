@@ -472,7 +472,8 @@ public class DescriptorResolver {
                     }
                     return null;
                 },
-                supertypeLoopsResolver
+                supertypeLoopsResolver,
+                storageManager
         );
         trace.record(BindingContext.TYPE_PARAMETER, typeParameter, typeParameterDescriptor);
         return typeParameterDescriptor;
@@ -1348,21 +1349,6 @@ public class DescriptorResolver {
             KotlinType substitutedBound = substitutor.safeSubstitute(bound, Variance.INVARIANT);
             if (!KotlinTypeChecker.DEFAULT.isSubtypeOf(typeArgument, substitutedBound)) {
                 trace.report(UPPER_BOUND_VIOLATED.on(jetTypeArgument, substitutedBound, typeArgument));
-            }
-        }
-    }
-
-    public static void checkBoundsInTypeAlias(
-            @NotNull TypeAliasExpansionReportStrategy reportStrategy,
-            @NotNull KotlinType unsubstitutedArgument,
-            @NotNull KotlinType typeArgument,
-            @NotNull TypeParameterDescriptor typeParameterDescriptor,
-            @NotNull TypeSubstitutor substitutor
-    ) {
-        for (KotlinType bound : typeParameterDescriptor.getUpperBounds()) {
-            KotlinType substitutedBound = substitutor.safeSubstitute(bound, Variance.INVARIANT);
-            if (!KotlinTypeChecker.DEFAULT.isSubtypeOf(typeArgument, substitutedBound)) {
-                reportStrategy.boundsViolationInSubstitution(substitutedBound, unsubstitutedArgument, typeArgument, typeParameterDescriptor);
             }
         }
     }

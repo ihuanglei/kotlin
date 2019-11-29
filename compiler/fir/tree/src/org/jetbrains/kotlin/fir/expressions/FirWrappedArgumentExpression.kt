@@ -5,23 +5,21 @@
 
 package org.jetbrains.kotlin.fir.expressions
 
+import org.jetbrains.kotlin.fir.FirSourceElement
 import org.jetbrains.kotlin.fir.types.FirTypeRef
-import org.jetbrains.kotlin.fir.visitors.FirVisitor
+import org.jetbrains.kotlin.fir.visitors.*
 
-interface FirWrappedArgumentExpression : FirExpression {
-    val expression: FirExpression
+/*
+ * This file was generated automatically
+ * DO NOT MODIFY IT MANUALLY
+ */
 
-    val isSpread: Boolean
-        get() = false
+abstract class FirWrappedArgumentExpression : FirWrappedExpression() {
+    abstract override val source: FirSourceElement?
+    abstract override val typeRef: FirTypeRef
+    abstract override val annotations: List<FirAnnotationCall>
+    abstract override val expression: FirExpression
+    abstract val isSpread: Boolean
 
-    override val typeRef: FirTypeRef
-        get() = expression.typeRef
-
-    override fun <R, D> accept(visitor: FirVisitor<R, D>, data: D): R =
-        visitor.visitWrappedArgumentExpression(this, data)
-
-    override fun <R, D> acceptChildren(visitor: FirVisitor<R, D>, data: D) {
-        expression.accept(visitor, data)
-        super.acceptChildren(visitor, data)
-    }
+    override fun <R, D> accept(visitor: FirVisitor<R, D>, data: D): R = visitor.visitWrappedArgumentExpression(this, data)
 }

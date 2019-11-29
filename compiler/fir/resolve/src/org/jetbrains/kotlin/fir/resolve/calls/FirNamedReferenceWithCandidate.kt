@@ -5,10 +5,16 @@
 
 package org.jetbrains.kotlin.fir.resolve.calls
 
-import com.intellij.psi.PsiElement
-import org.jetbrains.kotlin.fir.*
-import org.jetbrains.kotlin.fir.references.FirResolvedCallableReferenceImpl
+import org.jetbrains.kotlin.fir.FirSourceElement
+import org.jetbrains.kotlin.fir.references.impl.FirSimpleNamedReference
+import org.jetbrains.kotlin.fir.symbols.AbstractFirBasedSymbol
 import org.jetbrains.kotlin.name.Name
 
-class FirNamedReferenceWithCandidate(session: FirSession, psi: PsiElement?, name: Name, val candidate: Candidate) :
-    FirResolvedCallableReferenceImpl(session, psi, name, candidate.symbol)
+class FirNamedReferenceWithCandidate(
+    source: FirSourceElement?,
+    name: Name,
+    val candidate: Candidate
+) : FirSimpleNamedReference(source, name, candidate.symbol) {
+    override val candidateSymbol: AbstractFirBasedSymbol<*>
+        get() = candidate.symbol
+}

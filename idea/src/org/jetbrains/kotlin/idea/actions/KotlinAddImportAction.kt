@@ -21,18 +21,18 @@ import com.intellij.codeInsight.daemon.impl.ShowAutoImportPass
 import com.intellij.codeInsight.daemon.impl.actions.AddImportAction
 import com.intellij.codeInsight.hint.HintManager
 import com.intellij.codeInsight.hint.QuestionAction
+import com.intellij.ide.util.DefaultPsiElementCellRenderer
 import com.intellij.openapi.application.ApplicationManager
 import com.intellij.openapi.editor.Editor
-import com.intellij.openapi.module.ModuleUtilCore
 import com.intellij.openapi.project.Project
-import com.intellij.openapi.ui.popup.JBPopupFactory
 import com.intellij.openapi.ui.popup.PopupStep
 import com.intellij.openapi.ui.popup.util.BaseListPopupStep
 import com.intellij.psi.PsiDocumentManager
 import com.intellij.psi.PsiElement
 import com.intellij.psi.statistics.StatisticsManager
-import com.intellij.psi.util.ProximityLocation
 import com.intellij.psi.util.proximity.PsiProximityComparator
+import com.intellij.ui.popup.list.ListPopupImpl
+import com.intellij.ui.popup.list.PopupListElementRenderer
 import org.jetbrains.kotlin.builtins.KotlinBuiltIns
 import org.jetbrains.kotlin.descriptors.ClassDescriptor
 import org.jetbrains.kotlin.descriptors.DeclarationDescriptor
@@ -41,6 +41,7 @@ import org.jetbrains.kotlin.idea.KotlinBundle
 import org.jetbrains.kotlin.idea.KotlinDescriptorIconProvider
 import org.jetbrains.kotlin.idea.caches.resolve.resolveImportReference
 import org.jetbrains.kotlin.idea.codeInsight.DescriptorToSourceUtilsIde
+import org.jetbrains.kotlin.idea.completion.KotlinStatisticsInfo
 import org.jetbrains.kotlin.idea.core.ImportableFqNameClassifier
 import org.jetbrains.kotlin.idea.imports.importableFqName
 import org.jetbrains.kotlin.idea.references.KtSimpleNameReference
@@ -49,10 +50,14 @@ import org.jetbrains.kotlin.idea.references.resolveMainReferenceToDescriptors
 import org.jetbrains.kotlin.idea.util.ImportInsertHelper
 import org.jetbrains.kotlin.idea.util.application.executeWriteCommand
 import org.jetbrains.kotlin.name.FqName
+import org.jetbrains.kotlin.name.isOneSegmentFQN
 import org.jetbrains.kotlin.name.parentOrNull
 import org.jetbrains.kotlin.psi.KtElement
 import org.jetbrains.kotlin.psi.KtFile
 import org.jetbrains.kotlin.psi.KtSimpleNameExpression
+import java.awt.BorderLayout
+import javax.swing.JPanel
+import javax.swing.ListCellRenderer
 
 internal fun createSingleImportAction(
     project: Project,
@@ -155,7 +160,28 @@ class KotlinAddImportAction internal constructor(
             return true
         }
 
-        JBPopupFactory.getInstance().createListPopup(getVariantSelectionPopup()).showInBestPositionFor(editor)
+        object : ListPopupImpl(getVariantSelectionPopup()) {
+            override fun getListElementRenderer(): ListCellRenderer<AutoImportVariant> {
+                val baseRenderer = super.getListElementRenderer() as PopupListElementRenderer
+                val psiRenderer = DefaultPsiElementCellRenderer()
+                return ListCellRenderer { list, value, index, isSelected, cellHasFocus ->
+                    JPanel(BorderLayout()).apply {
+                        baseRenderer.getListCellRendererComponent(list, value, index, isSelected, cellHasFocus)
+                        add(baseRenderer.nextStepLabel, BorderLayout.EAST)
+                        add(
+                            psiRenderer.getListCellRendererComponent(
+                                list,
+                                value.declarationToImport(project),
+                                index,
+                                isSelected,
+                                cellHasFocus
+                            )
+                        )
+                    }
+                }
+            }
+        }.showInBestPositionFor(editor)
+
         return true
     }
 
@@ -204,27 +230,30 @@ class KotlinAddImportAction internal constructor(
 
             val file = element.containingKtFile
 
-            variant.declarationToImport(project)?.let {
-                val location = ProximityLocation(element, ModuleUtilCore.findModuleForPsiElement(element))
-                StatisticsManager.getInstance().incUseCount(PsiProximityComparator.STATISTICS_KEY, it, location)
-            }
+            val statisticsManager = StatisticsManager.getInstance()
 
             variant.descriptorsToImport.forEach { descriptor ->
+                val statisticsInfo = KotlinStatisticsInfo.forDescriptor(descriptor)
+                statisticsManager.incUseCount(statisticsInfo)
+
                 // for class or package we use ShortenReferences because we not necessary insert an import but may want to
                 // insert partly qualified name
 
-                val importAlias = descriptor.importableFqName?.let { file.findAliasByFqName(it) }
-                if (importAlias != null || descriptor is ClassDescriptor || descriptor is PackageViewDescriptor) {
+                val importableFqName = descriptor.importableFqName
+                val importAlias = importableFqName?.let { file.findAliasByFqName(it) }
+                if (importableFqName?.isOneSegmentFQN() != true &&
+                    (importAlias != null || descriptor is ClassDescriptor || descriptor is PackageViewDescriptor)
+                ) {
                     if (element is KtSimpleNameExpression) {
                         if (importAlias != null) {
                             importAlias.nameIdentifier?.copy()?.let { element.getIdentifier()?.replace(it) }
                             val resultDescriptor = element.resolveMainReferenceToDescriptors().firstOrNull()
-                            if (descriptor.importableFqName == resultDescriptor?.importableFqName) {
+                            if (importableFqName == resultDescriptor?.importableFqName) {
                                 return@forEach
                             }
                         }
 
-                        descriptor.importableFqName?.let {
+                        importableFqName?.let {
                             element.mainReference.bindToFqName(
                                 it,
                                 KtSimpleNameReference.ShorteningMode.FORCED_SHORTENING
@@ -317,8 +346,11 @@ private class SingleImportVariant(
     val descriptors: Collection<DeclarationDescriptor>
 ) : AutoImportVariant {
     override val descriptorsToImport: Collection<DeclarationDescriptor>
-        get() =
-            listOf(descriptors.singleOrNull() ?: descriptors.sortedBy { if (it is ClassDescriptor) 0 else 1 }.first())
+        get() = listOf(
+            descriptors.singleOrNull()
+                ?: descriptors.minBy { if (it is ClassDescriptor) 0 else 1 }
+                ?: error("we create the class with not-empty descriptors always")
+        )
 
     override val hint: String get() = excludeFqNameCheck.asString()
 }

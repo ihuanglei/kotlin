@@ -75,7 +75,10 @@ abstract class KotlinWithGradleConfigurator : KotlinProjectConfigurator {
     }
 
     private fun PsiFile.isConfiguredByAnyGradleConfigurator(): Boolean {
-        return Extensions.getExtensions(KotlinProjectConfigurator.EP_NAME)
+        @Suppress("DEPRECATION")
+        val extensions = Extensions.getExtensions(KotlinProjectConfigurator.EP_NAME)
+
+        return extensions
             .filterIsInstance<KotlinWithGradleConfigurator>()
             .any { it.isFileConfigured(this) }
     }
@@ -288,7 +291,7 @@ abstract class KotlinWithGradleConfigurator : KotlinProjectConfigurator {
         libraryJarDescriptors: List<LibraryJarDescriptor>
     ) {
         val scope = OrderEntryFix.suggestScopeByLocation(module, element)
-        KotlinWithGradleConfigurator.addKotlinLibraryToModule(module, scope, library)
+        addKotlinLibraryToModule(module, scope, library)
     }
 
     companion object {
@@ -324,7 +327,7 @@ abstract class KotlinWithGradleConfigurator : KotlinProjectConfigurator {
                 return
             }
 
-            getManipulator(buildScript).addKotlinLibraryToModuleBuildScript(scope, libraryDescriptor)
+            getManipulator(buildScript).addKotlinLibraryToModuleBuildScript(module, scope, libraryDescriptor)
 
             buildScript.virtualFile?.let {
                 createConfigureKotlinNotificationCollector(buildScript.project)

@@ -14,9 +14,9 @@ dependencies {
     compile(project(":compiler:fir:tree"))
     compile(project(":compiler:ir.tree"))
 
-    compileOnly(intellijCoreDep()) { includeJars("intellij-core") }
-    
-    testRuntime(intellijDep())
+    compileOnly(intellijCoreDep()) { includeJars("intellij-core", "guava", rootProject = rootProject) }
+
+    testCompile(intellijDep())
 
     testCompile(commonDep("junit:junit"))
     testCompileOnly(project(":kotlin-test:kotlin-test-jvm"))
@@ -25,8 +25,12 @@ dependencies {
     
     testCompileOnly(project(":kotlin-reflect-api"))
     testRuntime(project(":kotlin-reflect"))
+    testRuntime(project(":core:descriptors.runtime"))
 
-
+    Platform[192].orHigher {
+        testCompileOnly(intellijCoreDep()) { includeJars("intellij-core") }
+        testRuntimeOnly(intellijCoreDep()) { includeJars("intellij-core") }
+    }
 }
 
 sourceSets {

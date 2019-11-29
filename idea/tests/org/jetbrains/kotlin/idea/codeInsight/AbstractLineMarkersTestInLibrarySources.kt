@@ -49,7 +49,7 @@ abstract class AbstractLineMarkersTestInLibrarySources : AbstractLineMarkersTest
             override fun configureModule(module: Module, model: ModifiableRootModel) {
                 super.configureModule(module, model)
 
-                val library = model.moduleLibraryTable.getLibraryByName(SdkAndMockLibraryProjectDescriptor.LIBRARY_NAME)!!
+                val library = model.moduleLibraryTable.getLibraryByName(LIBRARY_NAME)!!
                 val modifiableModel = library.modifiableModel
 
                 modifiableModel.addRoot(LocalFileSystem.getInstance().findFileByIoFile(libraryClean!!)!!, OrderRootType.SOURCES)
@@ -79,7 +79,7 @@ abstract class AbstractLineMarkersTestInLibrarySources : AbstractLineMarkersTest
                     throw AssertionError("File ${myFixture.file.virtualFile.path} should be in library sources!")
                 }
 
-                doAndCheckHighlighting(document, data, file)
+                doAndCheckHighlighting(myFixture.project, document, data, file)
             }
         }
     }

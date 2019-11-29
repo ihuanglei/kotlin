@@ -33,6 +33,14 @@ fun ReferenceType.safeSourceName(): String? {
     return wrapAbsentInformationException { sourceName() }
 }
 
+fun ReferenceType.safeFields(): List<Field> {
+    return try {
+        fields()
+    } catch (e: ClassNotPreparedException) {
+        emptyList()
+    }
+}
+
 fun Method.safeLocationsOfLine(line: Int): List<Location> {
     return wrapAbsentInformationException { locationsOfLine(line) } ?: emptyList()
 }
@@ -54,13 +62,11 @@ fun StackFrameProxy.safeLocation(): Location? {
 }
 
 fun Location.safeSourceName(): String? {
-    return try {
-        sourceName()
-    } catch (e: AbsentInformationException) {
-        null
-    } catch (e: InternalError) {
-        null
-    }
+    return wrapAbsentInformationException { this.sourceName() }
+}
+
+fun Location.safeSourceName(stratum: String): String? {
+    return wrapAbsentInformationException { this.sourceName(stratum) }
 }
 
 fun Location.safeLineNumber(): Int {
@@ -89,6 +95,8 @@ private inline fun <T> wrapAbsentInformationException(block: () -> T): T? {
     } catch (e: AbsentInformationException) {
         null
     } catch (e: AbsentInformationEvaluateException) {
+        null
+    } catch (e: InternalException) {
         null
     }
 }

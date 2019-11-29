@@ -20,7 +20,6 @@ import com.intellij.openapi.externalSystem.service.project.IdeModifiableModelsPr
 import com.intellij.openapi.module.Module
 import com.intellij.openapi.projectRoots.JavaSdk
 import com.intellij.openapi.projectRoots.JavaSdkVersion
-import com.intellij.openapi.projectRoots.ProjectJdkTable
 import com.intellij.openapi.roots.ExternalProjectSystemRegistry
 import com.intellij.openapi.roots.ModuleRootManager
 import com.intellij.openapi.roots.ModuleRootModel
@@ -39,6 +38,7 @@ import org.jetbrains.kotlin.idea.core.isAndroidModule
 import org.jetbrains.kotlin.idea.framework.KotlinSdkType
 import org.jetbrains.kotlin.idea.platform.tooling
 import org.jetbrains.kotlin.idea.util.application.runWriteAction
+import org.jetbrains.kotlin.idea.util.getProjectJdkTableSafe
 import org.jetbrains.kotlin.platform.*
 import org.jetbrains.kotlin.platform.compat.toNewPlatform
 import org.jetbrains.kotlin.platform.impl.JvmIdePlatformKind
@@ -90,6 +90,7 @@ fun KotlinFacetSettings.initializeIfNeeded(
             targetPlatform.idePlatformKind.tooling.compilerArgumentsForProject(module.project)?.let { mergeBeans(it, this) }
             mergeBeans(commonArguments, this)
         }
+        this.targetPlatform = targetPlatform
     }
 
     if (shouldInferLanguageLevel) {
@@ -143,16 +144,32 @@ fun Module.getOrCreateFacet(
     return facet
 }
 
+//method used for non-mpp modules
+fun KotlinFacet.configureFacet(
+    compilerVersion: String?,
+    coroutineSupport: LanguageFeature.State,
+    platform: TargetPlatform?,
+    modelsProvider: IdeModifiableModelsProvider
+) {
+    configureFacet(compilerVersion, coroutineSupport, platform, modelsProvider, false, emptyList(), emptyList())
+}
+
 fun KotlinFacet.configureFacet(
     compilerVersion: String?,
     coroutineSupport: LanguageFeature.State,
     platform: TargetPlatform?, // if null, detect by module dependencies
-    modelsProvider: IdeModifiableModelsProvider
+    modelsProvider: IdeModifiableModelsProvider,
+    hmppEnabled: Boolean,
+    pureKotlinSourceFolders: List<String>,
+    dependsOnList: List<String>
 ) {
     val module = module
     with(configuration.settings) {
         compilerArguments = null
+        targetPlatform = null
         compilerSettings = null
+        isHmppEnabled = hmppEnabled
+        dependsOnModuleNames = dependsOnList
         initializeIfNeeded(
             module,
             modelsProvider.getModifiableRootModel(module),
@@ -165,9 +182,15 @@ fun KotlinFacet.configureFacet(
             this.apiLevel = languageLevel
         }
         this.coroutineSupport = if (languageLevel != null && languageLevel < LanguageVersion.KOTLIN_1_3) coroutineSupport else null
+        this.pureKotlinSourceFolders = pureKotlinSourceFolders
     }
 
     module.externalCompilerVersion = compilerVersion
+}
+
+fun Module.externalSystemTestTasks(): List<ExternalSystemTestTask> {
+    val settingsProvider = KotlinFacetSettingsProvider.getInstance(project) ?: return emptyList()
+    return settingsProvider.getInitializedSettings(this).externalSystemTestTasks
 }
 
 @Suppress("DEPRECATION_ERROR", "DeprecatedCallableAddReplaceWith")
@@ -256,7 +279,7 @@ private fun Module.configureSdkIfPossible(compilerArguments: CommonCompilerArgum
 
     val projectSdk = ProjectRootManager.getInstance(project).projectSdk
     KotlinSdkType.setUpIfNeeded()
-    val allSdks = ProjectJdkTable.getInstance().allJdks
+    val allSdks = getProjectJdkTableSafe().allJdks
     val sdk = if (compilerArguments is K2JVMCompilerArguments) {
         val jdkHome = compilerArguments.jdkHome
         when {
@@ -314,7 +337,13 @@ fun applyCompilerArgumentsToFacet(
         val oldPluginOptions = compilerArguments.pluginOptions
 
         val emptyArgs = compilerArguments::class.java.newInstance()
-        copyBeanTo(arguments, compilerArguments) { property, value -> value != property.get(emptyArgs) }
+
+        // Ad-hoc work-around for android compilations: middle source sets could be actualized up to
+        // Android target, meanwhile compiler arguments are of type K2Metadata
+        // TODO(auskov): merge classpath once compiler arguments are removed from KotlinFacetSettings
+        if (arguments.javaClass == compilerArguments.javaClass) {
+            copyBeanTo(arguments, compilerArguments) { property, value -> value != property.get(emptyArgs) }
+        }
         compilerArguments.pluginOptions = joinPluginOptions(oldPluginOptions, arguments.pluginOptions)
 
         compilerArguments.convertPathsToSystemIndependent()

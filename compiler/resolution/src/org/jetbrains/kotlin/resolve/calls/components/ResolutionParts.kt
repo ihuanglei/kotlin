@@ -7,15 +7,13 @@ package org.jetbrains.kotlin.resolve.calls.components
 
 import org.jetbrains.kotlin.builtins.getReceiverTypeFromFunctionType
 import org.jetbrains.kotlin.builtins.isFunctionType
+import org.jetbrains.kotlin.config.LanguageFeature
 import org.jetbrains.kotlin.descriptors.*
 import org.jetbrains.kotlin.descriptors.impl.TypeAliasConstructorDescriptor
 import org.jetbrains.kotlin.resolve.calls.components.TypeArgumentsToParametersMapper.TypeArgumentsMapping.NoExplicitArguments
 import org.jetbrains.kotlin.resolve.calls.inference.ConstraintSystemOperation
 import org.jetbrains.kotlin.resolve.calls.inference.components.FreshVariableNewTypeSubstitutor
-import org.jetbrains.kotlin.resolve.calls.inference.model.DeclaredUpperBoundConstraintPosition
-import org.jetbrains.kotlin.resolve.calls.inference.model.ExplicitTypeParameterConstraintPosition
-import org.jetbrains.kotlin.resolve.calls.inference.model.KnownTypeParameterConstraintPosition
-import org.jetbrains.kotlin.resolve.calls.inference.model.TypeVariableFromCallableDescriptor
+import org.jetbrains.kotlin.resolve.calls.inference.model.*
 import org.jetbrains.kotlin.resolve.calls.inference.substitute
 import org.jetbrains.kotlin.resolve.calls.model.*
 import org.jetbrains.kotlin.resolve.calls.smartcasts.getReceiverValueWithSmartCast
@@ -25,6 +23,7 @@ import org.jetbrains.kotlin.resolve.calls.tower.InvokeConventionCallNoOperatorMo
 import org.jetbrains.kotlin.resolve.calls.tower.VisibilityError
 import org.jetbrains.kotlin.types.ErrorUtils
 import org.jetbrains.kotlin.types.KotlinType
+import org.jetbrains.kotlin.types.TypeSubstitutor
 import org.jetbrains.kotlin.types.UnwrappedType
 import org.jetbrains.kotlin.types.typeUtil.contains
 import org.jetbrains.kotlin.utils.addToStdlib.safeAs
@@ -47,8 +46,6 @@ internal object CheckVisibility : ResolutionPart() {
     override fun KotlinResolutionCandidate.process(workIndex: Int) {
         val containingDescriptor = scopeTower.lexicalScope.ownerDescriptor
         val dispatchReceiverArgument = resolvedCall.dispatchReceiverArgument
-
-        if (scopeTower.isDebuggerContext) return
 
         val receiverValue = dispatchReceiverArgument?.receiver?.receiverValue ?: Visibilities.ALWAYS_SUITABLE_RECEIVER
         val invisibleMember =
@@ -128,12 +125,14 @@ internal object NoArguments : ResolutionPart() {
 
 internal object CreateFreshVariablesSubstitutor : ResolutionPart() {
     override fun KotlinResolutionCandidate.process(workIndex: Int) {
+        resolvedCall.knownParametersSubstitutor = knownTypeParametersResultingSubstitutor ?: TypeSubstitutor.EMPTY
+
         if (candidateDescriptor.typeParameters.isEmpty()) {
-            resolvedCall.substitutor = FreshVariableNewTypeSubstitutor.Empty
+            resolvedCall.freshVariablesSubstitutor = FreshVariableNewTypeSubstitutor.Empty
             return
         }
         val toFreshVariables = createToFreshVariableSubstitutorAndAddInitialConstraints(candidateDescriptor, csBuilder)
-        resolvedCall.substitutor = toFreshVariables
+        resolvedCall.freshVariablesSubstitutor = toFreshVariables
 
         // bad function -- error on declaration side
         if (csBuilder.hasContradiction) return
@@ -198,7 +197,7 @@ internal object CreateFreshVariablesSubstitutor : ResolutionPart() {
         for (index in typeParameters.indices) {
             val typeParameter = typeParameters[index]
             val freshVariable = freshTypeVariables[index]
-            val position = DeclaredUpperBoundConstraintPosition(typeParameter)
+            val position = DeclaredUpperBoundConstraintPositionImpl(typeParameter)
 
             for (upperBound in typeParameter.upperBounds) {
                 freshVariable.addSubtypeConstraint(upperBound, position)
@@ -219,7 +218,7 @@ internal object CreateFreshVariablesSubstitutor : ResolutionPart() {
                     // there can be null in case we already captured type parameter in outer class (in case of inner classes)
                     // see test innerClassTypeAliasConstructor.kt
                     val originalTypeParameter = originalTypeParameters.getOrNull(originalIndex) ?: continue
-                    val position = DeclaredUpperBoundConstraintPosition(originalTypeParameter)
+                    val position = DeclaredUpperBoundConstraintPositionImpl(originalTypeParameter)
                     for (upperBound in originalTypeParameter.upperBounds) {
                         freshVariable.addSubtypeConstraint(upperBound, position)
                     }
@@ -236,7 +235,7 @@ internal object PostponedVariablesInitializerResolutionPart : ResolutionPart() {
             if (!callComponents.statelessCallbacks.isCoroutineCall(argument, parameter)) continue
             val receiverType = parameter.type.getReceiverTypeFromFunctionType() ?: continue
 
-            for (freshVariable in resolvedCall.substitutor.freshVariables) {
+            for (freshVariable in resolvedCall.freshVariablesSubstitutor.freshVariables) {
                 if (resolvedCall.typeArgumentMappingByOriginal.getTypeArgument(freshVariable.originalTypeParameter) is SimpleTypeArgument)
                     continue
 
@@ -288,13 +287,14 @@ private fun KotlinResolutionCandidate.prepareExpectedType(
         callComponents.languageVersionSettings
     )
     val resultType = knownTypeParametersResultingSubstitutor?.substitute(argumentType) ?: argumentType
-    return resolvedCall.substitutor.safeSubstitute(resultType)
+    return resolvedCall.freshVariablesSubstitutor.safeSubstitute(resultType)
 }
 
 private fun KotlinResolutionCandidate.getExpectedTypeWithSAMConversion(
     argument: KotlinCallArgument,
     candidateParameter: ParameterDescriptor
 ): UnwrappedType? {
+    if (!callComponents.languageVersionSettings.supportsFeature(LanguageFeature.SamConversionPerArgument)) return null
     if (!callComponents.samConversionTransformer.shouldRunSamConversionForFunction(resolvedCall.candidateDescriptor)) return null
 
     val argumentIsFunctional = when (argument) {
@@ -376,9 +376,8 @@ internal object EagerResolveOfCallableReferences : ResolutionPart() {
 internal object CheckInfixResolutionPart : ResolutionPart() {
     override fun KotlinResolutionCandidate.process(workIndex: Int) {
         val candidateDescriptor = resolvedCall.candidateDescriptor
-        if (callComponents.statelessCallbacks.isInfixCall(kotlinCall) &&
-            (candidateDescriptor !is FunctionDescriptor || !candidateDescriptor.isInfix)
-        ) {
+        if (candidateDescriptor !is FunctionDescriptor) return
+        if (!candidateDescriptor.isInfix && callComponents.statelessCallbacks.isInfixCall(kotlinCall)) {
             addDiagnostic(InfixCallNoInfixModifier)
         }
     }
@@ -387,9 +386,8 @@ internal object CheckInfixResolutionPart : ResolutionPart() {
 internal object CheckOperatorResolutionPart : ResolutionPart() {
     override fun KotlinResolutionCandidate.process(workIndex: Int) {
         val candidateDescriptor = resolvedCall.candidateDescriptor
-        if (callComponents.statelessCallbacks.isOperatorCall(kotlinCall) &&
-            (candidateDescriptor !is FunctionDescriptor || !candidateDescriptor.isOperator)
-        ) {
+        if (candidateDescriptor !is FunctionDescriptor) return
+        if (!candidateDescriptor.isOperator && callComponents.statelessCallbacks.isOperatorCall(kotlinCall)) {
             addDiagnostic(InvokeConventionCallNoOperatorModifier)
         }
     }
@@ -419,7 +417,8 @@ internal object ErrorDescriptorResolutionPart : ResolutionPart() {
         }
         resolvedCall.typeArgumentMappingByOriginal = TypeArgumentsToParametersMapper.TypeArgumentsMapping.NoExplicitArguments
         resolvedCall.argumentMappingByOriginal = emptyMap()
-        resolvedCall.substitutor = FreshVariableNewTypeSubstitutor.Empty
+        resolvedCall.freshVariablesSubstitutor = FreshVariableNewTypeSubstitutor.Empty
+        resolvedCall.knownParametersSubstitutor = TypeSubstitutor.EMPTY
         resolvedCall.argumentToCandidateParameter = emptyMap()
 
         kotlinCall.explicitReceiver?.safeAs<SimpleKotlinCallArgument>()?.let {

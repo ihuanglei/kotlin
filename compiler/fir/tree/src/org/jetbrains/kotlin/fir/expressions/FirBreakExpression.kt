@@ -5,9 +5,22 @@
 
 package org.jetbrains.kotlin.fir.expressions
 
-import org.jetbrains.kotlin.fir.visitors.FirVisitor
+import org.jetbrains.kotlin.fir.FirPureAbstractElement
+import org.jetbrains.kotlin.fir.FirSourceElement
+import org.jetbrains.kotlin.fir.FirTarget
+import org.jetbrains.kotlin.fir.types.FirTypeRef
+import org.jetbrains.kotlin.fir.visitors.*
 
-interface FirBreakExpression : FirJump<FirLoop> {
-    override fun <R, D> accept(visitor: FirVisitor<R, D>, data: D): R =
-        visitor.visitBreakExpression(this, data)
+/*
+ * This file was generated automatically
+ * DO NOT MODIFY IT MANUALLY
+ */
+
+abstract class FirBreakExpression : FirPureAbstractElement(), FirLoopJump {
+    abstract override val source: FirSourceElement?
+    abstract override val typeRef: FirTypeRef
+    abstract override val annotations: List<FirAnnotationCall>
+    abstract override val target: FirTarget<FirLoop>
+
+    override fun <R, D> accept(visitor: FirVisitor<R, D>, data: D): R = visitor.visitBreakExpression(this, data)
 }

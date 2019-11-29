@@ -36,6 +36,7 @@ import org.jetbrains.kotlin.resolve.descriptorUtil.getSuperClassNotAny
 import org.jetbrains.kotlin.resolve.descriptorUtil.getSuperClassOrAny
 import org.jetbrains.kotlinx.serialization.compiler.backend.common.SerializableCodegen
 import org.jetbrains.kotlinx.serialization.compiler.backend.common.anonymousInitializers
+import org.jetbrains.kotlinx.serialization.compiler.diagnostic.serializableAnnotationIsUseless
 import org.jetbrains.kotlinx.serialization.compiler.resolve.*
 import org.jetbrains.kotlinx.serialization.compiler.resolve.SerialEntityNames.MISSING_FIELD_EXC
 
@@ -121,6 +122,7 @@ class SerializableJsTranslator(
 
         f.name = context.getInnerNameForDescriptor(constructorDescriptor)
         context.addDeclarationStatement(f.makeStmt())
+        context.export(constructorDescriptor)
     }
 
     private fun JsBlockBuilder.generateSuperNonSerializableCall(superClass: ClassDescriptor, thisParameter: JsExpression) {
@@ -139,7 +141,7 @@ class SerializableJsTranslator(
         thisParameter: JsExpression,
         propertiesStart: Int
     ): Int {
-        val constrDesc = KSerializerDescriptorResolver.createLoadConstructorDescriptor(superClass, context.bindingContext())
+        val constrDesc = superClass.constructors.single(ClassConstructorDescriptor::isSerializationCtor)
         val constrRef = context.getInnerNameForDescriptor(constrDesc).makeRef()
         val superProperties = bindingContext.serializablePropertiesFor(superClass).serializableProperties
         val superSlots = superProperties.bitMaskSlotCount()
@@ -163,7 +165,7 @@ class SerializableJsTranslator(
         ) {
             if (serializableClass.isInternalSerializable)
                 SerializableJsTranslator(declaration, serializableClass, context).generate()
-            else if (serializableClass.hasSerializableAnnotationWithoutArgs && !serializableClass.hasCompanionObjectAsSerializer) {
+            else if (serializableClass.serializableAnnotationIsUseless) {
                 throw CompilationException(
                     "@Serializable annotation on $serializableClass would be ignored because it is impossible to serialize it automatically. " +
                             "Provide serializer manually via e.g. companion object", null, serializableClass.findPsi()

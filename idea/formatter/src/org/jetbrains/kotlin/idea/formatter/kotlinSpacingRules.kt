@@ -12,6 +12,7 @@ import com.intellij.formatting.SpacingBuilder
 import com.intellij.formatting.SpacingBuilder.RuleBuilder
 import com.intellij.lang.ASTNode
 import com.intellij.openapi.util.TextRange
+import com.intellij.openapi.util.text.StringUtil
 import com.intellij.psi.PsiComment
 import com.intellij.psi.PsiWhiteSpace
 import com.intellij.psi.codeStyle.CodeStyleSettings
@@ -21,7 +22,6 @@ import com.intellij.util.text.TextRangeUtil
 import org.jetbrains.kotlin.KtNodeTypes.*
 import org.jetbrains.kotlin.idea.formatter.KotlinSpacingBuilder.CustomSpacingBuilder
 import org.jetbrains.kotlin.idea.util.requireNode
-import org.jetbrains.kotlin.lexer.KtTokens
 import org.jetbrains.kotlin.lexer.KtTokens.*
 import org.jetbrains.kotlin.psi.*
 import org.jetbrains.kotlin.psi.psiUtil.isObjectLiteral
@@ -33,6 +33,8 @@ val MODIFIERS_LIST_ENTRIES = TokenSet.orSet(TokenSet.create(ANNOTATION_ENTRY, AN
 val EXTEND_COLON_ELEMENTS =
     TokenSet.create(TYPE_CONSTRAINT, CLASS, OBJECT_DECLARATION, TYPE_PARAMETER, ENUM_ENTRY, SECONDARY_CONSTRUCTOR)
 
+val DECLARATIONS = TokenSet.create(PROPERTY, FUN, CLASS, OBJECT_DECLARATION, ENUM_ENTRY, SECONDARY_CONSTRUCTOR, CLASS_INITIALIZER)
+
 fun SpacingBuilder.beforeInside(element: IElementType, tokenSet: TokenSet, spacingFun: RuleBuilder.() -> Unit) {
     tokenSet.types.forEach { inType -> beforeInside(element, inType).spacingFun() }
 }
@@ -41,16 +43,13 @@ fun SpacingBuilder.afterInside(element: IElementType, tokenSet: TokenSet, spacin
     tokenSet.types.forEach { inType -> afterInside(element, inType).spacingFun() }
 }
 
-fun SpacingBuilder.RuleBuilder.spacesNoLineBreak(spaces: Int): SpacingBuilder? =
+fun RuleBuilder.spacesNoLineBreak(spaces: Int): SpacingBuilder? =
     spacing(spaces, spaces, 0, false, 0)
 
 fun createSpacingBuilder(settings: CodeStyleSettings, builderUtil: KotlinSpacingBuilderUtil): KotlinSpacingBuilder {
     val kotlinCommonSettings = settings.kotlinCommonSettings
     val kotlinCustomSettings = settings.kotlinCustomSettings
     return rules(kotlinCommonSettings, builderUtil) {
-        val DECLARATIONS =
-            TokenSet.create(PROPERTY, FUN, CLASS, OBJECT_DECLARATION, ENUM_ENTRY, SECONDARY_CONSTRUCTOR, CLASS_INITIALIZER)
-
         simple {
             before(FILE_ANNOTATION_LIST).lineBreakInCode()
             after(FILE_ANNOTATION_LIST).blankLines(1)
@@ -88,8 +87,21 @@ fun createSpacingBuilder(settings: CodeStyleSettings, builderUtil: KotlinSpacing
                     null
                 }
             }
+
             inPosition(right = BLOCK_COMMENT).spacing(commentSpacing(0))
             inPosition(right = EOL_COMMENT).spacing(commentSpacing(1))
+            inPosition(leftSet = DECLARATIONS, rightSet = DECLARATIONS).customRule(fun(
+                _: ASTBlock,
+                _: ASTBlock,
+                right: ASTBlock
+            ): Spacing? {
+                val node = right.node ?: return null
+                val elementStart = node.startOfDeclaration() ?: return null
+                return if (StringUtil.containsLineBreak(node.text.subSequence(0, elementStart.startOffset - node.startOffset).trimStart())) {
+                    createSpacing(0, minLineFeeds = 2)
+                } else
+                    null
+            })
 
             inPosition(left = CLASS, right = CLASS).emptyLinesIfLineBreakInLeft(1)
             inPosition(left = CLASS, right = OBJECT_DECLARATION).emptyLinesIfLineBreakInLeft(1)
@@ -143,7 +155,7 @@ fun createSpacingBuilder(settings: CodeStyleSettings, builderUtil: KotlinSpacing
             }
 
             val parameterWithDocCommentRule = { _: ASTBlock, _: ASTBlock, right: ASTBlock ->
-                if (right.requireNode().firstChildNode.elementType == KtTokens.DOC_COMMENT) {
+                if (right.requireNode().firstChildNode.elementType == DOC_COMMENT) {
                     createSpacing(0, minLineFeeds = 1, keepLineBreaks = true, keepBlankLines = settings.KEEP_BLANK_LINES_IN_DECLARATIONS)
                 } else {
                     null
@@ -184,7 +196,7 @@ fun createSpacingBuilder(settings: CodeStyleSettings, builderUtil: KotlinSpacing
                             commonCodeStyleSettings.KEEP_LINE_BREAKS,
                             commonCodeStyleSettings.KEEP_BLANK_LINES_IN_CODE
                         )
-                    left.requireNode().elementType == KtTokens.COMMA -> // incomplete call being edited
+                    left.requireNode().elementType == COMMA -> // incomplete call being edited
                         createSpacing(1)
                     else ->
                         createSpacing(0)
@@ -237,6 +249,7 @@ fun createSpacingBuilder(settings: CodeStyleSettings, builderUtil: KotlinSpacing
             beforeInside(CLASS, TokenSet.create(BODY, CLASS_BODY)).lineBreakInCode()
             beforeInside(OBJECT_DECLARATION, TokenSet.create(BODY, CLASS_BODY)).lineBreakInCode()
             beforeInside(PROPERTY, WHEN).spaces(0)
+            beforeInside(PROPERTY, LABELED_EXPRESSION).spacesNoLineBreak(1)
             before(PROPERTY).lineBreakInCode()
 
             after(DOC_COMMENT).lineBreakInCode()
@@ -302,6 +315,7 @@ fun createSpacingBuilder(settings: CodeStyleSettings, builderUtil: KotlinSpacing
             aroundInside(DOT, USER_TYPE).spaces(0)
 
             around(AS_KEYWORD).spaces(1)
+            around(AS_SAFE).spaces(1)
             around(IS_KEYWORD).spaces(1)
             around(NOT_IS).spaces(1)
             around(IN_KEYWORD).spaces(1)
@@ -385,6 +399,7 @@ fun createSpacingBuilder(settings: CodeStyleSettings, builderUtil: KotlinSpacing
 
             around(BY_KEYWORD).spaces(1)
             betweenInside(IDENTIFIER, PROPERTY_DELEGATE, PROPERTY).spaces(1)
+            betweenInside(TYPE_REFERENCE, PROPERTY_DELEGATE, PROPERTY).spaces(1)
 
             before(INDICES).spaces(0)
             before(WHERE_KEYWORD).spaces(1)

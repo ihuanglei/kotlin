@@ -11,29 +11,31 @@ import org.jetbrains.kotlin.fir.FirSession
 import org.jetbrains.kotlin.fir.declarations.*
 import org.jetbrains.kotlin.fir.resolve.FirProvider
 import org.jetbrains.kotlin.fir.resolve.ScopeSession
-import org.jetbrains.kotlin.fir.resolve.buildDefaultUseSiteScope
 import org.jetbrains.kotlin.fir.scopes.FirScope
 import org.jetbrains.kotlin.fir.scopes.impl.FirClassDeclaredMemberScope
-import org.jetbrains.kotlin.fir.symbols.*
-import org.jetbrains.kotlin.fir.symbols.impl.FirClassSymbol
-import org.jetbrains.kotlin.fir.symbols.impl.FirTypeAliasSymbol
+import org.jetbrains.kotlin.fir.symbols.CallableId
+import org.jetbrains.kotlin.fir.symbols.ConeClassLikeLookupTag
+import org.jetbrains.kotlin.fir.symbols.impl.*
 import org.jetbrains.kotlin.fir.types.ConeLookupTagBasedType
 import org.jetbrains.kotlin.fir.types.FirResolvedTypeRef
-import org.jetbrains.kotlin.fir.visitors.FirVisitorVoid
+import org.jetbrains.kotlin.fir.visitors.FirDefaultVisitorVoid
 import org.jetbrains.kotlin.name.ClassId
 import org.jetbrains.kotlin.name.FqName
 import org.jetbrains.kotlin.name.Name
 
-class FirProviderImpl(val session: FirSession) : FirProvider {
-    override fun getFirCallableContainerFile(symbol: ConeCallableSymbol): FirFile? {
+class FirProviderImpl(val session: FirSession) : FirProvider() {
+    override fun getFirCallableContainerFile(symbol: FirCallableSymbol<*>): FirFile? {
+        symbol.overriddenSymbol?.let {
+            return getFirCallableContainerFile(it)
+        }
         return state.callableContainerMap[symbol]
     }
 
-    override fun getClassLikeSymbolByFqName(classId: ClassId): ConeClassLikeSymbol? {
-        return (getFirClassifierByFqName(classId) as? FirSymbolOwner<*>)?.symbol as? ConeClassLikeSymbol
+    override fun getClassLikeSymbolByFqName(classId: ClassId): FirClassLikeSymbol<*>? {
+        return getFirClassifierByFqName(classId)?.symbol
     }
 
-    override fun getTopLevelCallableSymbols(packageFqName: FqName, name: Name): List<ConeCallableSymbol> {
+    override fun getTopLevelCallableSymbols(packageFqName: FqName, name: Name): List<FirCallableSymbol<*>> {
         return (state.callableMap[CallableId(packageFqName, null, name)] ?: emptyList())
     }
 
@@ -44,6 +46,14 @@ class FirProviderImpl(val session: FirSession) : FirProvider {
         return state.classifierContainerFileMap[fqName] ?: error("Couldn't find container for $fqName")
     }
 
+    override fun getFirClassifierContainerFileIfAny(fqName: ClassId): FirFile? {
+        return state.classifierContainerFileMap[fqName]
+    }
+
+    override fun getClassNamesInPackage(fqName: FqName): Set<Name> {
+        return state.classesInPackage[fqName] ?: emptySet()
+    }
+
     fun recordFile(file: FirFile) {
         recordFile(file, state)
     }
@@ -52,7 +62,7 @@ class FirProviderImpl(val session: FirSession) : FirProvider {
         val packageName = file.packageFqName
         state.fileMap.merge(packageName, listOf(file)) { a, b -> a + b }
 
-        file.acceptChildren(object : FirVisitorVoid() {
+        file.acceptChildren(object : FirDefaultVisitorVoid() {
             override fun visitElement(element: FirElement) {}
 
 
@@ -61,6 +71,10 @@ class FirProviderImpl(val session: FirSession) : FirProvider {
 
                 state.classifierMap[classId] = regularClass
                 state.classifierContainerFileMap[classId] = file
+
+                if (!classId.isNestedClass && !classId.isLocal) {
+                    state.classesInPackage.getOrPut(classId.packageFqName, ::mutableSetOf).add(classId.shortClassName)
+                }
 
                 regularClass.acceptChildren(this)
             }
@@ -71,23 +85,23 @@ class FirProviderImpl(val session: FirSession) : FirProvider {
                 state.classifierContainerFileMap[classId] = file
             }
 
-            override fun visitCallableMemberDeclaration(callableMemberDeclaration: FirCallableMemberDeclaration) {
-                val symbol = callableMemberDeclaration.symbol as ConeCallableSymbol
+            override fun <F : FirCallableDeclaration<F>> visitCallableDeclaration(callableDeclaration: FirCallableDeclaration<F>) {
+                val symbol = callableDeclaration.symbol
                 val callableId = symbol.callableId
                 state.callableMap.merge(callableId, listOf(symbol)) { a, b -> a + b }
                 state.callableContainerMap[symbol] = file
             }
 
             override fun visitConstructor(constructor: FirConstructor) {
-                visitCallableMemberDeclaration(constructor)
+                visitCallableDeclaration(constructor)
             }
 
-            override fun visitNamedFunction(namedFunction: FirNamedFunction) {
-                visitCallableMemberDeclaration(namedFunction)
+            override fun visitSimpleFunction(simpleFunction: FirSimpleFunction) {
+                visitCallableDeclaration(simpleFunction)
             }
 
             override fun visitProperty(property: FirProperty) {
-                visitCallableMemberDeclaration(property)
+                visitCallableDeclaration(property)
             }
         })
     }
@@ -96,10 +110,11 @@ class FirProviderImpl(val session: FirSession) : FirProvider {
 
     private class State {
         val fileMap = mutableMapOf<FqName, List<FirFile>>()
-        val classifierMap = mutableMapOf<ClassId, FirClassLikeDeclaration>()
+        val classifierMap = mutableMapOf<ClassId, FirClassLikeDeclaration<*>>()
         val classifierContainerFileMap = mutableMapOf<ClassId, FirFile>()
-        val callableMap = mutableMapOf<CallableId, List<ConeCallableSymbol>>()
-        val callableContainerMap = mutableMapOf<ConeCallableSymbol, FirFile>()
+        val classesInPackage = mutableMapOf<FqName, MutableSet<Name>>()
+        val callableMap = mutableMapOf<CallableId, List<FirCallableSymbol<*>>>()
+        val callableContainerMap = mutableMapOf<FirCallableSymbol<*>, FirFile>()
 
         fun setFrom(other: State) {
             fileMap.clear()
@@ -113,6 +128,7 @@ class FirProviderImpl(val session: FirSession) : FirProvider {
             classifierContainerFileMap.putAll(other.classifierContainerFileMap)
             callableMap.putAll(other.callableMap)
             callableContainerMap.putAll(other.callableContainerMap)
+            classesInPackage.putAll(other.classesInPackage)
         }
     }
 
@@ -120,8 +136,11 @@ class FirProviderImpl(val session: FirSession) : FirProvider {
         return state.fileMap[fqName].orEmpty()
     }
 
-    override fun getFirClassifierByFqName(fqName: ClassId): FirClassLikeDeclaration? {
-        return state.classifierMap[fqName]
+    override fun getFirClassifierByFqName(classId: ClassId): FirClassLikeDeclaration<*>? {
+        require(!classId.isLocal) {
+            "Local $classId should never be used to find its corresponding classifier"
+        }
+        return state.classifierMap[classId]
     }
 
     @TestOnly
@@ -200,7 +219,8 @@ class FirProviderImpl(val session: FirSession) : FirProvider {
         scopeSession: ScopeSession
     ): FirScope? {
         return when (val symbol = this.getClassLikeSymbolByFqName(classId) ?: return null) {
-            is FirClassSymbol -> symbol.fir.buildDefaultUseSiteScope(useSiteSession, scopeSession)
+            is FirRegularClassSymbol -> buildDefaultUseSiteMemberScope(symbol.fir, useSiteSession, scopeSession)
+            is FirAnonymousObjectSymbol -> buildDefaultUseSiteMemberScope(symbol.fir, useSiteSession, scopeSession)
             is FirTypeAliasSymbol -> {
                 val expandedTypeRef = symbol.fir.expandedTypeRef as FirResolvedTypeRef
                 val expandedType = expandedTypeRef.type as? ConeLookupTagBasedType ?: return null

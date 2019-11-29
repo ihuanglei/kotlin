@@ -34,8 +34,6 @@ object CommonIdePlatformKindTooling : IdePlatformKindTooling() {
 
     override fun compilerArgumentsForProject(project: Project): CommonCompilerArguments? = null
 
-    override val resolverForModuleFactory = CommonResolverForModuleFactory(true)
-
     override val mavenLibraryIds = listOf(MAVEN_COMMON_STDLIB_ID)
     override val gradlePluginId = "kotlin-platform-common"
     override val gradlePlatformIds: List<KotlinPlatform> get() = listOf(KotlinPlatform.COMMON)
@@ -49,7 +47,7 @@ object CommonIdePlatformKindTooling : IdePlatformKindTooling() {
     }
 
     override fun getTestIcon(declaration: KtNamedDeclaration, descriptor: DeclarationDescriptor): Icon? {
-        val icons = IdePlatformKindTooling.getInstances()
+        val icons = getInstances()
             .filter { it != this }
             .mapNotNull { it.getTestIcon(declaration, descriptor) }
             .distinct()

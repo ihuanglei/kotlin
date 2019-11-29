@@ -29,6 +29,7 @@ import com.intellij.ui.treeStructure.Tree
 import org.jetbrains.kotlin.fir.FirElement
 import org.jetbrains.kotlin.fir.FirSessionBase
 import org.jetbrains.kotlin.fir.builder.RawFirBuilder
+import org.jetbrains.kotlin.fir.psi
 import org.jetbrains.kotlin.idea.util.application.runReadAction
 import org.jetbrains.kotlin.psi.KtFile
 import org.jetbrains.kotlin.psi.psiUtil.endOffset
@@ -72,7 +73,7 @@ class FirExplorerToolWindow(private val project: Project, private val toolWindow
                     val psiDocumentManager = PsiDocumentManager.getInstance(project)
                     val file = runReadAction { psiDocumentManager.getPsiFile(editor.document) as? KtFile }
                     if (file != null) {
-                        val firFile = runReadAction { RawFirBuilder(object : FirSessionBase() {}, stubMode = false).buildFirFile(file) }
+                        val firFile = runReadAction { RawFirBuilder(object : FirSessionBase(null) {}, stubMode = false).buildFirFile(file) }
                         runInEdt {
                             treeStructure.root = FirExplorerTreeNode("root = ", firFile, null)
                             builder.updateFromRoot(!init)
@@ -188,7 +189,7 @@ class FirExplorerToolWindow(private val project: Project, private val toolWindow
 
         override fun getChildren(): Array<SimpleNode> {
             if (data == null) {
-                return SimpleNode.NO_CHILDREN
+                return NO_CHILDREN
             } else {
                 val classOfData = data::class
 
@@ -246,7 +247,7 @@ class FirExplorerToolWindow(private val project: Project, private val toolWindow
         }
 
         override fun getChildren(): Array<SimpleNode> {
-            if (data == null) return SimpleNode.NO_CHILDREN
+            if (data == null) return NO_CHILDREN
 
 
             return data.mapIndexed { index, any ->

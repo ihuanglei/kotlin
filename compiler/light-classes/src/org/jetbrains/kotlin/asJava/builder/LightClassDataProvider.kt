@@ -21,11 +21,12 @@ import com.intellij.psi.PsiFile
 import com.intellij.psi.impl.java.stubs.PsiJavaFileStub
 import com.intellij.psi.search.GlobalSearchScope
 import com.intellij.psi.util.CachedValueProvider
-import com.intellij.psi.util.PsiModificationTracker
 import com.intellij.psi.util.PsiTreeUtil
+import org.jetbrains.kotlin.analyzer.KotlinModificationTrackerService
 import org.jetbrains.kotlin.asJava.KotlinAsJavaSupport
 import org.jetbrains.kotlin.asJava.LightClassGenerationSupport
 import org.jetbrains.kotlin.asJava.classes.getOutermostClassOrObject
+import org.jetbrains.kotlin.asJava.classes.safeIsLocal
 import org.jetbrains.kotlin.codegen.CompilationErrorHandler
 import org.jetbrains.kotlin.codegen.MemberCodegen
 import org.jetbrains.kotlin.codegen.state.GenerationState
@@ -56,9 +57,10 @@ class LightClassDataProviderForClassOrObject(
     }
 
     override fun compute(): CachedValueProvider.Result<LightClassDataHolder.ForClass>? {
+        val trackerService = KotlinModificationTrackerService.getInstance(classOrObject.project)
         return CachedValueProvider.Result.create(
-                computeLightClassData(),
-                if (classOrObject.isLocal()) PsiModificationTracker.MODIFICATION_COUNT else PsiModificationTracker.OUT_OF_CODE_BLOCK_MODIFICATION_COUNT
+            computeLightClassData(),
+            if (classOrObject.safeIsLocal()) trackerService.modificationTracker else trackerService.outOfBlockModificationTracker
         )
     }
 
@@ -99,7 +101,7 @@ sealed class LightClassDataProviderForFileFacade constructor(
 
         return CachedValueProvider.Result.create(
                 computeLightClassData(files),
-                PsiModificationTracker.OUT_OF_CODE_BLOCK_MODIFICATION_COUNT
+                KotlinModificationTrackerService.getInstance(project).outOfBlockModificationTracker
         )
     }
 
@@ -147,7 +149,10 @@ class LightClassDataProviderForScript(private val script: KtScript) : CachedValu
     }
 
     override fun compute(): CachedValueProvider.Result<LightClassDataHolder.ForScript>? =
-            CachedValueProvider.Result.create(computeLightClassData(), PsiModificationTracker.OUT_OF_CODE_BLOCK_MODIFICATION_COUNT)
+            CachedValueProvider.Result.create(
+                computeLightClassData(),
+                KotlinModificationTrackerService.getInstance(script.project).outOfBlockModificationTracker
+            )
 
     override fun toString(): String = this::class.java.name + " for ${script.fqName}"
 }
@@ -184,7 +189,7 @@ private class ClassFilterForClassOrObject(private val classOrObject: KtClassOrOb
         // TODO: current method will process local classes in irrelevant declarations, it should be fixed.
         // We generate all enclosing classes
 
-        if (classOrObject.isLocal && processingClassOrObject.isLocal) {
+        if (classOrObject.safeIsLocal() && processingClassOrObject.safeIsLocal()) {
             val commonParent = PsiTreeUtil.findCommonParent(classOrObject, processingClassOrObject)
             return commonParent != null && commonParent !is PsiFile
         }

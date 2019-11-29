@@ -5,29 +5,25 @@
 
 package org.jetbrains.kotlin.fir.declarations
 
-import org.jetbrains.kotlin.fir.VisitedSupertype
+import org.jetbrains.kotlin.fir.FirSession
+import org.jetbrains.kotlin.fir.FirSourceElement
+import org.jetbrains.kotlin.fir.FirSymbolOwner
+import org.jetbrains.kotlin.fir.expressions.FirAnnotationCall
 import org.jetbrains.kotlin.fir.expressions.FirStatement
-import org.jetbrains.kotlin.fir.symbols.ConeClassLikeSymbol
-import org.jetbrains.kotlin.fir.symbols.ConeClassifierSymbol
-import org.jetbrains.kotlin.fir.symbols.impl.FirClassSymbol
-import org.jetbrains.kotlin.fir.symbols.impl.FirTypeAliasSymbol
-import org.jetbrains.kotlin.fir.visitors.FirVisitor
+import org.jetbrains.kotlin.fir.symbols.impl.FirClassLikeSymbol
+import org.jetbrains.kotlin.fir.visitors.*
 
-interface FirClassLikeDeclaration : @VisitedSupertype FirMemberDeclaration, FirStatement {
-    val symbol: ConeClassLikeSymbol
+/*
+ * This file was generated automatically
+ * DO NOT MODIFY IT MANUALLY
+ */
 
-    override fun <R, D> accept(visitor: FirVisitor<R, D>, data: D): R {
-        return super<FirMemberDeclaration>.accept(visitor, data)
-    }
+interface FirClassLikeDeclaration<F : FirClassLikeDeclaration<F>> : FirDeclaration, FirStatement, FirSymbolOwner<F> {
+    override val source: FirSourceElement?
+    override val session: FirSession
+    override val resolvePhase: FirResolvePhase
+    override val annotations: List<FirAnnotationCall>
+    override val symbol: FirClassLikeSymbol<F>
 
-    override fun <R, D> acceptChildren(visitor: FirVisitor<R, D>, data: D) {
-        super<FirMemberDeclaration>.acceptChildren(visitor, data)
-    }
+    override fun <R, D> accept(visitor: FirVisitor<R, D>, data: D): R = visitor.visitClassLikeDeclaration(this, data)
 }
-
-fun ConeClassifierSymbol.toFirClassLike(): FirClassLikeDeclaration? =
-    when (this) {
-        is FirClassSymbol -> this.fir
-        is FirTypeAliasSymbol -> this.fir
-        else -> null
-    }

@@ -1,6 +1,6 @@
+// IGNORE_BACKEND_FIR: JVM_IR
 // WITH_RUNTIME
 // KJS_WITH_FULL_RUNTIME
-// IGNORE_BACKEND: JVM_IR
 
 fun box(): String {
     var sum = 0u

@@ -8,24 +8,19 @@ package org.jetbrains.kotlin.nj2k
 import com.intellij.openapi.project.Project
 import com.intellij.psi.PsiElement
 import org.jetbrains.kotlin.j2k.*
+import org.jetbrains.kotlin.nj2k.externalCodeProcessing.NewExternalCodeProcessing
+import org.jetbrains.kotlin.nj2k.types.JKTypeFactory
 
 data class NewJ2kConverterContext(
     val symbolProvider: JKSymbolProvider,
+    val typeFactory: JKTypeFactory,
     val converter: NewJavaToKotlinConverter,
     val inConversionContext: (PsiElement) -> Boolean,
-    val importStorage: ImportStorage,
-    val elementsInfoStorage: JKElementInfoStorage
+    val importStorage: JKImportStorage,
+    val elementsInfoStorage: JKElementInfoStorage,
+    val externalCodeProcessor: NewExternalCodeProcessing
 ) : ConverterContext {
-    val project: Project get() = converter.project
-    val typeFlavorCalculator = TypeFlavorCalculator(object : TypeFlavorConverterFacade {
-        override val referenceSearcher: ReferenceSearcher
-            get() = converter.converterServices.oldServices.referenceSearcher
-        override val javaDataFlowAnalyzerFacade: JavaDataFlowAnalyzerFacade
-            get() = converter.converterServices.oldServices.javaDataFlowAnalyzerFacade
-        override val resolverForConverter: ResolverForConverter
-            get() = converter.converterServices.oldServices.resolverForConverter
-
-        override fun inConversionScope(element: PsiElement): Boolean = inConversionContext(element)
-    })
+    val project: Project
+        get() = converter.project
 }
 

@@ -138,12 +138,19 @@ class ExpectedActualDeclarationChecker(
             }
 
         // Several compatible actuals on one path: report AMBIGUIOUS_ACTUALS here
-        val atLeastWeaklyCompatibleActuals = compatibility.filterKeys { it.isCompatibleOrWeakCompatible() }.values.flatten()
+        val atLeastWeaklyCompatibleActuals = compatibility
+            .filterKeys { it.isCompatibleOrWeakCompatible() }
+            .values
+            .flatten()
+            .distinct()
+
         if (atLeastWeaklyCompatibleActuals.size > 1) {
             trace.report(Errors.AMBIGUOUS_ACTUALS.on(
                 reportOn,
                 descriptor,
-                atLeastWeaklyCompatibleActuals.map { DescriptorUtils.getContainingSourceFile(it).let { it.name ?: it.toString() } }
+                atLeastWeaklyCompatibleActuals
+                    .map { it.module }
+                    .sortedBy { it.name.asString() }
             ))
         }
     }
@@ -303,7 +310,8 @@ class ExpectedActualDeclarationChecker(
             }
             .map { (_, members) -> members }
             .flatten()
-            .map { DescriptorUtils.getContainingSourceFile(it).let { it.name ?: it.toString() } }
+            .map { it.module }
+            .sortedBy { it.name.asString() }
             .toList()
 
         if (filesWithAtLeastWeaklyCompatibleExpects.size > 1) {

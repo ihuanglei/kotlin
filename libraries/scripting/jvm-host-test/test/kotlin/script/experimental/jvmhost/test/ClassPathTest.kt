@@ -15,7 +15,9 @@ import java.util.jar.JarEntry
 import java.util.jar.JarOutputStream
 import java.util.jar.Manifest
 import kotlin.script.experimental.jvm.util.classPathFromTypicalResourceUrls
+import kotlin.script.experimental.jvm.util.classpathFromClass
 import kotlin.script.experimental.jvm.util.classpathFromClassloader
+import kotlin.script.experimental.jvm.util.scriptCompilationClasspathFromContextOrNull
 
 class ClassPathTest : TestCase() {
 
@@ -50,12 +52,44 @@ class ClassPathTest : TestCase() {
                     + jar.toURI().toURL()).toTypedArray(),
             null
         )
-        val cp = cl.classPathFromTypicalResourceUrls().toList()
+        val cp = cl.classPathFromTypicalResourceUrls().toList().map { it.canonicalFile }
 
         Assert.assertTrue(cp.contains(jar.canonicalFile))
         for (el in emulatedClasspath) {
             Assert.assertTrue(cp.contains(File(root1, el).canonicalFile))
         }
+    }
+
+    @Test
+    fun testFilterClasspath() {
+        val tempDir = createTempDir().canonicalFile
+        try {
+            val files = listOf(
+                File(tempDir, "projX/classes"),
+                File(tempDir, "projX/test-classes"),
+                File(tempDir, "projY/classes")
+            )
+            files.forEach { it.mkdirs() }
+
+            val classloader = URLClassLoader(files.map { it.toURI().toURL() }.toTypedArray(), null)
+
+            val classpath =
+                scriptCompilationClasspathFromContextOrNull("projX", classLoader = classloader)!!.map { it.toRelativeString(tempDir) }
+
+            Assert.assertEquals(files.dropLast(1).map { it.toRelativeString(tempDir) }, classpath)
+        } finally {
+            tempDir.deleteRecursively()
+        }
+    }
+
+    @Test
+    fun testClasspathFromClass() {
+        val cpFromThis = classpathFromClass(this::class)
+        val expectedSuffix = File("classes/kotlin/test").path
+        assertTrue(
+            "Path should end with $expectedSuffix, got: $cpFromThis",
+            cpFromThis!!.first().absoluteFile.path.endsWith(expectedSuffix)
+        )
     }
 }
 

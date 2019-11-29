@@ -1,5 +1,5 @@
 /*
- * Copyright 2000-2018 JetBrains s.r.o. and Kotlin Programming Language contributors.
+ * Copyright 2000-2019 JetBrains s.r.o. and Kotlin Programming Language contributors.
  * Use of this source code is governed by the Apache 2.0 license that can be found in the license/LICENSE.txt file.
  */
 
@@ -7,6 +7,7 @@ package org.jetbrains.kotlin.idea.codeInsight.gradle
 
 import com.intellij.openapi.extensions.Extensions
 import com.intellij.openapi.module.ModuleManager
+import com.intellij.openapi.project.guessProjectDir
 import com.intellij.openapi.roots.DependencyScope
 import com.intellij.openapi.roots.ExternalLibraryDescriptor
 import com.intellij.testFramework.runInEdtAndWait
@@ -29,7 +30,7 @@ class GradleConfiguratorTest : GradleImportingTestCase() {
         runInEdtAndWait {
             runWriteAction {
                 // Create not configured build.gradle for project
-                myProject.baseDir.createChildData(null, "build.gradle")
+                myProject.guessProjectDir()!!.createChildData(null, "build.gradle")
 
                 val module = ModuleManager.getInstance(myProject).findModuleByName("app")!!
                 val moduleGroup = module.toModuleGroup()
@@ -354,26 +355,6 @@ class GradleConfiguratorTest : GradleImportingTestCase() {
         }
     }
 
-    @TargetVersions("3.5")
-    @Test
-    fun testAddLibraryGSKWithKotlinVersion() {
-        val files = importProjectFromTestData()
-
-        runInEdtAndWait {
-            myTestFixture.project.executeWriteCommand("") {
-                val stdLibVersion = KotlinWithGradleConfigurator.getKotlinStdlibVersion(myTestFixture.module)
-                KotlinWithGradleConfigurator.addKotlinLibraryToModule(
-                    myTestFixture.module,
-                    DependencyScope.COMPILE,
-                    object : ExternalLibraryDescriptor("org.jetbrains.kotlin", "kotlin-reflect", stdLibVersion, stdLibVersion) {
-                        override fun getLibraryClassesRoots() = emptyList<String>()
-                    })
-            }
-
-            checkFiles(files)
-        }
-    }
-
     @Test
     fun testAddTestLibraryGSK() {
         val files = importProjectFromTestData()
@@ -445,20 +426,6 @@ class GradleConfiguratorTest : GradleImportingTestCase() {
 
     @Test
     fun testChangeCoroutinesSupport() {
-        val files = importProjectFromTestData()
-
-        runInEdtAndWait {
-            myTestFixture.project.executeWriteCommand("") {
-                KotlinWithGradleConfigurator.changeCoroutineConfiguration(myTestFixture.module, "enable")
-            }
-
-            checkFiles(files)
-        }
-    }
-
-    @TargetVersions("3.5")
-    @Test
-    fun testChangeCoroutinesSupportGSK() {
         val files = importProjectFromTestData()
 
         runInEdtAndWait {
@@ -569,6 +536,10 @@ class GradleConfiguratorTest : GradleImportingTestCase() {
         }
     }
 
+    @TargetVersions("4.7+")
+    @Test
+    fun testChangeFeatureSupportWithXFlag() = testChangeFeatureSupport()
+
     @Test
     fun testDisableFeatureSupport() {
         val files = importProjectFromTestData()
@@ -586,19 +557,7 @@ class GradleConfiguratorTest : GradleImportingTestCase() {
 
     @TargetVersions("4.7+")
     @Test
-    fun testDisableFeatureSupportMultiplatform() {
-        val files = importProjectFromTestData()
-
-        runInEdtAndWait {
-            myTestFixture.project.executeWriteCommand("") {
-                KotlinWithGradleConfigurator.changeFeatureConfiguration(
-                    myTestFixture.module, LanguageFeature.InlineClasses, LanguageFeature.State.DISABLED, false
-                )
-            }
-
-            checkFiles(files)
-        }
-    }
+    fun testDisableFeatureSupportWithXFlag() = testDisableFeatureSupport()
 
     @Test
     fun testEnableFeatureSupport() {
@@ -615,6 +574,11 @@ class GradleConfiguratorTest : GradleImportingTestCase() {
         }
     }
 
+    @TargetVersions("4.7+")
+    @Test
+    @JvmName("testEnableFeatureSupportWithXFlag")
+    fun testEnableFeatureSupportWithXFlag() = testEnableFeatureSupport()
+
     @Test
     fun testEnableFeatureSupportToExistentArguments() {
         val files = importProjectFromTestData()
@@ -629,6 +593,10 @@ class GradleConfiguratorTest : GradleImportingTestCase() {
             checkFiles(files)
         }
     }
+
+    @TargetVersions("4.7+")
+    @Test
+    fun testEnableFeatureSupportToExistentArgumentsWithXFlag() = testEnableFeatureSupportToExistentArguments()
 
     @Test
     fun testChangeFeatureSupportGSK() {
@@ -645,6 +613,10 @@ class GradleConfiguratorTest : GradleImportingTestCase() {
         }
     }
 
+    @TargetVersions("4.7+")
+    @Test
+    fun testChangeFeatureSupportGSKWithXFlag() = testChangeFeatureSupportGSK()
+
     @Test
     fun testDisableFeatureSupportGSK() {
         val files = importProjectFromTestData()
@@ -660,6 +632,10 @@ class GradleConfiguratorTest : GradleImportingTestCase() {
         }
     }
 
+    @TargetVersions("4.7+")
+    @Test
+    fun testDisableFeatureSupportGSKWithXFlag() = testDisableFeatureSupportGSK()
+
     @Test
     fun testEnableFeatureSupportGSK() {
         val files = importProjectFromTestData()
@@ -674,6 +650,18 @@ class GradleConfiguratorTest : GradleImportingTestCase() {
             checkFiles(files)
         }
     }
+
+    @TargetVersions("4.7+")
+    @Test
+    fun testEnableFeatureSupportGSKWithXFlag() = testEnableFeatureSupportGSK()
+
+    @TargetVersions("4.7+")
+    @Test
+    fun testEnableFeatureSupportGSKWithNotInfixVersionCallAndXFlag() = testEnableFeatureSupportGSK()
+
+    @TargetVersions("4.7+")
+    @Test
+    fun testEnableFeatureSupportGSKWithSpecifyingPluginThroughIdAndXFlag() = testEnableFeatureSupportGSK()
 
     override fun testDataDirName(): String {
         return "configurator"

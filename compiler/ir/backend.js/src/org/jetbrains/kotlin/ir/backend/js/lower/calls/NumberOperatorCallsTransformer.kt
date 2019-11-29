@@ -8,6 +8,7 @@ package org.jetbrains.kotlin.ir.backend.js.lower.calls
 import org.jetbrains.kotlin.ir.backend.js.JsIrBackendContext
 import org.jetbrains.kotlin.ir.backend.js.ir.JsIrBuilder
 import org.jetbrains.kotlin.ir.backend.js.utils.OperatorNames
+import org.jetbrains.kotlin.ir.declarations.IrSimpleFunction
 import org.jetbrains.kotlin.ir.expressions.IrExpression
 import org.jetbrains.kotlin.ir.expressions.IrFunctionAccessExpression
 import org.jetbrains.kotlin.ir.expressions.impl.IrCallImpl
@@ -46,9 +47,9 @@ class NumberOperatorCallsTransformer(context: JsIrBackendContext) : CallsTransfo
 
         irBuiltIns.booleanType.let {
             // These operators are not short-circuit -- using bitwise operators '&', '|', '^' followed by coercion to boolean
-            add(it, OperatorNames.AND) { call -> toBoolean(irCall(call, intrinsics.jsBitAnd, dispatchReceiverAsFirstArgument = true)) }
-            add(it, OperatorNames.OR) { call -> toBoolean(irCall(call, intrinsics.jsBitOr, dispatchReceiverAsFirstArgument = true)) }
-            add(it, OperatorNames.XOR) { call -> toBoolean(irCall(call, intrinsics.jsBitXor, dispatchReceiverAsFirstArgument = true)) }
+            add(it, OperatorNames.AND) { call -> toBoolean(irCall(call, intrinsics.jsBitAnd, receiversAsArguments = true)) }
+            add(it, OperatorNames.OR) { call -> toBoolean(irCall(call, intrinsics.jsBitOr, receiversAsArguments = true)) }
+            add(it, OperatorNames.XOR) { call -> toBoolean(irCall(call, intrinsics.jsBitXor, receiversAsArguments = true)) }
 
             add(it, OperatorNames.NOT, intrinsics.jsNot)
         }
@@ -88,9 +89,9 @@ class NumberOperatorCallsTransformer(context: JsIrBackendContext) : CallsTransfo
         return with(call.symbol.owner.valueParameters[0].type) {
             when {
                 isByte() || isShort() || isInt() ->
-                    irCall(call, intrinsics.jsNumberRangeToNumber, dispatchReceiverAsFirstArgument = true)
+                    irCall(call, intrinsics.jsNumberRangeToNumber, receiversAsArguments = true)
                 isLong() ->
-                    irCall(call, intrinsics.jsNumberRangeToLong, dispatchReceiverAsFirstArgument = true)
+                    irCall(call, intrinsics.jsNumberRangeToLong, receiversAsArguments = true)
                 else -> call
             }
         }
@@ -101,7 +102,7 @@ class NumberOperatorCallsTransformer(context: JsIrBackendContext) : CallsTransfo
         intrinsic: IrFunctionSymbol,
         toInt32: Boolean = false
     ): IrExpression {
-        val newCall = irCall(call, intrinsic, dispatchReceiverAsFirstArgument = true)
+        val newCall = irCall(call, intrinsic, receiversAsArguments = true)
         if (toInt32)
             return toInt32(newCall)
         return newCall
@@ -152,7 +153,7 @@ class NumberOperatorCallsTransformer(context: JsIrBackendContext) : CallsTransfo
         transformCrement(call, intrinsics.jsMinus)
 
     private fun transformCrement(call: IrFunctionAccessExpression, correspondingBinaryOp: IrFunctionSymbol): IrExpression {
-        val operation = irCall(call, correspondingBinaryOp, dispatchReceiverAsFirstArgument = true).apply {
+        val operation = irCall(call, correspondingBinaryOp, receiversAsArguments = true).apply {
             putValueArgument(1, buildInt(1))
         }
 
@@ -161,7 +162,7 @@ class NumberOperatorCallsTransformer(context: JsIrBackendContext) : CallsTransfo
 
     private fun transformUnaryMinus(call: IrFunctionAccessExpression) =
         convertResultToPrimitiveType(
-            irCall(call, intrinsics.jsUnaryMinus, dispatchReceiverAsFirstArgument = true),
+            irCall(call, intrinsics.jsUnaryMinus, receiversAsArguments = true),
             call.type
         )
 
@@ -172,57 +173,70 @@ class NumberOperatorCallsTransformer(context: JsIrBackendContext) : CallsTransfo
         else -> e
     }
 
-    private fun withLongCoercion(default: (IrFunctionAccessExpression) -> IrExpression): (IrFunctionAccessExpression) -> IrExpression = { call ->
-        assert(call.valueArgumentsCount == 1)
-        val arg = call.getValueArgument(0)!!
+    private fun withLongCoercion(default: (IrFunctionAccessExpression) -> IrExpression): (IrFunctionAccessExpression) -> IrExpression =
+        { call ->
+            assert(call.valueArgumentsCount == 1)
+            val arg = call.getValueArgument(0)!!
 
-        if (arg.type.isLong()) {
-            val receiverType = call.dispatchReceiver!!.type
+            var actualCall = call
 
-            when {
-                // Double OP Long => Double OP Long.toDouble()
-                receiverType.isDouble() -> {
-                    call.putValueArgument(0, IrCallImpl(
-                        call.startOffset,
-                        call.endOffset,
-                        intrinsics.longToDouble.owner.returnType,
-                        intrinsics.longToDouble
-                    ).apply {
-                        dispatchReceiver = arg
-                    })
-                }
-                // Float OP Long => Float OP Long.toFloat()
-                receiverType.isFloat() -> {
-                    call.putValueArgument(0, IrCallImpl(
-                        call.startOffset,
-                        call.endOffset,
-                        intrinsics.longToFloat.owner.returnType,
-                        intrinsics.longToFloat
-                    ).apply {
-                        dispatchReceiver = arg
-                    })
-                }
-                // {Byte, Short, Int} OP Long => {Byte, Sort, Int}.toLong() OP Long
-                !receiverType.isLong() -> {
-                    call.dispatchReceiver = IrCallImpl(
-                        call.startOffset,
-                        call.endOffset,
-                        intrinsics.jsNumberToLong.owner.returnType,
-                        intrinsics.jsNumberToLong
-                    ).apply {
-                        putValueArgument(0, call.dispatchReceiver)
+            if (arg.type.isLong()) {
+                val receiverType = call.dispatchReceiver!!.type
+
+                when {
+                    // Double OP Long => Double OP Long.toDouble()
+                    receiverType.isDouble() -> {
+                        call.putValueArgument(0, IrCallImpl(
+                            call.startOffset,
+                            call.endOffset,
+                            intrinsics.longToDouble.owner.returnType,
+                            intrinsics.longToDouble
+                        ).apply {
+                            dispatchReceiver = arg
+                        })
+                    }
+                    // Float OP Long => Float OP Long.toFloat()
+                    receiverType.isFloat() -> {
+                        call.putValueArgument(0, IrCallImpl(
+                            call.startOffset,
+                            call.endOffset,
+                            intrinsics.longToFloat.owner.returnType,
+                            intrinsics.longToFloat
+                        ).apply {
+                            dispatchReceiver = arg
+                        })
+                    }
+                    // {Byte, Short, Int} OP Long => {Byte, Sort, Int}.toLong() OP Long
+                    !receiverType.isLong() -> {
+                        call.dispatchReceiver = IrCallImpl(
+                            call.startOffset,
+                            call.endOffset,
+                            intrinsics.jsNumberToLong.owner.returnType,
+                            intrinsics.jsNumberToLong
+                        ).apply {
+                            putValueArgument(0, call.dispatchReceiver)
+                        }
+
+                        // Replace {Byte, Short, Int}.OP with corresponding Long.OP
+                        val declaration = call.symbol.owner as IrSimpleFunction
+                        val replacement = intrinsics.longClassSymbol.owner.declarations.filterIsInstance<IrSimpleFunction>()
+                            .single { member ->
+                                member.name.asString() == declaration.name.asString() &&
+                                        member.valueParameters.size == declaration.valueParameters.size &&
+                                        member.valueParameters.zip(declaration.valueParameters).all { (a, b) -> a.type == b.type }
+                            }.symbol
+
+                        actualCall = irCall(call, replacement)
                     }
                 }
             }
-        }
 
-        if (call.dispatchReceiver!!.type.isLong()) {
-            // LHS is Long => use as is
-            call
-        } else {
-            default(call)
+            if (actualCall.dispatchReceiver!!.type.isLong()) {
+                actualCall
+            } else {
+                default(actualCall)
+            }
         }
-    }
 
     fun IrFunctionSymbol.call(vararg arguments: IrExpression) =
         JsIrBuilder.buildCall(this, owner.returnType).apply {

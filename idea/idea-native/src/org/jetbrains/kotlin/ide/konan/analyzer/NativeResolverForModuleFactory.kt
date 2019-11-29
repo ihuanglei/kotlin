@@ -14,20 +14,24 @@ import org.jetbrains.kotlin.descriptors.impl.ModuleDescriptorImpl
 import org.jetbrains.kotlin.frontend.di.createContainerForLazyResolve
 import org.jetbrains.kotlin.ide.konan.NativeLibraryInfo
 import org.jetbrains.kotlin.ide.konan.createPackageFragmentProvider
+import org.jetbrains.kotlin.platform.TargetPlatform
 import org.jetbrains.kotlin.platform.konan.KonanPlatforms
 import org.jetbrains.kotlin.resolve.CodeAnalyzerInitializer
 import org.jetbrains.kotlin.resolve.TargetEnvironment
 import org.jetbrains.kotlin.resolve.konan.platform.NativePlatformAnalyzerServices
 import org.jetbrains.kotlin.resolve.lazy.ResolveSession
 import org.jetbrains.kotlin.resolve.lazy.declarations.DeclarationProviderFactoryService.Companion.createDeclarationProviderFactory
+import org.jetbrains.kotlin.utils.addIfNotNull
 
-object NativeResolverForModuleFactory : ResolverForModuleFactory() {
+class NativeResolverForModuleFactory(
+    private val platformAnalysisParameters: PlatformAnalysisParameters,
+    private val targetEnvironment: TargetEnvironment,
+    private val targetPlatform: TargetPlatform
+) : ResolverForModuleFactory() {
     override fun <M : ModuleInfo> createResolverForModule(
         moduleDescriptor: ModuleDescriptorImpl,
         moduleContext: ModuleContext,
         moduleContent: ModuleContent<M>,
-        platformParameters: PlatformAnalysisParameters,
-        targetEnvironment: TargetEnvironment,
         resolverForProject: ResolverForProject<M>,
         languageVersionSettings: LanguageVersionSettings
     ): ResolverForModule {
@@ -64,7 +68,7 @@ object NativeResolverForModuleFactory : ResolverForModuleFactory() {
                     moduleDescriptor
                 )
 
-            fragmentProviders.add(libPackageFragmentProvider)
+            fragmentProviders.addIfNotNull(libPackageFragmentProvider)
         }
 
         return ResolverForModule(CompositePackageFragmentProvider(fragmentProviders), container)

@@ -469,13 +469,19 @@ public actual fun String.compareTo(other: String, ignoreCase: Boolean = false): 
 }
 
 /**
- * Returns `true` if this string is equal to the contents of the specified CharSequence.
+ * Returns `true` if this string is equal to the contents of the specified [CharSequence], `false` otherwise.
+ *
+ * Unlike the overload that accepts an argument of type [StringBuffer],
+ * this function does not compare this string and the specified [CharSequence] in a synchronized block.
  */
 @kotlin.internal.InlineOnly
 public inline fun String.contentEquals(charSequence: CharSequence): Boolean = (this as java.lang.String).contentEquals(charSequence)
 
 /**
- * Returns `true` if this string is equal to the contents of the specified StringBuffer.
+ * Returns `true` if this string is equal to the contents of the specified [StringBuffer], `false` otherwise.
+ *
+ * This function compares this string and the specified [StringBuffer] in a synchronized block
+ * that acquires that [StringBuffer]'s monitor.
  */
 @kotlin.internal.InlineOnly
 public inline fun String.contentEquals(stringBuilder: StringBuffer): Boolean = (this as java.lang.String).contentEquals(stringBuilder)
@@ -574,6 +580,7 @@ public actual fun String.capitalize(): String {
  */
 @SinceKotlin("1.3")
 @ExperimentalStdlibApi
+@kotlin.internal.LowPriorityInOverloadResolution
 public fun String.capitalize(locale: Locale): String {
     if (isNotEmpty()) {
         val firstChar = this[0]
@@ -608,6 +615,7 @@ public actual fun String.decapitalize(): String {
  */
 @SinceKotlin("1.3")
 @ExperimentalStdlibApi
+@kotlin.internal.LowPriorityInOverloadResolution
 public fun String.decapitalize(locale: Locale): String {
     return if (isNotEmpty() && !this[0].isLowerCase()) substring(0, 1).toLowerCase(locale) + substring(1) else this
 }

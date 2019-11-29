@@ -20,9 +20,7 @@ import org.jetbrains.kotlin.config.LanguageVersionSettings
 import org.jetbrains.kotlin.descriptors.ModuleDescriptor
 import org.jetbrains.kotlin.ir.IrElement
 import org.jetbrains.kotlin.ir.declarations.IrModuleFragment
-import org.jetbrains.kotlin.ir.util.IrDeserializer
-import org.jetbrains.kotlin.ir.util.SymbolTable
-import org.jetbrains.kotlin.ir.util.patchDeclarationParents
+import org.jetbrains.kotlin.ir.util.*
 import org.jetbrains.kotlin.ir.visitors.acceptVoid
 import org.jetbrains.kotlin.psi.KtFile
 import org.jetbrains.kotlin.psi2ir.generators.AnnotationGenerator
@@ -33,17 +31,16 @@ import org.jetbrains.kotlin.psi2ir.transformations.insertImplicitCasts
 import org.jetbrains.kotlin.resolve.BindingContext
 import org.jetbrains.kotlin.utils.SmartList
 
+typealias Psi2IrPostprocessingStep = (IrModuleFragment) -> Unit
+
 class Psi2IrTranslator(
     val languageVersionSettings: LanguageVersionSettings,
-    val configuration: Psi2IrConfiguration = Psi2IrConfiguration()
+    val configuration: Psi2IrConfiguration = Psi2IrConfiguration(),
+    val mangler: KotlinMangler? = null
 ) {
-    interface PostprocessingStep {
-        fun postprocess(context: GeneratorContext, irElement: IrElement)
-    }
+    private val postprocessingSteps = SmartList<Psi2IrPostprocessingStep>()
 
-    private val postprocessingSteps = SmartList<PostprocessingStep>()
-
-    fun add(step: PostprocessingStep) {
+    fun addPostprocessingStep(step: Psi2IrPostprocessingStep) {
         postprocessingSteps.add(step)
     }
 
@@ -51,33 +48,49 @@ class Psi2IrTranslator(
         moduleDescriptor: ModuleDescriptor,
         ktFiles: Collection<KtFile>,
         bindingContext: BindingContext,
-        generatorExtensions: GeneratorExtensions
+        generatorExtensions: GeneratorExtensions,
+        stubGeneratorExtensions: StubGeneratorExtensions
     ): IrModuleFragment {
         val context = createGeneratorContext(moduleDescriptor, bindingContext, extensions = generatorExtensions)
-        return generateModuleFragment(context, ktFiles)
+        return generateModuleFragment(
+            context, ktFiles,
+            irProviders = generateTypicalIrProviderList(
+                moduleDescriptor, context.irBuiltIns, context.symbolTable,
+                extensions = stubGeneratorExtensions
+            )
+        )
     }
 
     fun createGeneratorContext(
         moduleDescriptor: ModuleDescriptor,
         bindingContext: BindingContext,
-        symbolTable: SymbolTable = SymbolTable(),
+        symbolTable: SymbolTable = SymbolTable(mangler),
         extensions: GeneratorExtensions = GeneratorExtensions()
     ): GeneratorContext =
         GeneratorContext(configuration, moduleDescriptor, bindingContext, languageVersionSettings, symbolTable, extensions)
 
-    fun generateModuleFragment(context: GeneratorContext, ktFiles: Collection<KtFile>, deserializer: IrDeserializer? = null): IrModuleFragment {
+    fun generateModuleFragment(
+        context: GeneratorContext,
+        ktFiles: Collection<KtFile>,
+        irProviders: List<IrProvider>
+    ): IrModuleFragment {
         val moduleGenerator = ModuleGenerator(context)
         val irModule = moduleGenerator.generateModuleFragmentWithoutDependencies(ktFiles)
+
+        moduleGenerator.generateUnboundSymbolsAsDependencies(irProviders)
+        irModule.patchDeclarationParents()
         postprocess(context, irModule)
-        moduleGenerator.generateUnboundSymbolsAsDependencies(irModule, deserializer)
+        irModule.computeUniqIdForDeclarations(context.symbolTable)
+
+        moduleGenerator.generateUnboundSymbolsAsDependencies(irProviders)
         return irModule
     }
 
-    private fun postprocess(context: GeneratorContext, irElement: IrElement) {
+    private fun postprocess(context: GeneratorContext, irElement: IrModuleFragment) {
         insertImplicitCasts(irElement, context)
         generateAnnotationsForDeclarations(context, irElement)
 
-        postprocessingSteps.forEach { it.postprocess(context, irElement) }
+        postprocessingSteps.forEach { it(irElement) }
 
         irElement.patchDeclarationParents()
     }

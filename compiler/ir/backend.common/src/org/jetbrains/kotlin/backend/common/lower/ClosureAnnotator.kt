@@ -27,30 +27,19 @@ import org.jetbrains.kotlin.ir.expressions.IrFunctionReference
 import org.jetbrains.kotlin.ir.expressions.IrPropertyReference
 import org.jetbrains.kotlin.ir.expressions.IrValueAccessExpression
 import org.jetbrains.kotlin.ir.symbols.IrValueSymbol
-import org.jetbrains.kotlin.ir.util.dump
 import org.jetbrains.kotlin.ir.util.isLocal
 import org.jetbrains.kotlin.ir.visitors.IrElementVisitorVoid
 import org.jetbrains.kotlin.ir.visitors.acceptChildrenVoid
-import kotlin.collections.List
-import kotlin.collections.emptyList
-import kotlin.collections.filterTo
-import kotlin.collections.firstOrNull
-import kotlin.collections.forEach
-import kotlin.collections.getOrElse
-import kotlin.collections.mutableListOf
-import kotlin.collections.mutableMapOf
-import kotlin.collections.mutableSetOf
 import kotlin.collections.set
-import kotlin.collections.toList
 
 class Closure(val capturedValues: List<IrValueSymbol> = emptyList())
 
-class ClosureAnnotator(declaration: IrDeclaration) {
+class ClosureAnnotator(irFile: IrFile) {
     private val closureBuilders = mutableMapOf<IrDeclaration, ClosureBuilder>()
 
     init {
         // Collect all closures for classes and functions. Collect call graph
-        declaration.acceptChildrenVoid(ClosureCollectorVisitor())
+        irFile.acceptChildrenVoid(ClosureCollectorVisitor())
     }
 
     fun getFunctionClosure(declaration: IrFunction) = getClosure(declaration)

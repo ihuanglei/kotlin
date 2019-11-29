@@ -180,6 +180,42 @@ abstract class KmPackageVisitor @JvmOverloads constructor(delegate: KmPackageVis
 }
 
 /**
+ * A visitor to visit module fragments. The module fragment can have no more than one package, and any number of classes,
+ * and must have at least one declaration.
+ *
+ * When using this class, [visitEnd] must be called exactly once and after calls to all other visit* methods.
+ */
+abstract class KmModuleFragmentVisitor @JvmOverloads constructor(private val delegate: KmModuleFragmentVisitor? = null) {
+
+    /**
+     * Visits a package within the module fragment.
+     */
+    open fun visitPackage(): KmPackageVisitor? =
+        delegate?.visitPackage()
+
+    /**
+     * Visits a class within the module fragment.
+     */
+    open fun visitClass(): KmClassVisitor? =
+        delegate?.visitClass()
+
+    /**
+     * Visits the extensions of the given type on the module fragment.
+     *
+     * @param type the type of extension visitor to be returned.
+     */
+    open fun visitExtensions(type: KmExtensionType): KmModuleFragmentExtensionVisitor? =
+        delegate?.visitExtensions(type)
+
+    /**
+     * Visits the end of the module fragment.
+     */
+    open fun visitEnd() {
+        delegate?.visitEnd()
+    }
+}
+
+/**
  * A visitor to visit the metadata of a synthetic class generated for a Kotlin lambda.
  *
  * When using this class, [visitFunction] must be called first, followed by [visitEnd].
@@ -406,7 +442,7 @@ abstract class KmTypeAliasVisitor @JvmOverloads constructor(private val delegate
 
     /**
      * Visits the expanded type of the type alias, i.e. the full expansion of the underlying type, where all type aliases are substituted
-     * with their expanded types. If not type aliases are used in the underlying type, expanded type is equal to the underlying type.
+     * with their expanded types. If no type aliases are used in the underlying type, expanded type is equal to the underlying type.
      *
      * @param flags type flags, consisting of [Flag.Type] flags
      */
@@ -427,6 +463,14 @@ abstract class KmTypeAliasVisitor @JvmOverloads constructor(private val delegate
      */
     open fun visitVersionRequirement(): KmVersionRequirementVisitor? =
         delegate?.visitVersionRequirement()
+
+    /**
+     * Visits the extensions of the given type on the type alias.
+     *
+     * @param type the type of extension visitor to be returned
+     */
+    open fun visitExtensions(type: KmExtensionType): KmTypeAliasExtensionVisitor? =
+        delegate?.visitExtensions(type)
 
     /**
      * Visits the end of the type alias.
@@ -460,6 +504,14 @@ abstract class KmValueParameterVisitor @JvmOverloads constructor(private val del
         delegate?.visitVarargElementType(flags)
 
     /**
+     * Visits the extensions of the given type on the value parameter.
+     *
+     * @param type the type of extension visitor to be returned
+     */
+    open fun visitExtensions(type: KmExtensionType): KmValueParameterExtensionVisitor? =
+        delegate?.visitExtensions(type)
+
+    /**
      * Visits the end of the value parameter.
      */
     open fun visitEnd() {
@@ -468,7 +520,7 @@ abstract class KmValueParameterVisitor @JvmOverloads constructor(private val del
 }
 
 /**
- * A visitor to visit a type parameter of a Kotlin class, function or property.
+ * A visitor to visit a type parameter of a Kotlin class, function, property or type alias.
  *
  * When using this class, zero or more [visitUpperBound] calls must be done first, followed by [visitEnd].
  */

@@ -6,7 +6,6 @@
 package org.jetbrains.kotlin.asJava.classes
 
 import com.intellij.psi.HierarchicalMethodSignature
-import com.intellij.psi.PsiClass
 import com.intellij.psi.PsiElement
 import com.intellij.psi.impl.PsiSuperMethodImplUtil
 import org.jetbrains.kotlin.asJava.elements.KtLightField
@@ -20,9 +19,6 @@ class KtUltraLightInlineClass(
     classOrObject: KtClassOrObject,
     support: KtUltraLightSupport
 ) : KtUltraLightClass(classOrObject, support) {
-
-    override fun getDelegate(): PsiClass =
-        throw IllegalStateException("Cls delegate shouldn't be loaded for not too complex ultra-light classes! Qualified name: $qualifiedName")
 
     override fun getScope(): PsiElement? = parent
 

@@ -1,5 +1,5 @@
 /*
- * Copyright 2000-2018 JetBrains s.r.o. and Kotlin Programming Language contributors.
+ * Copyright 2010-2019 JetBrains s.r.o. and Kotlin Programming Language contributors.
  * Use of this source code is governed by the Apache 2.0 license that can be found in the license/LICENSE.txt file.
  */
 
@@ -17,9 +17,10 @@ import org.jetbrains.kotlin.analyzer.ModuleInfo
 import org.jetbrains.kotlin.asJava.classes.FakeLightClassForFileOfPackage
 import org.jetbrains.kotlin.asJava.classes.KtLightClassForFacade
 import org.jetbrains.kotlin.asJava.elements.KtLightElement
+import org.jetbrains.kotlin.caches.project.cacheInvalidatingOnRootModifications
 import org.jetbrains.kotlin.idea.caches.lightClasses.KtLightClassForDecompiledDeclaration
 import org.jetbrains.kotlin.idea.core.isInTestSourceContentKotlinAware
-import org.jetbrains.kotlin.idea.core.script.ScriptDependenciesManager
+import org.jetbrains.kotlin.idea.core.script.ScriptConfigurationManager
 import org.jetbrains.kotlin.idea.core.script.scriptRelatedModuleName
 import org.jetbrains.kotlin.idea.highlighter.OutsidersPsiFileSupportUtils
 import org.jetbrains.kotlin.idea.util.ProjectRootsUtil
@@ -27,8 +28,10 @@ import org.jetbrains.kotlin.idea.util.isInSourceContentWithoutInjected
 import org.jetbrains.kotlin.idea.util.isKotlinBinary
 import org.jetbrains.kotlin.psi.*
 import org.jetbrains.kotlin.psi.psiUtil.getParentOfType
-import org.jetbrains.kotlin.scripting.definitions.findScriptDefinitionByFileName
+import org.jetbrains.kotlin.scripting.definitions.findScriptDefinition
+import org.jetbrains.kotlin.scripting.definitions.runReadAction
 import org.jetbrains.kotlin.utils.addIfNotNull
+import org.jetbrains.kotlin.utils.addToStdlib.firstIsInstanceOrNull
 import org.jetbrains.kotlin.utils.sure
 import org.jetbrains.kotlin.utils.yieldIfNotNull
 
@@ -39,6 +42,18 @@ fun PsiElement.getModuleInfo(): IdeaModuleInfo = this.collectInfos(ModuleInfoCol
 fun PsiElement.getNullableModuleInfo(): IdeaModuleInfo? = this.collectInfos(ModuleInfoCollector.NullableTakeFirst)
 
 fun PsiElement.getModuleInfos(): Sequence<IdeaModuleInfo> = this.collectInfos(ModuleInfoCollector.ToSequence)
+
+private fun ModuleInfo.doFindSdk(): SdkInfo? = dependencies().lazyClosure { it.dependencies() }.firstIsInstanceOrNull<SdkInfo>()
+
+fun ModuleInfo.findSdkAcrossDependencies(): SdkInfo? {
+    return when (this) {
+        // It is important to check for cases of test/production explicitly, because we're using lambda's class
+        // of 'cacheInvalidatingOnRootModifications' as key for cache, and it should be different for Production/Source
+        is ModuleProductionSourceInfo -> module.cacheInvalidatingOnRootModifications { doFindSdk() }
+        is ModuleTestSourceInfo -> module.cacheInvalidatingOnRootModifications { doFindSdk() }
+        else -> doFindSdk()
+    }
+}
 
 fun getModuleInfoByVirtualFile(project: Project, virtualFile: VirtualFile): IdeaModuleInfo? =
     collectInfosByVirtualFile(
@@ -162,20 +177,23 @@ private fun <T> PsiElement.collectInfos(c: ModuleInfoCollector<T>): T {
 
     if (containingKtFile is KtCodeFragment) {
         val context = containingKtFile.getContext()
-                ?: return c.onFailure("Analyzing code fragment of type ${containingKtFile::class.java} with no context element\nText:\n${containingKtFile.getText()}")
+            ?: return c.onFailure("Analyzing code fragment of type ${containingKtFile::class.java} with no context element\nText:\n${containingKtFile.getText()}")
         return context.collectInfos(c)
     }
 
     val virtualFile = containingFile.originalFile.virtualFile
-            ?: return c.onFailure("Analyzing element of type ${this::class.java} in non-physical file $containingFile of type ${containingFile::class.java}\nText:\n$text")
+        ?: return c.onFailure("Analyzing element of type ${this::class.java} in non-physical file $containingFile of type ${containingFile::class.java}\nText:\n$text")
 
-    if (containingKtFile?.isScript() == true) {
+    val isScript = runReadAction { containingKtFile?.isScript() == true }
+    if (isScript) {
         getModuleRelatedModuleInfo(project, virtualFile)?.let {
             return c.onResult(it)
         }
-        containingKtFile.script?.let {
-            val definition = findScriptDefinitionByFileName(project, containingKtFile.name)
-            return c.onResult(ScriptModuleInfo(project, virtualFile, definition))
+        val script = runReadAction { containingKtFile?.script }
+        script?.let {
+            containingKtFile?.findScriptDefinition()?.let {
+                return c.onResult(ScriptModuleInfo(project, virtualFile, it))
+            }
         }
     }
 
@@ -224,7 +242,7 @@ private inline fun <T> collectInfosByVirtualFile(
     }
 
     val isBinary = virtualFile.fileType.isKotlinBinary()
-    val scriptConfigurationManager = ScriptDependenciesManager.getInstance(project)
+    val scriptConfigurationManager = ScriptConfigurationManager.getInstance(project)
     if (isBinary && virtualFile in scriptConfigurationManager.getAllScriptsDependenciesClassFilesScope()) {
         if (treatAsLibrarySource) {
             onOccurrence(ScriptDependenciesSourceInfo.ForProject(project))
@@ -292,4 +310,28 @@ private fun OrderEntry.toIdeaModuleInfo(
         else -> return emptyList()
     }
     return emptyList()
+}
+
+/**
+ * @see [org.jetbrains.kotlin.types.typeUtil.closure].
+ */
+fun <T> Collection<T>.lazyClosure(f: (T) -> Collection<T>): Sequence<T> = sequence {
+    if (size == 0) return@sequence
+    var sizeBeforeIteration = 0
+
+    yieldAll(this@lazyClosure)
+    var yieldedCount = size
+    var elementsToCheck = this@lazyClosure
+
+    while (yieldedCount > sizeBeforeIteration) {
+        val toAdd = hashSetOf<T>()
+        elementsToCheck.forEach {
+            val neighbours = f(it)
+            yieldAll(neighbours)
+            yieldedCount += neighbours.size
+            toAdd.addAll(neighbours)
+        }
+        elementsToCheck = toAdd
+        sizeBeforeIteration = yieldedCount
+    }
 }

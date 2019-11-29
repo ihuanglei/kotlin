@@ -77,11 +77,11 @@ class CompileKotlinAgainstCustomBinariesTest : AbstractKotlinCompilerIntegration
     private fun analyzeAndGetAllDescriptors(vararg extraClassPath: File): Collection<DeclarationDescriptor> =
         DescriptorUtils.getAllDescriptors(analyzeFileToPackageView(*extraClassPath).memberScope)
 
-    private fun doTestBrokenLibrary(libraryName: String, vararg pathsToDelete: String) {
+    private fun doTestBrokenLibrary(libraryName: String, vararg pathsToDelete: String, additionalOptions: List<String> = emptyList()) {
         // This function compiles a library, then deletes one class file and attempts to compile a Kotlin source against
         // this broken library. The expected result is an error message from the compiler
         val library = copyJarFileWithoutEntry(compileLibrary(libraryName), *pathsToDelete)
-        compileKotlin("source.kt", tmpdir, listOf(library))
+        compileKotlin("source.kt", tmpdir, listOf(library), additionalOptions = additionalOptions)
     }
 
     private fun doTestKotlinLibraryWithWrongMetadataVersion(
@@ -199,8 +199,36 @@ class CompileKotlinAgainstCustomBinariesTest : AbstractKotlinCompilerIntegration
         doTestBrokenLibrary("library", "test/Super.class")
     }
 
+    fun testIncompleteHierarchyMissingInterface() {
+        doTestBrokenLibrary("library", "test/A.class")
+    }
+
+    fun testIncompleteHierarchyOnlyImport() {
+        doTestBrokenLibrary("library", "test/Super.class")
+    }
+
+    fun testMissingStaticClass() {
+        doTestBrokenLibrary("library", "test/C\$D.class")
+    }
+
+    fun testIncompleteHierarchyNoErrors() {
+        doTestBrokenLibrary("library", "test/Super.class")
+    }
+
+    fun testIncompleteHierarchyErrorPositions() {
+        doTestBrokenLibrary("library", "test/Super.class")
+    }
+
+    fun testIncompleteHierarchyOfEnclosingClass() {
+        doTestBrokenLibrary("library", "test/Super.class")
+    }
+
     fun testMissingDependencySimple() {
         doTestBrokenLibrary("library", "a/A.class")
+    }
+
+    fun testNonTransitiveDependencyWithJavac() {
+        doTestBrokenLibrary("library", "my/Some.class", additionalOptions = listOf("-Xuse-javac", "-Xcompile-java"))
     }
 
     fun testComputeSupertypeWithMissingDependency() {
@@ -213,6 +241,10 @@ class CompileKotlinAgainstCustomBinariesTest : AbstractKotlinCompilerIntegration
 
     fun testMissingDependencyNestedAnnotation() {
         doTestBrokenLibrary("library", "a/A\$Anno.class")
+    }
+
+    fun testMissingDependencyNestedAnnotationIr() {
+        doTestBrokenLibrary("library", "a/A\$Anno.class", additionalOptions = listOf("-Xuse-ir"))
     }
 
     fun testMissingDependencyConflictingLibraries() {
@@ -582,6 +614,14 @@ class CompileKotlinAgainstCustomBinariesTest : AbstractKotlinCompilerIntegration
                 // TODO: "-Xfriend-paths=${library.path}"
             )
         )
+    }
+
+    fun testInlineAnonymousObjectWithDifferentTarget() {
+        val library = compileLibrary("library", additionalOptions = listOf("-jvm-target", "1.6"))
+        compileKotlin("source.kt", tmpdir, listOf(library), additionalOptions = listOf("-jvm-target", "1.8"))
+        val classLoader =
+            URLClassLoader(arrayOf(library.toURI().toURL(), tmpdir.toURI().toURL()), ForTestCompileRuntime.runtimeJarClassLoader())
+        classLoader.loadClass("SourceKt").getDeclaredMethod("main").invoke(null)
     }
 
     companion object {

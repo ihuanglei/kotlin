@@ -15,10 +15,12 @@ import com.intellij.openapi.util.io.FileUtil
 import com.intellij.openapi.vfs.JarFileSystem
 import com.intellij.openapi.vfs.LocalFileSystem
 import com.intellij.testFramework.fixtures.LightPlatformCodeInsightFixtureTestCase
-import org.jetbrains.kotlin.cli.common.arguments.CommonCompilerArguments
+import org.jetbrains.kotlin.cli.common.arguments.CommonCompilerArguments.Companion.DEFAULT
+import org.jetbrains.kotlin.config.CompilerSettings.Companion.DEFAULT_ADDITIONAL_ARGUMENTS
 import org.jetbrains.kotlin.config.LanguageFeature
 import org.jetbrains.kotlin.config.LanguageVersion
 import org.jetbrains.kotlin.idea.compiler.configuration.KotlinCommonCompilerArgumentsHolder
+import org.jetbrains.kotlin.idea.compiler.configuration.KotlinCompilerSettings
 import org.jetbrains.kotlin.idea.configuration.KotlinJavaModuleConfigurator
 import org.jetbrains.kotlin.idea.facet.KotlinFacetType
 import org.jetbrains.kotlin.idea.facet.getRuntimeLibraryVersion
@@ -33,17 +35,23 @@ import java.io.File
 
 @RunWith(JUnit3WithIdeaConfigurationRunner::class)
 class UpdateConfigurationQuickFixTest : LightPlatformCodeInsightFixtureTestCase() {
-
-    val module: Module get() = myModule
-
     fun testDisableInlineClasses() {
         configureRuntime("mockRuntime11")
         resetProjectSettings(LanguageVersion.KOTLIN_1_3)
         myFixture.configureByText("foo.kt", "inline class My(val n: Int)")
 
         assertEquals(LanguageFeature.State.ENABLED_WITH_WARNING, inlineClassesSupport)
-        myFixture.launchAction(myFixture.findSingleIntention("Disable inline classes support in the project"))
-        assertEquals(LanguageFeature.State.DISABLED, inlineClassesSupport)
+        assertTrue(myFixture.availableIntentions.none { it.text == "Disable inline classes support in the project" })
+    }
+
+    fun testEnableInlineClasses() {
+        configureRuntime("mockRuntime11")
+        resetProjectSettings(LanguageVersion.KOTLIN_1_3)
+        myFixture.configureByText("foo.kt", "inline class My(val n: Int)")
+
+        assertEquals(LanguageFeature.State.ENABLED_WITH_WARNING, inlineClassesSupport)
+        myFixture.launchAction(myFixture.findSingleIntention("Enable inline classes support in the project"))
+        assertEquals(LanguageFeature.State.ENABLED, inlineClassesSupport)
     }
 
     fun testEnableCoroutines() {
@@ -51,7 +59,7 @@ class UpdateConfigurationQuickFixTest : LightPlatformCodeInsightFixtureTestCase(
         resetProjectSettings(LanguageVersion.KOTLIN_1_1)
         myFixture.configureByText("foo.kt", "suspend fun foo()")
 
-        assertEquals(CommonCompilerArguments.WARN, KotlinCommonCompilerArgumentsHolder.getInstance(project).settings.coroutinesState)
+        assertEquals(DEFAULT, KotlinCommonCompilerArgumentsHolder.getInstance(project).settings.coroutinesState)
         assertEquals(LanguageFeature.State.ENABLED_WITH_WARNING, coroutineSupport)
         myFixture.launchAction(myFixture.findSingleIntention("Enable coroutine support in the project"))
         assertEquals(LanguageFeature.State.ENABLED, coroutineSupport)
@@ -62,7 +70,7 @@ class UpdateConfigurationQuickFixTest : LightPlatformCodeInsightFixtureTestCase(
         resetProjectSettings(LanguageVersion.KOTLIN_1_1)
         myFixture.configureByText("foo.kt", "suspend fun foo()")
 
-        assertEquals(CommonCompilerArguments.WARN, KotlinCommonCompilerArgumentsHolder.getInstance(project).settings.coroutinesState)
+        assertEquals(DEFAULT, KotlinCommonCompilerArgumentsHolder.getInstance(project).settings.coroutinesState)
         assertEquals(LanguageFeature.State.ENABLED_WITH_WARNING, coroutineSupport)
         myFixture.launchAction(myFixture.findSingleIntention("Disable coroutine support in the project"))
         assertEquals(LanguageFeature.State.ENABLED_WITH_ERROR, coroutineSupport)
@@ -159,12 +167,14 @@ class UpdateConfigurationQuickFixTest : LightPlatformCodeInsightFixtureTestCase(
 
     fun testAddKotlinReflect() {
         configureRuntime("mockRuntime11")
-        myFixture.configureByText("foo.kt", """class Foo(val prop: Any) {
+        myFixture.configureByText(
+            "foo.kt", """class Foo(val prop: Any) {
                 fun func() {}
             }
 
             fun y01() = Foo::prop.gett<caret>er
-            """)
+            """
+        )
         myFixture.launchAction(myFixture.findSingleIntention("Add kotlin-reflect.jar to the classpath"))
         val kotlinRuntime = KotlinJavaModuleConfigurator.instance.getKotlinLibrary(module)!!
         val classes = kotlinRuntime.getFiles(OrderRootType.CLASSES).map { it.name }
@@ -190,10 +200,13 @@ class UpdateConfigurationQuickFixTest : LightPlatformCodeInsightFixtureTestCase(
     }
 
     private fun resetProjectSettings(version: LanguageVersion) {
+        KotlinCompilerSettings.getInstance(project).update {
+            additionalArguments = DEFAULT_ADDITIONAL_ARGUMENTS
+        }
         KotlinCommonCompilerArgumentsHolder.getInstance(project).update {
             languageVersion = version.versionString
             apiVersion = version.versionString
-            coroutinesState = CommonCompilerArguments.WARN
+            coroutinesState = DEFAULT
         }
     }
 
@@ -204,6 +217,7 @@ class UpdateConfigurationQuickFixTest : LightPlatformCodeInsightFixtureTestCase(
         get() = project.getLanguageVersionSettings().getFeatureSupport(LanguageFeature.InlineClasses)
 
     override fun tearDown() {
+        resetProjectSettings(LanguageVersion.KOTLIN_1_3)
         FacetManager.getInstance(module).getFacetByType(KotlinFacetType.TYPE_ID)?.let {
             FacetUtil.deleteFacet(it)
         }

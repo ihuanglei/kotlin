@@ -55,10 +55,9 @@ import org.jetbrains.kotlin.fir.builder.RawFirBuilder
 import org.jetbrains.kotlin.fir.java.FirJavaModuleBasedSession
 import org.jetbrains.kotlin.fir.java.FirLibrarySession
 import org.jetbrains.kotlin.fir.java.FirProjectSessionProvider
-import org.jetbrains.kotlin.fir.resolve.FirProvider
+import org.jetbrains.kotlin.fir.resolve.firProvider
 import org.jetbrains.kotlin.fir.resolve.impl.FirProviderImpl
 import org.jetbrains.kotlin.fir.resolve.transformers.FirTotalResolveTransformer
-import org.jetbrains.kotlin.fir.service
 import org.jetbrains.kotlin.idea.MainFunctionDetector
 import org.jetbrains.kotlin.javac.JavacWrapper
 import org.jetbrains.kotlin.load.kotlin.ModuleVisibilityManager
@@ -83,14 +82,14 @@ object KotlinToJVMBytecodeCompiler {
     private fun writeOutput(
         configuration: CompilerConfiguration,
         outputFiles: OutputFileCollection,
-        mainClass: FqName?
+        mainClassProvider: MainClassProvider?
     ) {
         val reportOutputFiles = configuration.getBoolean(CommonConfigurationKeys.REPORT_OUTPUT_FILES)
         val jarPath = configuration.get(JVMConfigurationKeys.OUTPUT_JAR)
         val messageCollector = configuration.get(CLIConfigurationKeys.MESSAGE_COLLECTOR_KEY, MessageCollector.NONE)
         if (jarPath != null) {
             val includeRuntime = configuration.get(JVMConfigurationKeys.INCLUDE_RUNTIME, false)
-            CompileEnvironmentUtil.writeToJar(jarPath, includeRuntime, mainClass, outputFiles)
+            CompileEnvironmentUtil.writeToJar(jarPath, includeRuntime, mainClassProvider?.mainClassFqName, outputFiles)
             if (reportOutputFiles) {
                 val message = OutputMessageUtil.formatOutputMessage(outputFiles.asList().flatMap { it.sourceFiles }.distinct(), jarPath)
                 messageCollector.report(OUTPUT, message)
@@ -108,7 +107,7 @@ object KotlinToJVMBytecodeCompiler {
         }
         return GenerationStateEventCallback { state ->
             val currentOutput = SimpleOutputFileCollection(state.factory.currentOutput)
-            writeOutput(configuration, currentOutput, mainClass = null)
+            writeOutput(configuration, currentOutput, null)
             if (!configuration.get(JVMConfigurationKeys.RETAIN_OUTPUT_IN_MEMORY, false)) {
                 state.factory.releaseGeneratedOutput()
             }
@@ -207,29 +206,30 @@ object KotlinToJVMBytecodeCompiler {
         try {
             for ((_, state) in outputs) {
                 ProgressIndicatorAndCompilationCanceledStatus.checkCanceled()
-                writeOutput(state.configuration, state.factory, null)
+                val mainClassProvider = if (outputs.size == 1) MainClassProvider(state, environment) else null
+                writeOutput(state.configuration, state.factory, mainClassProvider)
             }
-
-            if (projectConfiguration.getBoolean(JVMConfigurationKeys.COMPILE_JAVA)) {
-                val singleModule = chunk.singleOrNull()
-                if (singleModule != null) {
-                    return JavacWrapper.getInstance(environment.project).use {
-                        it.compile(File(singleModule.getOutputDirectory()))
-                    }
-                } else {
-                    projectConfiguration.getNotNull(CLIConfigurationKeys.MESSAGE_COLLECTOR_KEY).report(
-                        WARNING,
-                        "A chunk contains multiple modules (${chunk.joinToString { it.getModuleName() }}). " +
-                                "-Xuse-javac option couldn't be used to compile java files"
-                    )
-                    JavacWrapper.getInstance(environment.project).close()
-                }
-            }
-
-            return true
         } finally {
             outputs.values.forEach(GenerationState::destroy)
         }
+
+        if (projectConfiguration.getBoolean(JVMConfigurationKeys.COMPILE_JAVA)) {
+            val singleModule = chunk.singleOrNull()
+            if (singleModule != null) {
+                return JavacWrapper.getInstance(environment.project).use {
+                    it.compile(File(singleModule.getOutputDirectory()))
+                }
+            } else {
+                projectConfiguration.getNotNull(CLIConfigurationKeys.MESSAGE_COLLECTOR_KEY).report(
+                    WARNING,
+                    "A chunk contains multiple modules (${chunk.joinToString { it.getModuleName() }}). " +
+                            "-Xuse-javac option couldn't be used to compile java files"
+                )
+                JavacWrapper.getInstance(environment.project).close()
+            }
+        }
+
+        return true
     }
 
     internal fun configureSourceRoots(configuration: CompilerConfiguration, chunk: List<Module>, buildFile: File? = null) {
@@ -329,7 +329,7 @@ object KotlinToJVMBytecodeCompiler {
             val resolveTransformer = FirTotalResolveTransformer()
             val firFiles = ktFiles.map {
                 val firFile = builder.buildFirFile(it)
-                (session.service<FirProvider>() as FirProviderImpl).recordFile(firFile)
+                (session.firProvider as FirProviderImpl).recordFile(firFile)
                 firFile
             }.also {
                 try {
@@ -353,6 +353,8 @@ object KotlinToJVMBytecodeCompiler {
                 module
             ).onIndependentPartCompilationEnd(
                 createOutputFilesFlushingCallbackIfPossible(moduleConfiguration)
+            ).isIrBackend(
+                true
             ).build()
 
             ProgressIndicatorAndCompilationCanceledStatus.checkCanceled()
@@ -397,16 +399,20 @@ object KotlinToJVMBytecodeCompiler {
             (File(path).takeIf(File::isAbsolute) ?: buildFile.resolveSibling(path)).absolutePath
         }
 
-    private fun findMainClass(generationState: GenerationState, files: List<KtFile>): FqName? {
-        val mainFunctionDetector = MainFunctionDetector(generationState.bindingContext, generationState.languageVersionSettings)
-        return files.asSequence()
-            .map { file ->
-                if (mainFunctionDetector.hasMain(file.declarations))
-                    JvmFileClassUtil.getFileClassInfoNoResolve(file).facadeClassFqName
-                else
-                    null
-            }
-            .singleOrNull { it != null }
+    class MainClassProvider(generationState: GenerationState, environment: KotlinCoreEnvironment) {
+        val mainClassFqName: FqName? by lazy { findMainClass(generationState, environment.getSourceFiles()) }
+
+        private fun findMainClass(generationState: GenerationState, files: List<KtFile>): FqName? {
+            val mainFunctionDetector = MainFunctionDetector(generationState.bindingContext, generationState.languageVersionSettings)
+            return files.asSequence()
+                .map { file ->
+                    if (mainFunctionDetector.hasMain(file.declarations))
+                        JvmFileClassUtil.getFileClassInfoNoResolve(file).facadeClassFqName
+                    else
+                        null
+                }
+                .singleOrNull { it != null }
+        }
     }
 
     fun compileBunchOfSources(environment: KotlinCoreEnvironment): Boolean {
@@ -421,10 +427,8 @@ object KotlinToJVMBytecodeCompiler {
 
         val generationState = analyzeAndGenerate(environment) ?: return false
 
-        val mainClass = findMainClass(generationState, environment.getSourceFiles())
-
         try {
-            writeOutput(environment.configuration, generationState.factory, mainClass)
+            writeOutput(environment.configuration, generationState.factory, MainClassProvider(generationState, environment))
             return true
         } finally {
             generationState.destroy()
@@ -456,7 +460,7 @@ object KotlinToJVMBytecodeCompiler {
         environment: KotlinCoreEnvironment,
         targetDescription: String?
     ): AnalysisResult? {
-        if (result is AnalysisResult.RetryWithAdditionalJavaRoots) {
+        if (result is AnalysisResult.RetryWithAdditionalRoots) {
             val configuration = environment.configuration
 
             val oldReadOnlyValue = configuration.isReadOnly
@@ -466,6 +470,10 @@ object KotlinToJVMBytecodeCompiler {
 
             if (result.addToEnvironment) {
                 environment.updateClasspath(result.additionalJavaRoots.map { JavaSourceRoot(it, null) })
+            }
+
+            if (result.additionalKotlinRoots.isNotEmpty()) {
+                environment.addKotlinSourceRoots(result.additionalKotlinRoots)
             }
 
             KotlinJavaPsiFacade.getInstance(environment.project).clearPackageCaches()
@@ -559,7 +567,7 @@ object KotlinToJVMBytecodeCompiler {
 
         val analysisResult = analyzerWithCompilerReport.analysisResult
 
-        return if (!analyzerWithCompilerReport.hasErrors() || analysisResult is AnalysisResult.RetryWithAdditionalJavaRoots)
+        return if (!analyzerWithCompilerReport.hasErrors() || analysisResult is AnalysisResult.RetryWithAdditionalRoots)
             analysisResult
         else
             null
@@ -617,6 +625,7 @@ object KotlinToJVMBytecodeCompiler {
             )
             .withModule(module)
             .onIndependentPartCompilationEnd(createOutputFilesFlushingCallbackIfPossible(configuration))
+            .isIrBackend(isIR)
             .build()
 
         ProgressIndicatorAndCompilationCanceledStatus.checkCanceled()

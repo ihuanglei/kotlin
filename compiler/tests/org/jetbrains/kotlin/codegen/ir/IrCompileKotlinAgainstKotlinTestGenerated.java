@@ -94,11 +94,6 @@ public class IrCompileKotlinAgainstKotlinTestGenerated extends AbstractIrCompile
     }
 
     @TestMetadata("coroutinesBinary.kt")
-    public void testCoroutinesBinary_1_2() throws Exception {
-        runTestWithPackageReplacement("compiler/testData/compileKotlinAgainstKotlin/coroutinesBinary.kt", "kotlin.coroutines.experimental");
-    }
-
-    @TestMetadata("coroutinesBinary.kt")
     public void testCoroutinesBinary_1_3() throws Exception {
         runTestWithPackageReplacement("compiler/testData/compileKotlinAgainstKotlin/coroutinesBinary.kt", "kotlin.coroutines");
     }
@@ -128,9 +123,19 @@ public class IrCompileKotlinAgainstKotlinTestGenerated extends AbstractIrCompile
         runTest("compiler/testData/compileKotlinAgainstKotlin/enum.kt");
     }
 
+    @TestMetadata("expectClassActualTypeAlias.kt")
+    public void testExpectClassActualTypeAlias() throws Exception {
+        runTest("compiler/testData/compileKotlinAgainstKotlin/expectClassActualTypeAlias.kt");
+    }
+
     @TestMetadata("inlineClassFromBinaryDependencies.kt")
     public void testInlineClassFromBinaryDependencies() throws Exception {
         runTest("compiler/testData/compileKotlinAgainstKotlin/inlineClassFromBinaryDependencies.kt");
+    }
+
+    @TestMetadata("inlineClassInlineProperty.kt")
+    public void testInlineClassInlineProperty() throws Exception {
+        runTest("compiler/testData/compileKotlinAgainstKotlin/inlineClassInlineProperty.kt");
     }
 
     @TestMetadata("inlinedConstants.kt")
@@ -221,6 +226,11 @@ public class IrCompileKotlinAgainstKotlinTestGenerated extends AbstractIrCompile
     @TestMetadata("kt21775.kt")
     public void testKt21775() throws Exception {
         runTest("compiler/testData/compileKotlinAgainstKotlin/kt21775.kt");
+    }
+
+    @TestMetadata("metadataForMembersInLocalClassInInitializer.kt")
+    public void testMetadataForMembersInLocalClassInInitializer() throws Exception {
+        runTest("compiler/testData/compileKotlinAgainstKotlin/metadataForMembersInLocalClassInInitializer.kt");
     }
 
     @TestMetadata("multifileClassInlineFunctionAccessingProperty.kt")

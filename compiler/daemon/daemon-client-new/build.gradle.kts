@@ -35,11 +35,12 @@ dependencies {
     compileOnly(project(":daemon-common-new"))
     compileOnly(project(":kotlin-reflect-api"))
     compileOnly(project(":kotlin-daemon-client"))
-    embedded(project(":kotlin-daemon-client")) { isTransitive = false }
     compileOnly(project(":js:js.frontend"))
+    compileOnly(project(":daemon-common")) { isTransitive = false }
     compileOnly(commonDep("net.rubygrapefruit", "native-platform"))
     compileOnly(intellijDep()) { includeIntellijCoreJarDependencies(project) }
 
+    embedded(project(":kotlin-daemon-client")) { isTransitive = false }
     embedded(project(":daemon-common")) { isTransitive = false }
     embedded(commonDep("net.rubygrapefruit", "native-platform"))
     nativePlatformVariants.forEach {
@@ -64,12 +65,10 @@ publish()
 
 noDefaultJar()
 
-runtimeJar(task<ShadowJar>("shadowJar")) {
+runtimeJar(tasks.register<ShadowJar>("shadowJar")) {
     from(mainSourceSet.output)
 }
 
 sourcesJar()
 
 javadocJar()
-
-dist()

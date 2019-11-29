@@ -19,6 +19,11 @@ dependencies {
         includeJars("guava", rootProject = rootProject)
     }
     testRuntimeOnly(project(":kotlin-compiler"))
+
+    Platform[192].orHigher {
+        testRuntimeOnly(intellijDep()) { includeJars("platform-concurrency") }
+    }
+    
     testCompile(project(":compiler:backend"))
     testCompile(project(":compiler:cli"))
     testCompile(projectTests(":compiler:tests-common"))
@@ -32,10 +37,14 @@ sourceSets {
 
 runtimeJar()
 
-testsJar()
+sourcesJar()
 
-dist(targetName = the<BasePluginConvention>().archivesBaseName.removePrefix("kotlin-") + ".jar")
+javadocJar()
+
+testsJar()
 
 projectTest(parallel = true) {
     workingDir = rootDir
 }
+
+apply(from = "$rootDir/gradle/kotlinPluginPublication.gradle.kts")

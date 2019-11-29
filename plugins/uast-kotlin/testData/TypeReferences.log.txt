@@ -1,6 +1,6 @@
 UFile (package = )
     UClass (name = TypeReferencesKt)
-        UAnnotationMethod (name = foo)
+        UMethod (name = foo)
             UParameter (name = parameter)
                 UAnnotation (fqName = org.jetbrains.annotations.NotNull)
             UBlockExpression
@@ -17,7 +17,7 @@ UFile (package = )
                             USimpleNameReferenceExpression (identifier = varWithoutType)
                 UReturnExpression
                     USimpleNameReferenceExpression (identifier = result)
-        UAnnotationMethod (name = parameterizedFoo)
+        UMethod (name = parameterizedFoo)
             UParameter (name = arg)
                 UAnnotation (fqName = org.jetbrains.annotations.Nullable)
             UBlockExpression
@@ -52,11 +52,12 @@ UFile (package = )
                                 USimpleNameReferenceExpression (identifier = map, resolvesTo = null)
                                 ULambdaExpression
                                     UBlockExpression
-                                        UQualifiedReferenceExpression
-                                            USimpleNameReferenceExpression (identifier = it)
-                                            UCallExpression (kind = UastCallKind(name='method_call'), argCount = 0))
-                                                UIdentifier (Identifier (toString))
-                                                USimpleNameReferenceExpression (identifier = toString, resolvesTo = null)
+                                        UReturnExpression
+                                            UQualifiedReferenceExpression
+                                                USimpleNameReferenceExpression (identifier = it)
+                                                UCallExpression (kind = UastCallKind(name='method_call'), argCount = 0))
+                                                    UIdentifier (Identifier (toString))
+                                                    USimpleNameReferenceExpression (identifier = toString, resolvesTo = null)
                 UDeclarationsExpression
                     ULocalVariable (name = lls)
                 UDeclarationsExpression

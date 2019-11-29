@@ -5,10 +5,7 @@
 
 package org.jetbrains.kotlin.backend.common.serialization
 
-import org.jetbrains.kotlin.descriptors.ModuleDescriptor
-import org.jetbrains.kotlin.descriptors.PropertyAccessorDescriptor
-import org.jetbrains.kotlin.descriptors.Visibilities
-import org.jetbrains.kotlin.descriptors.Visibility
+import org.jetbrains.kotlin.descriptors.*
 import org.jetbrains.kotlin.ir.declarations.*
 import org.jetbrains.kotlin.ir.symbols.IrTypeParameterSymbol
 import org.jetbrains.kotlin.ir.types.*
@@ -16,22 +13,25 @@ import org.jetbrains.kotlin.ir.util.*
 import org.jetbrains.kotlin.name.FqName
 import org.jetbrains.kotlin.name.Name
 
-interface KotlinMangler {
-    val String.hashMangle: Long
-    val IrDeclaration.hashedMangle: Long
-    fun IrDeclaration.isExported(): Boolean
-    val IrFunction.functionName: String
-    val IrType.isInlined: Boolean
-}
+private const val PUBLIC_MANGLE_FLAG = 1L shl 63
 
-abstract class KotlinManglerImpl: KotlinMangler {
+abstract class KotlinManglerImpl : KotlinMangler {
+
+    override val String.hashMangle get() = (this.cityHash64() % PUBLIC_MANGLE_FLAG) or PUBLIC_MANGLE_FLAG
+
+    private fun hashedMangleImpl(declaration: IrDeclaration): Long {
+        return declaration.uniqSymbolName().hashMangle
+    }
+
     override val IrDeclaration.hashedMangle: Long
-        get() = this.uniqSymbolName().hashMangle
+        get() = hashedMangleImpl(this)
 
 
     // We can't call "with (super) { this.isExported() }" in children.
     // So provide a hook.
     protected open fun IrDeclaration.isPlatformSpecificExported(): Boolean = false
+
+    override fun IrDeclaration.isExported(): Boolean = isExportedImpl(this)
 
     /**
      * Defines whether the declaration is exported, i.e. visible from other modules.
@@ -40,27 +40,31 @@ abstract class KotlinManglerImpl: KotlinMangler {
      * that doesn't depend on any internal transformations (e.g. IR lowering),
      * and so should be computable from the descriptor itself without checking a backend state.
      */
-    override tailrec fun IrDeclaration.isExported(): Boolean {
+    private tailrec fun isExportedImpl(declaration: IrDeclaration): Boolean {
         // TODO: revise
-        val descriptorAnnotations = this.descriptor.annotations
+        val descriptorAnnotations = declaration.descriptor.annotations
 
-        if (this.isPlatformSpecificExported()) return true
+        if (declaration.isPlatformSpecificExported()) return true
+
+        if (declaration is IrTypeAlias && declaration.parent is IrPackageFragment) {
+            return true
+        }
 
         if (descriptorAnnotations.hasAnnotation(publishedApiAnnotation)) {
             return true
         }
 
-        if (this.isAnonymousObject)
+        if (declaration.isAnonymousObject)
             return false
 
-        if (this is IrConstructor && constructedClass.kind.isSingleton) {
+        if (declaration is IrConstructor && declaration.constructedClass.kind.isSingleton) {
             // Currently code generator can access the constructor of the singleton,
             // so ignore visibility of the constructor itself.
-            return constructedClass.isExported()
+            return isExportedImpl(declaration.constructedClass)
         }
 
-        if (this is IrFunction) {
-            val descriptor = this.descriptor
+        if (declaration is IrFunction) {
+            val descriptor = declaration.descriptor
             // TODO: this code is required because accessor doesn't have a reference to property.
             if (descriptor is PropertyAccessorDescriptor) {
                 val property = descriptor.correspondingProperty
@@ -68,11 +72,12 @@ abstract class KotlinManglerImpl: KotlinMangler {
             }
         }
 
-        val visibility = when (this) {
-            is IrClass -> this.visibility
-            is IrFunction -> this.visibility
-            is IrProperty -> this.visibility
-            is IrField -> this.visibility
+        val visibility = when (declaration) {
+            is IrClass -> declaration.visibility
+            is IrFunction -> declaration.visibility
+            is IrProperty -> declaration.visibility
+            is IrField -> declaration.visibility
+            is IrTypeAlias -> declaration.visibility
             else -> null
         }
 
@@ -85,9 +90,9 @@ abstract class KotlinManglerImpl: KotlinMangler {
             return false
         }
 
-        val parent = this.parent
+        val parent = declaration.parent
         if (parent is IrDeclaration) {
-            return parent.isExported()
+            return isExportedImpl(parent)
         }
 
         return true
@@ -142,9 +147,10 @@ abstract class KotlinManglerImpl: KotlinMangler {
     val IrValueParameter.extensionReceiverNamePart: String
         get() = "@${typeToHashString(this.type)}."
 
-    open val IrFunction.argsPart get() = this.valueParameters.map {
-        "${typeToHashString(it.type)}${if (it.isVararg) "_VarArg" else ""}"
-    }.joinToString(";")
+    open val IrFunction.argsPart
+        get() = this.valueParameters.map {
+            "${typeToHashString(it.type)}${if (it.isVararg) "_VarArg" else ""}"
+        }.joinToString(";")
 
     open val IrFunction.signature: String
         get() {
@@ -168,10 +174,13 @@ abstract class KotlinManglerImpl: KotlinMangler {
     override val IrFunction.functionName: String
         get() {
             // TODO: Again. We can't call super in children, so provide a hook for now.
-            this.platformSpecificFunctionName ?. let { return it }
+            this.platformSpecificFunctionName?.let { return it }
             val name = this.name.mangleIfInternal(this.module, this.visibility)
             return "$name$signature"
         }
+
+    override val Long.isSpecial: Boolean
+        get() = specialHashes.contains(this)
 
     fun Name.mangleIfInternal(moduleDescriptor: ModuleDescriptor, visibility: Visibility): String =
         if (visibility != Visibilities.INTERNAL) {
@@ -194,32 +203,42 @@ abstract class KotlinManglerImpl: KotlinMangler {
 
     val IrClass.typeInfoSymbolName: String
         get() {
-            assert(this.isExported())
+            assert(isExportedImpl(this))
+            if (isBuiltInFunction(this))
+                return KotlinMangler.functionClassSymbolName(name)
             return "ktype:" + this.fqNameForIrSerialization.toString()
         }
 
     val IrTypeParameter.symbolName: String
         get() {
-            val containingDeclarationPart = parent.fqNameForIrSerialization
-            return "ktypeparam:$containingDeclarationPart$name"
+
+            val parentDeclaration = (parent as? IrSimpleFunction)?.correspondingPropertySymbol?.owner ?: parent
+            val containingDeclarationPart = when (parentDeclaration) {
+                is IrDeclaration -> parentDeclaration.uniqSymbolName()
+                else -> error("Unexpected type parameter parent")
+            }
+            return "ktypeparam:$containingDeclarationPart$name@$index"
+        }
+
+    val IrTypeAlias.symbolName: String
+        get() {
+            val containingDeclarationPart = parent.fqNameForIrSerialization.let {
+                if (it.isRoot) "" else "$it."
+            }
+            return "ktypealias:$containingDeclarationPart$name"
         }
 
 // This is a little extension over what's used in real mangling
 // since some declarations never appear in the bitcode symbols.
 
     internal fun IrDeclaration.uniqSymbolName(): String = when (this) {
-        is IrFunction
-        -> this.uniqFunctionName
-        is IrProperty
-        -> this.symbolName
-        is IrClass
-        -> this.typeInfoSymbolName
-        is IrField
-        -> this.symbolName
-        is IrEnumEntry
-        -> this.symbolName
-        is IrTypeParameter
-        -> this.symbolName
+        is IrFunction -> this.uniqFunctionName
+        is IrProperty -> this.symbolName
+        is IrClass -> this.typeInfoSymbolName
+        is IrField -> this.symbolName
+        is IrEnumEntry -> this.symbolName
+        is IrTypeParameter -> this.symbolName
+        is IrTypeAlias -> this.symbolName
         else -> error("Unexpected exported declaration: $this")
     }
 
@@ -238,7 +257,7 @@ abstract class KotlinManglerImpl: KotlinMangler {
 
     private val IrProperty.symbolName: String
         get() {
-            val extensionReceiver: String = getter!!.extensionReceiverParameter?.extensionReceiverNamePart ?: ""
+            val extensionReceiver: String = getter?.extensionReceiverParameter?.extensionReceiverNamePart ?: ""
 
             val containingDeclarationPart = parent.fqNameForIrSerialization.let {
                 if (it.isRoot) "" else "$it."
@@ -258,6 +277,8 @@ abstract class KotlinManglerImpl: KotlinMangler {
 // In addition functions appearing in fq sequence appear as <full signature>.
     private val IrFunction.uniqFunctionName: String
         get() {
+            if (isBuiltInFunction(this))
+                return KotlinMangler.functionInvokeSymbolName(parentAsClass.name)
             val parent = this.parent
 
             val containingDeclarationPart = parent.fqNameUnique.let {
@@ -267,5 +288,9 @@ abstract class KotlinManglerImpl: KotlinMangler {
             return "kfun:$containingDeclarationPart#$functionName"
         }
 
-
+    private val specialHashes = listOf("Function", "KFunction", "SuspendFunction", "KSuspendFunction")
+        .flatMap { name ->
+            (0..255).map { KotlinMangler.functionClassSymbolName(Name.identifier(name + it)) }
+        }.map { it.hashMangle }
+        .toSet()
 }

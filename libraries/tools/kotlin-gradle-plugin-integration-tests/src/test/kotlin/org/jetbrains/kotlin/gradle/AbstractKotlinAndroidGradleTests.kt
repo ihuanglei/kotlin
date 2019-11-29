@@ -20,9 +20,6 @@ open class KotlinAndroid32GradleIT : KotlinAndroid3GradleIT() {
     override val androidGradlePluginVersion: AGPVersion
         get() = AGPVersion.v3_2_0
 
-    override val defaultGradleVersion: GradleVersionRequired
-        get() = GradleVersionRequired.AtLeast("4.6")
-
     @Test
     fun testAndroidWithNewMppApp() = with(Project("new-mpp-android", GradleVersionRequired.AtLeast("5.0"))) {
         build("assemble", "compileDebugUnitTestJavaWithJavac", "printCompilerPluginOptions") {
@@ -328,6 +325,19 @@ open class KotlinAndroid32GradleIT : KotlinAndroid3GradleIT() {
     }
 
     @Test
+    fun testLintInAndroidProjectsDependingOnMppWithoutAndroid() = with(Project("AndroidProject")) {
+        embedProject(Project("sample-lib", directoryPrefix = "new-mpp-lib-and-app"))
+        gradleBuildScript("Lib").appendText(
+            "\ndependencies { implementation(project(':sample-lib')) }"
+        )
+        val lintTask = ":Lib:lintFlavor1Debug"
+        build(lintTask) {
+            assertSuccessful()
+            assertTasksExecuted(lintTask) // Check that the lint task ran successfully, KT-27170
+        }
+    }
+
+    @Test
     fun testKaptUsingApOptionProvidersAsNestedInputOutput() = with(Project("AndroidProject")) {
         setupWorkingDir()
 
@@ -397,6 +407,38 @@ class KotlinAndroid30GradleIT : KotlinAndroid3GradleIT() {
 
     override val defaultGradleVersion: GradleVersionRequired
         get() = GradleVersionRequired.Until("4.10.2")
+
+    @Test
+    fun testOmittedStdlibVersion() = Project("AndroidProject").run {
+        setupWorkingDir()
+
+        gradleBuildScript("Lib").modify {
+            it.checkedReplace("kotlin-stdlib:\$kotlin_version", "kotlin-stdlib") + "\n" + """
+            apply plugin: 'maven'
+            group 'com.example'
+            version '1.0'
+            android {
+                defaultPublishConfig 'flavor1Debug'
+            }
+            uploadArchives {
+                repositories {
+                    mavenDeployer {
+                        repository(url: "file://${'$'}buildDir/repo")
+                    }
+                }
+            }
+            """.trimIndent()
+        }
+
+        build(":Lib:assembleFlavor1Debug", ":Lib:uploadArchives") {
+            assertSuccessful()
+            assertTasksExecuted(":Lib:compileFlavor1DebugKotlin", ":Lib:uploadArchives")
+            val pomLines = File(projectDir, "Lib/build/repo/com/example/Lib/1.0/Lib-1.0.pom").readLines()
+            val stdlibVersionLineNumber = pomLines.indexOfFirst { "<artifactId>kotlin-stdlib</artifactId>" in it } + 1
+            val versionLine = pomLines[stdlibVersionLineNumber]
+            assertTrue { "<version>${defaultBuildOptions().kotlinVersion}</version>" in versionLine }
+        }
+    }
 }
 
 abstract class KotlinAndroid3GradleIT : AbstractKotlinAndroidGradleTests() {

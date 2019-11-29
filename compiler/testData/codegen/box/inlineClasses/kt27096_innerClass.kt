@@ -1,5 +1,5 @@
 // !LANGUAGE: +InlineClasses
-// IGNORE_BACKEND: JVM_IR
+// IGNORE_BACKEND_FIR: JVM_IR
 
 class Outer<X>(val x: X) {
     inner class Inner<Y>(val y: Y) {

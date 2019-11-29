@@ -32,14 +32,14 @@ import org.jetbrains.kotlin.cli.common.messages.MessageCollector
 import org.jetbrains.kotlin.config.JvmTarget
 import org.jetbrains.kotlin.config.KotlinFacetSettingsProvider
 import org.jetbrains.kotlin.config.LanguageVersionSettings
-import org.jetbrains.kotlin.platform.TargetPlatformVersion
 import org.jetbrains.kotlin.idea.caches.project.*
 import org.jetbrains.kotlin.idea.project.getLanguageVersionSettings
 import org.jetbrains.kotlin.idea.project.languageVersionSettings
 import org.jetbrains.kotlin.idea.project.platform
-import org.jetbrains.kotlin.scripting.definitions.ScriptDefinition
+import org.jetbrains.kotlin.platform.TargetPlatformVersion
 import org.jetbrains.kotlin.platform.jvm.JdkPlatform
 import org.jetbrains.kotlin.platform.subplatformOfType
+import org.jetbrains.kotlin.scripting.definitions.ScriptDefinition
 import org.jetbrains.kotlin.utils.Jsr305State
 
 object IDELanguageSettingsProvider : LanguageSettingsProvider {
@@ -62,7 +62,7 @@ object IDELanguageSettingsProvider : LanguageSettingsProvider {
     private fun computeJsr305State(project: Project): Jsr305State? {
         var result: Jsr305State? = null
         for (module in ModuleManager.getInstance(project).modules) {
-            val settings = KotlinFacetSettingsProvider.getInstance(project).getSettings(module) ?: continue
+            val settings = KotlinFacetSettingsProvider.getInstance(project)?.getSettings(module) ?: continue
             val compilerArguments = settings.mergedCompilerArguments as? K2JVMCompilerArguments ?: continue
 
             result = Jsr305Parser(MessageCollector.NONE).parse(
@@ -91,6 +91,10 @@ private data class ScriptLanguageSettings(
 )
 
 private val SCRIPT_LANGUAGE_SETTINGS = Key.create<CachedValue<ScriptLanguageSettings>>("SCRIPT_LANGUAGE_SETTINGS")
+
+fun getTargetPlatformVersionForScripts(project: Project, scriptDefinition: ScriptDefinition): TargetPlatformVersion {
+    return getLanguageSettingsForScripts(project, scriptDefinition).targetPlatformVersion
+}
 
 private fun getLanguageSettingsForScripts(project: Project, scriptDefinition: ScriptDefinition): ScriptLanguageSettings {
     val args = scriptDefinition.compilerOptions

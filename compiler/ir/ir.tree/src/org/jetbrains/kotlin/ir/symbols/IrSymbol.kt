@@ -18,13 +18,19 @@ package org.jetbrains.kotlin.ir.symbols
 
 import org.jetbrains.kotlin.descriptors.*
 import org.jetbrains.kotlin.ir.declarations.*
+import org.jetbrains.kotlin.ir.declarations.IrScript
 import org.jetbrains.kotlin.ir.expressions.IrReturnableBlock
 import org.jetbrains.kotlin.ir.util.IrSymbolVisitor
+import org.jetbrains.kotlin.ir.util.UniqId
+import org.jetbrains.kotlin.types.model.TypeConstructorMarker
+import org.jetbrains.kotlin.types.model.TypeParameterMarker
 
 interface IrSymbol {
     val owner: IrSymbolOwner
     val descriptor: DeclarationDescriptor
     val isBound: Boolean
+
+    var uniqId: UniqId
 
     fun <D, R> accept(visitor: IrSymbolVisitor<R, D>, data: D): R
 }
@@ -79,7 +85,7 @@ interface IrFieldSymbol :
 }
 
 interface IrClassifierSymbol :
-    IrSymbol {
+    IrSymbol, TypeConstructorMarker {
 
     override val descriptor: ClassifierDescriptor
 
@@ -94,8 +100,15 @@ interface IrClassSymbol :
         visitor.visitClassSymbol(this, data)
 }
 
+interface IrScriptSymbol :
+    IrSymbol, IrBindableSymbol<ScriptDescriptor, IrScript> {
+
+    override fun <D, R> accept(visitor: IrSymbolVisitor<R, D>, data: D): R =
+        visitor.visitSymbol(this, data)
+}
+
 interface IrTypeParameterSymbol :
-    IrClassifierSymbol, IrBindableSymbol<TypeParameterDescriptor, IrTypeParameter> {
+    IrClassifierSymbol, IrBindableSymbol<TypeParameterDescriptor, IrTypeParameter>, TypeParameterMarker {
 
     override fun <D, R> accept(visitor: IrSymbolVisitor<R, D>, data: D): R =
         visitor.visitTypeParameterSymbol(this, data)
@@ -176,4 +189,11 @@ interface IrLocalDelegatedPropertySymbol :
 
     override fun <D, R> accept(visitor: IrSymbolVisitor<R, D>, data: D): R =
         visitor.visitLocalDelegatedPropertySymbol(this, data)
+}
+
+interface IrTypeAliasSymbol :
+    IrBindableSymbol<TypeAliasDescriptor, IrTypeAlias> {
+
+    override fun <D, R> accept(visitor: IrSymbolVisitor<R, D>, data: D): R =
+        visitor.visitTypeAliasSymbol(this, data)
 }

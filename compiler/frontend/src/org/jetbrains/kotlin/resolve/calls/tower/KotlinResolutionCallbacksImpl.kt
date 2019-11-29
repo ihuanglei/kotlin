@@ -38,12 +38,11 @@ import org.jetbrains.kotlin.resolve.constants.evaluate.ConstantExpressionEvaluat
 import org.jetbrains.kotlin.resolve.deprecation.DeprecationResolver
 import org.jetbrains.kotlin.resolve.descriptorUtil.builtIns
 import org.jetbrains.kotlin.resolve.scopes.LexicalScope
-import org.jetbrains.kotlin.resolve.scopes.receivers.ExpressionReceiver
-import org.jetbrains.kotlin.resolve.scopes.receivers.ReceiverValueWithSmartCastInfo
 import org.jetbrains.kotlin.types.*
 import org.jetbrains.kotlin.types.expressions.DoubleColonExpressionResolver
 import org.jetbrains.kotlin.types.expressions.ExpressionTypingServices
 import org.jetbrains.kotlin.types.expressions.KotlinTypeInfo
+import org.jetbrains.kotlin.types.refinement.TypeRefinement
 import org.jetbrains.kotlin.types.typeUtil.isUnit
 import org.jetbrains.kotlin.types.typeUtil.makeNullable
 import org.jetbrains.kotlin.utils.addIfNotNull
@@ -74,7 +73,8 @@ class KotlinResolutionCallbacksImpl(
     val doubleColonExpressionResolver: DoubleColonExpressionResolver,
     val deprecationResolver: DeprecationResolver,
     val moduleDescriptor: ModuleDescriptor,
-    val topLevelCallContext: BasicCallResolutionContext?
+    val topLevelCallContext: BasicCallResolutionContext?,
+    val missingSupertypesResolver: MissingSupertypesResolver
 ) : KotlinResolutionCallbacks {
     class LambdaInfo(val expectedType: UnwrappedType, val contextDependency: ContextDependency) {
         val returnStatements = ArrayList<Pair<KtReturnExpression, LambdaContextInfo?>>()
@@ -130,8 +130,22 @@ class KotlinResolutionCallbacksImpl(
         trace.record(BindingContext.NEW_INFERENCE_LAMBDA_INFO, psiCallArgument.ktFunction, lambdaInfo)
 
         val builtIns = outerCallContext.scope.ownerDescriptor.builtIns
+
+        // We have to refine receiverType because resolve inside lambda needs proper scope from receiver,
+        // and for implicit receivers there are no expression which type would've been refined in ExpTypingVisitor
+        // Relevant test: multiplatformTypeRefinement/lambdas
+        //
+        // It doesn't happen in similar cases with other implicit receivers (e.g., with scope of extension receiver
+        // inside extension function) because during resolution of types we correctly discriminate headers
+        //
+        // Also note that refining the whole type might be undesired because sometimes it contains NO_EXPECTED_TYPE
+        // which throws exceptions on attempt to call equals
+        val refinedReceiverType = receiverType?.let {
+            @UseExperimental(TypeRefinement::class) callComponents.kotlinTypeChecker.kotlinTypeRefiner.refineType(it)
+        }
+
         val expectedType = createFunctionType(
-            builtIns, annotations, receiverType, parameters, null,
+            builtIns, annotations, refinedReceiverType, parameters, null,
             lambdaInfo.expectedType, isSuspend
         )
 
@@ -146,7 +160,8 @@ class KotlinResolutionCallbacksImpl(
                     psiCallResolver, postponedArgumentsAnalyzer, kotlinConstraintSystemCompleter,
                     callComponents, builtIns, topLevelCallContext, stubsForPostponedVariables, trace,
                     kotlinToResolvedCallTransformer, expressionTypingServices, argumentTypeResolver,
-                    doubleColonExpressionResolver, deprecationResolver, moduleDescriptor
+                    doubleColonExpressionResolver, deprecationResolver, moduleDescriptor, typeApproximator,
+                    missingSupertypesResolver
                 )
             } else {
                 null
@@ -208,21 +223,6 @@ class KotlinResolutionCallbacksImpl(
     override fun bindStubResolvedCallForCandidate(candidate: ResolvedCallAtom) {
         kotlinToResolvedCallTransformer.createStubResolvedCallAndWriteItToTrace<CallableDescriptor>(
             candidate, trace, emptyList(), substitutor = null
-        )
-    }
-
-    override fun createReceiverWithSmartCastInfo(resolvedAtom: ResolvedCallAtom): ReceiverValueWithSmartCastInfo? {
-        val returnType = resolvedAtom.candidateDescriptor.returnType ?: return null
-        val psiKotlinCall = resolvedAtom.atom.psiKotlinCall
-        val callElement = psiKotlinCall.psiCall.callElement.safeAs<KtExpression>() ?: return null
-        val expression = findCommonParent(callElement, resolvedAtom.atom.psiKotlinCall.explicitReceiver)
-
-        return transformToReceiverWithSmartCastInfo(
-            resolvedAtom.candidateDescriptor,
-            trace.bindingContext,
-            psiKotlinCall.resultDataFlowInfo,
-            ExpressionReceiver.create(expression, returnType, trace.bindingContext),
-            languageVersionSettings, dataFlowValueFactory
         )
     }
 

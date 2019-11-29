@@ -16,6 +16,8 @@ interface MetadataExtensions {
 
     fun readPackageExtensions(v: KmPackageVisitor, proto: ProtoBuf.Package, c: ReadContext)
 
+    fun readModuleFragmentExtensions(v: KmModuleFragmentVisitor, proto: ProtoBuf.PackageFragment, c: ReadContext)
+
     fun readFunctionExtensions(v: KmFunctionVisitor, proto: ProtoBuf.Function, c: ReadContext)
 
     fun readPropertyExtensions(v: KmPropertyVisitor, proto: ProtoBuf.Property, c: ReadContext)
@@ -26,9 +28,17 @@ interface MetadataExtensions {
 
     fun readTypeExtensions(v: KmTypeVisitor, proto: ProtoBuf.Type, c: ReadContext)
 
+    fun readTypeAliasExtensions(v: KmTypeAliasVisitor, proto: ProtoBuf.TypeAlias, c: ReadContext)
+
+    fun readValueParameterExtensions(v: KmValueParameterVisitor, proto: ProtoBuf.ValueParameter, c: ReadContext)
+
     fun writeClassExtensions(type: KmExtensionType, proto: ProtoBuf.Class.Builder, c: WriteContext): KmClassExtensionVisitor?
 
     fun writePackageExtensions(type: KmExtensionType, proto: ProtoBuf.Package.Builder, c: WriteContext): KmPackageExtensionVisitor?
+
+    fun writeModuleFragmentExtensions(
+        type: KmExtensionType, proto: ProtoBuf.PackageFragment.Builder, c: WriteContext
+    ): KmModuleFragmentExtensionVisitor?
 
     fun writeFunctionExtensions(type: KmExtensionType, proto: ProtoBuf.Function.Builder, c: WriteContext): KmFunctionExtensionVisitor?
 
@@ -43,6 +53,30 @@ interface MetadataExtensions {
     ): KmTypeParameterExtensionVisitor?
 
     fun writeTypeExtensions(type: KmExtensionType, proto: ProtoBuf.Type.Builder, c: WriteContext): KmTypeExtensionVisitor?
+
+    fun writeTypeAliasExtensions(type: KmExtensionType, proto: ProtoBuf.TypeAlias.Builder, c: WriteContext): KmTypeAliasExtensionVisitor?
+
+    fun writeValueParameterExtensions(type: KmExtensionType, proto: ProtoBuf.ValueParameter.Builder, c: WriteContext): KmValueParameterExtensionVisitor?
+
+    fun createClassExtension(): KmClassExtension
+
+    fun createPackageExtension(): KmPackageExtension
+
+    fun createModuleFragmentExtensions(): KmModuleFragmentExtension
+
+    fun createFunctionExtension(): KmFunctionExtension
+
+    fun createPropertyExtension(): KmPropertyExtension
+
+    fun createConstructorExtension(): KmConstructorExtension
+
+    fun createTypeParameterExtension(): KmTypeParameterExtension
+
+    fun createTypeExtension(): KmTypeExtension
+
+    fun createTypeAliasExtension(): KmTypeAliasExtension
+
+    fun createValueParameterExtension(): KmValueParameterExtension
 
     companion object {
         val INSTANCES: List<MetadataExtensions> by lazy {

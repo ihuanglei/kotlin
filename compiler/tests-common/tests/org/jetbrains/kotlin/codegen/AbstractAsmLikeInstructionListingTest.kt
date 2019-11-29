@@ -24,7 +24,7 @@ abstract class AbstractAsmLikeInstructionListingTest : CodegenTestCase() {
     }
 
     override fun doMultiFileTest(wholeFile: File, files: List<TestFile>) {
-        val txtFile = File(wholeFile.parentFile, wholeFile.nameWithoutExtension + ".txt")
+        val txtFile = File(wholeFile.parentFile, getExpectedTextFileName(wholeFile))
         compile(files)
 
         val classes = classFileFactory
@@ -45,6 +45,8 @@ abstract class AbstractAsmLikeInstructionListingTest : CodegenTestCase() {
             renderClassNode(it, printBytecodeForTheseMethods, showLocalVariables)
         })
     }
+
+    protected open fun getExpectedTextFileName(wholeFile: File): String = wholeFile.nameWithoutExtension + ".txt"
 
     private fun renderClassNode(clazz: ClassNode, showBytecodeForTheseMethods: List<String>, showLocalVariables: Boolean): String {
         val fields = (clazz.fields ?: emptyList()).sortedBy { it.name }
@@ -130,8 +132,10 @@ abstract class AbstractAsmLikeInstructionListingTest : CodegenTestCase() {
         }
 
         val actualIndex = index + localVariableIndexOffset
-        val localVariables = method.localVariables?.takeIf { it.size > actualIndex } ?: return "p$index"
-        return localVariables[actualIndex].name
+        val localVariables = method.localVariables
+        return localVariables?.firstOrNull {
+            it.index == actualIndex
+        }?.name ?: "p$index"
     }
 
     private fun buildLocalVariableTable(method: MethodNode): String {

@@ -25,14 +25,11 @@ import org.jetbrains.kotlin.resolve.calls.inference.model.ArgumentConstraintPosi
 import org.jetbrains.kotlin.resolve.calls.inference.model.ConstraintPosition
 import org.jetbrains.kotlin.resolve.calls.inference.model.ReceiverConstraintPosition
 import org.jetbrains.kotlin.resolve.calls.model.*
-import org.jetbrains.kotlin.types.NotNullTypeVariable
-import org.jetbrains.kotlin.types.UnwrappedType
+import org.jetbrains.kotlin.types.*
 import org.jetbrains.kotlin.types.checker.captureFromExpression
 import org.jetbrains.kotlin.types.checker.hasSupertypeWithGivenTypeConstructor
-import org.jetbrains.kotlin.types.lowerIfFlexible
 import org.jetbrains.kotlin.types.typeUtil.makeNotNullable
 import org.jetbrains.kotlin.types.typeUtil.supertypes
-import org.jetbrains.kotlin.types.upperIfFlexible
 
 
 fun checkSimpleArgument(
@@ -54,8 +51,8 @@ private fun checkExpressionArgument(
     diagnosticsHolder: KotlinDiagnosticsHolder,
     isReceiver: Boolean
 ): ResolvedAtom {
-    val resolvedKtExpression = ResolvedExpressionAtom(expressionArgument)
-    if (expectedType == null) return resolvedKtExpression
+    val resolvedExpression = ResolvedExpressionAtom(expressionArgument)
+    if (expectedType == null) return resolvedExpression
 
     // todo run this approximation only once for call
     val argumentType = captureFromTypeParameterUpperBoundIfNeeded(expressionArgument.receiver.stableType, expectedType)
@@ -80,7 +77,6 @@ private fun checkExpressionArgument(
         return null
     }
 
-    val expectedNullableType = expectedType.makeNullableAsSpecified(true)
     val position = if (isReceiver) ReceiverConstraintPosition(expressionArgument) else ArgumentConstraintPosition(expressionArgument)
 
     // Used only for arguments with @NotNull annotation
@@ -89,12 +85,13 @@ private fun checkExpressionArgument(
     }
 
     if (expressionArgument.isSafeCall) {
+        val expectedNullableType = expectedType.makeNullableAsSpecified(true)
         if (!csBuilder.addSubtypeConstraintIfCompatible(argumentType, expectedNullableType, position)) {
             diagnosticsHolder.addDiagnosticIfNotNull(
                 unstableSmartCastOrSubtypeError(expressionArgument.receiver.unstableType, expectedNullableType, position)
             )
         }
-        return resolvedKtExpression
+        return resolvedExpression
     }
 
     if (!csBuilder.addSubtypeConstraintIfCompatible(argumentType, expectedType, position)) {
@@ -106,10 +103,12 @@ private fun checkExpressionArgument(
                     position
                 )
             )
-            return resolvedKtExpression
+            return resolvedExpression
         }
 
         val unstableType = expressionArgument.receiver.unstableType
+        val expectedNullableType = expectedType.makeNullableAsSpecified(true)
+
         if (unstableType != null && csBuilder.addSubtypeConstraintIfCompatible(unstableType, expectedType, position)) {
             diagnosticsHolder.addDiagnostic(UnstableSmartCast(expressionArgument, unstableType))
         } else if (csBuilder.addSubtypeConstraintIfCompatible(argumentType, expectedNullableType, position)) {
@@ -119,7 +118,7 @@ private fun checkExpressionArgument(
         }
     }
 
-    return resolvedKtExpression
+    return resolvedExpression
 }
 
 /**
@@ -147,7 +146,11 @@ private fun captureFromTypeParameterUpperBoundIfNeeded(argumentType: UnwrappedTy
                     it.unwrap().hasSupertypeWithGivenTypeConstructor(expectedTypeConstructor)
         }
         if (chosenSupertype != null) {
-            return captureFromExpression(chosenSupertype.unwrap()) ?: argumentType
+            val capturedType = captureFromExpression(chosenSupertype.unwrap())
+            return if (capturedType != null && argumentType.isDefinitelyNotNullType)
+                capturedType.makeDefinitelyNotNullOrNotNull()
+            else
+                capturedType ?: argumentType
         }
     }
 

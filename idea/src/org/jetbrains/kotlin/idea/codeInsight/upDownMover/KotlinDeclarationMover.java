@@ -188,6 +188,11 @@ public class KotlinDeclarationMover extends AbstractKotlinUpDownMover {
             return new LineRange(startLine, endLine);
         }
 
+        int lineCount = doc.getLineCount();
+        if (oldRange.startLine >= lineCount || oldRange.endLine >= lineCount) {
+            return null;
+        }
+
         TextRange lineTextRange = new TextRange(doc.getLineStartOffset(oldRange.startLine),
                                                 doc.getLineEndOffset(oldRange.endLine));
         if (element instanceof KtDeclaration) {
@@ -287,8 +292,7 @@ public class KotlinDeclarationMover extends AbstractKotlinUpDownMover {
 
         PsiElement sibling = getLastNonWhiteSiblingInLine(firstNonWhiteSibling(sourceRange, down), editor, down);
 
-        // Either reached last sibling, or jumped over multi-line whitespace
-        if (sibling == null)  {
+        if (sibling == null || sibling instanceof KtPackageDirective || sibling instanceof KtImportList)  {
             info.toMove2 = null;
             return true;
         }

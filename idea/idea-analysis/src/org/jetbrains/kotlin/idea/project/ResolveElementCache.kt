@@ -22,7 +22,6 @@ import com.intellij.psi.util.CachedValueProvider
 import com.intellij.psi.util.CachedValuesManager
 import com.intellij.psi.util.PsiModificationTracker
 import com.intellij.util.containers.ContainerUtil
-import org.jetbrains.kotlin.platform.TargetPlatform
 import org.jetbrains.kotlin.cfg.ControlFlowInformationProvider
 import org.jetbrains.kotlin.container.get
 import org.jetbrains.kotlin.context.SimpleGlobalContext
@@ -33,7 +32,9 @@ import org.jetbrains.kotlin.descriptors.annotations.Annotations
 import org.jetbrains.kotlin.frontend.di.createContainerForBodyResolve
 import org.jetbrains.kotlin.idea.caches.resolve.CodeFragmentAnalyzer
 import org.jetbrains.kotlin.idea.caches.resolve.util.analyzeControlFlow
+import org.jetbrains.kotlin.idea.caches.trackers.KotlinCodeBlockModificationListener
 import org.jetbrains.kotlin.name.Name
+import org.jetbrains.kotlin.platform.TargetPlatform
 import org.jetbrains.kotlin.psi.*
 import org.jetbrains.kotlin.psi.psiUtil.forEachDescendantOfType
 import org.jetbrains.kotlin.psi.psiUtil.getElementTextWithContext
@@ -74,10 +75,10 @@ class ResolveElementCache(
     // drop whole cache after change "out of code block", each entry is checked with own modification stamp
     private val fullResolveCache: CachedValue<MutableMap<KtElement, CachedFullResolve>> =
         CachedValuesManager.getManager(project).createCachedValue(
-            CachedValueProvider<MutableMap<KtElement, ResolveElementCache.CachedFullResolve>> {
+            CachedValueProvider<MutableMap<KtElement, CachedFullResolve>> {
                 CachedValueProvider.Result.create(
                     ContainerUtil.createConcurrentWeakKeySoftValueMap<KtElement, CachedFullResolve>(),
-                    PsiModificationTracker.OUT_OF_CODE_BLOCK_MODIFICATION_COUNT,
+                    KotlinCodeBlockModificationListener.getInstance(project).kotlinOutOfCodeBlockTracker,
                     resolveSession.exceptionTracker
                 )
             },
@@ -100,7 +101,7 @@ class ResolveElementCache(
 
     private val partialBodyResolveCache: CachedValue<MutableMap<KtExpression, CachedPartialResolve>> =
         CachedValuesManager.getManager(project).createCachedValue(
-            CachedValueProvider<MutableMap<KtExpression, ResolveElementCache.CachedPartialResolve>> {
+            CachedValueProvider<MutableMap<KtExpression, CachedPartialResolve>> {
                 CachedValueProvider.Result.create(
                     ContainerUtil.createConcurrentWeakKeySoftValueMap<KtExpression, CachedPartialResolve>(),
                     PsiModificationTracker.MODIFICATION_COUNT,
@@ -719,7 +720,12 @@ class ResolveElementCache(
         ).get()
     }
 
-    // All additional resolve should be done to separate trace
+    /*
+    Note that currently we *have* to re-create container with custom trace in order to disallow resolution of
+    bodies in top-level trace (trace from DI-container).
+    Resolving bodies in top-level trace may lead to memory leaks and incorrect resolution, because top-level
+    trace isn't invalidated on in-block modifications (while body resolution surely does)
+    */
     private fun createDelegatingTrace(resolveElement: KtElement, filter: BindingTraceFilter): BindingTrace {
         return resolveSession.storageManager.createSafeTrace(
             DelegatingBindingTrace(

@@ -26,7 +26,8 @@ class ClasspathAnalyzerTest {
             dir.resolve("test").mkdirs()
             dir.resolve("test/A.class").writeBytes(emptyClass("test/A"))
             dir.resolve("test/B.class").writeBytes(emptyClass("test/B"))
-            dir.resolve("ignore.txt").writeBytes(emptyClass("test/B"))
+            dir.resolve("ignore.txt").writeText("")
+            dir.resolve("module-info.class").writeText("")
             dir.resolve("META-INF/versions/9/A.class").also {
                 it.parentFile.mkdirs()
                 it.writeBytes(emptyClass("A"))
@@ -35,10 +36,7 @@ class ClasspathAnalyzerTest {
         val transform = StructureArtifactTransform().also { it.outputDirectory = tmp.newFolder() }
         val outputs = transform.transform(classesDir)
 
-        val lazyData = LazyClasspathEntryData.LazyClasspathEntrySerializer.loadFromFile(outputs.single())
-        assertEquals(classesDir, lazyData.classpathEntry)
-
-        val data = lazyData.getClasspathEntryData()
+        val data = ClasspathEntryData.ClasspathEntrySerializer.loadFrom(outputs.single())
         assertEquals(setOf("test/A", "test/B"), data.classAbiHash.keys)
         assertEquals(setOf("test/A", "test/B"), data.classDependencies.keys)
         assertEquals(emptySet<String>(), data.classDependencies["test/A"]!!.abiTypes)
@@ -63,6 +61,9 @@ class ClasspathAnalyzerTest {
                 it.putNextEntry(ZipEntry("ignored.txt"))
                 it.closeEntry()
 
+                it.putNextEntry(ZipEntry("module-info.class"))
+                it.closeEntry()
+
                 it.putNextEntry(ZipEntry("META-INF/versions/9/test/A.class"))
                 it.write(emptyClass("test/A"))
                 it.closeEntry()
@@ -71,10 +72,7 @@ class ClasspathAnalyzerTest {
         val transform = StructureArtifactTransform().also { it.outputDirectory = tmp.newFolder() }
         val outputs = transform.transform(inputJar)
 
-        val lazyData = LazyClasspathEntryData.LazyClasspathEntrySerializer.loadFromFile(outputs.single())
-        assertEquals(inputJar, lazyData.classpathEntry)
-
-        val data = lazyData.getClasspathEntryData()
+        val data = ClasspathEntryData.ClasspathEntrySerializer.loadFrom(outputs.single())
         assertEquals(setOf("test/A", "test/B"), data.classAbiHash.keys)
         assertEquals(setOf("test/A", "test/B"), data.classDependencies.keys)
         assertEquals(emptySet<String>(), data.classDependencies["test/A"]!!.abiTypes)
@@ -90,10 +88,7 @@ class ClasspathAnalyzerTest {
         val transform = StructureArtifactTransform().also { it.outputDirectory = tmp.newFolder() }
         val outputs = transform.transform(inputDir)
 
-        val lazyData = LazyClasspathEntryData.LazyClasspathEntrySerializer.loadFromFile(outputs.single())
-        assertEquals(inputDir, lazyData.classpathEntry)
-
-        val data = lazyData.getClasspathEntryData()
+        val data = ClasspathEntryData.ClasspathEntrySerializer.loadFrom(outputs.single())
         assertTrue(data.classAbiHash.isEmpty())
         assertTrue(data.classDependencies.isEmpty())
     }

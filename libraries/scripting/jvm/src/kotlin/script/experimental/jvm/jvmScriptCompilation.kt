@@ -19,6 +19,14 @@ data class JvmDependency(val classpath: List<File>) : ScriptDependency {
     companion object { private const val serialVersionUID: Long = 1L }
 }
 
+typealias ClassLoaderByConfiguration = (ScriptCompilationConfiguration) -> ClassLoader
+
+class JvmDependencyFromClassLoader(val classLoaderGetter: ClassLoaderByConfiguration) : ScriptDependency {
+    fun getClassLoader(configuration: ScriptCompilationConfiguration): ClassLoader = classLoaderGetter(configuration)
+}
+
+data class JsDependency(val path: String) : ScriptDependency
+
 interface JvmScriptCompilationConfigurationKeys
 
 open class JvmScriptCompilationConfigurationBuilder : PropertiesCollection.Builder(), JvmScriptCompilationConfigurationKeys {
@@ -62,12 +70,12 @@ fun ScriptCompilationConfiguration.withUpdatedClasspath(classpath: Collection<Fi
     }
 }
 
-fun ScriptCompilationConfiguration.Builder.updateClasspath(classpath: Collection<File>) = updateClasspathImpl(classpath)
+fun ScriptCompilationConfiguration.Builder.updateClasspath(classpath: Collection<File>?) = updateClasspathImpl(classpath)
 
-fun JvmScriptCompilationConfigurationBuilder.updateClasspath(classpath: Collection<File>) = updateClasspathImpl(classpath)
+fun JvmScriptCompilationConfigurationBuilder.updateClasspath(classpath: Collection<File>?) = updateClasspathImpl(classpath)
 
-private fun PropertiesCollection.Builder.updateClasspathImpl(classpath: Collection<File>) {
-    val newClasspath = classpath.filterNewClasspath(this[ScriptCompilationConfiguration.dependencies])
+private fun PropertiesCollection.Builder.updateClasspathImpl(classpath: Collection<File>?) {
+    val newClasspath = classpath?.filterNewClasspath(this[ScriptCompilationConfiguration.dependencies])
         ?: return
 
     ScriptCompilationConfiguration.dependencies.append(JvmDependency(newClasspath))

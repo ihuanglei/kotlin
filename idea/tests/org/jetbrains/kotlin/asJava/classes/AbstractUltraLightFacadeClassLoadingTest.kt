@@ -11,20 +11,21 @@ import org.jetbrains.kotlin.asJava.KotlinAsJavaSupport
 import org.jetbrains.kotlin.idea.perf.UltraLightChecker
 import org.jetbrains.kotlin.idea.test.KotlinLightCodeInsightFixtureTestCase
 import org.jetbrains.kotlin.idea.test.KotlinWithJdkAndRuntimeLightProjectDescriptor
-import org.jetbrains.kotlin.kdoc.psi.api.KDoc
 import org.jetbrains.kotlin.name.FqName
 import org.jetbrains.kotlin.psi.KtFile
-import org.jetbrains.kotlin.psi.psiUtil.findDescendantOfType
 import java.io.File
 
 abstract class AbstractUltraLightFacadeClassTest : KotlinLightCodeInsightFixtureTestCase() {
     override fun getProjectDescriptor(): LightProjectDescriptor = KotlinWithJdkAndRuntimeLightProjectDescriptor.INSTANCE
 
     fun doTest(testDataPath: String) {
-        val file = myFixture.addFileToProject(testDataPath, File(testDataPath).readText()) as KtFile
+        val sourceText = File(testDataPath).readText()
+        myFixture.addFileToProject(testDataPath, sourceText) as KtFile
+
+        UltraLightChecker.checkForReleaseCoroutine(sourceText, module)
 
         val additionalFilePath = "$testDataPath.1"
-        if(File(additionalFilePath).exists()) {
+        if (File(additionalFilePath).exists()) {
             myFixture.addFileToProject(additionalFilePath.replaceFirst(".kt.1", "1.kt"), File(additionalFilePath).readText())
         }
 
@@ -34,22 +35,8 @@ abstract class AbstractUltraLightFacadeClassTest : KotlinLightCodeInsightFixture
         for (facadeName in facades) {
             val ultraLightClass = UltraLightChecker.checkFacadeEquivalence(FqName(facadeName), scope, project)
             if (ultraLightClass != null) {
-                checkClassLoadingExpectations(file, ultraLightClass)
+                UltraLightChecker.checkDescriptorsLeak(ultraLightClass)
             }
         }
-    }
-
-    private fun checkClassLoadingExpectations(
-        primaryFile: KtFile,
-        ultraLightClass: KtLightClassForFacade
-    ) {
-
-         val clsLoadingExpected = primaryFile.findDescendantOfType<KDoc> { it.text?.contains("should load cls") == true } !== null
-
-        assertEquals(
-            "Cls-loaded status differs from expected for ${ultraLightClass.qualifiedName}",
-            clsLoadingExpected,
-            ultraLightClass.isClsDelegateLoaded
-        )
     }
 }

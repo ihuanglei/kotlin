@@ -13,6 +13,7 @@ import com.intellij.openapi.project.Project
 import com.intellij.psi.codeStyle.CodeStyleManager
 import org.jetbrains.kotlin.idea.core.ShortenReferences
 import org.jetbrains.kotlin.idea.quickfix.KotlinQuickFixAction
+import org.jetbrains.kotlin.idea.quickfix.TypeAccessibilityChecker
 import org.jetbrains.kotlin.idea.refactoring.introduce.showErrorHint
 import org.jetbrains.kotlin.idea.util.application.executeWriteCommand
 import org.jetbrains.kotlin.psi.*
@@ -21,7 +22,7 @@ import org.jetbrains.kotlin.psi.psiUtil.startOffset
 abstract class AbstractCreateDeclarationFix<D : KtNamedDeclaration>(
     declaration: D,
     protected val module: Module,
-    protected val generateIt: KtPsiFactory.(Project, D) -> D?
+    protected val generateIt: KtPsiFactory.(Project, TypeAccessibilityChecker, D) -> D?
 ) : KotlinQuickFixAction<D>(declaration) {
 
     override fun getFamilyName(): String = "Create expect / actual declaration"
@@ -53,10 +54,10 @@ abstract class AbstractCreateDeclarationFix<D : KtNamedDeclaration>(
         val factory = KtPsiFactory(project)
         DumbService.getInstance(project).runWhenSmart {
             val generated = try {
-                factory.generateIt(project, element) ?: return@runWhenSmart
+                factory.generateIt(project, TypeAccessibilityChecker.create(project, module), element) ?: return@runWhenSmart
             } catch (e: KotlinTypeInaccessibleException) {
                 if (editor != null) {
-                    showErrorHint(project, editor, "Cannot generate expected $elementType: " + e.message, e.message)
+                    showErrorHint(project, editor, escapeXml("Cannot generate $elementType: " + e.message), "Inaccessible type")
                 }
                 return@runWhenSmart
             }
@@ -68,7 +69,7 @@ abstract class AbstractCreateDeclarationFix<D : KtNamedDeclaration>(
                     val packageDirective = originalFile.packageDirective
                     if (packageDirective != null) {
                         val oldPackageDirective = targetFile.packageDirective
-                        val newPackageDirective = factory.createPackageDirective(packageDirective.fqName)
+                        val newPackageDirective = packageDirective.copy() as KtPackageDirective
                         if (oldPackageDirective != null) {
                             oldPackageDirective.replace(newPackageDirective)
                         } else {
@@ -88,7 +89,8 @@ abstract class AbstractCreateDeclarationFix<D : KtNamedDeclaration>(
                 val reformatted = CodeStyleManager.getInstance(project).reformat(generatedDeclaration)
                 val shortened = ShortenReferences.DEFAULT.process(reformatted as KtElement)
                 EditorHelper.openInEditor(shortened)?.caretModel?.moveToOffset(
-                    (shortened as? KtNamedDeclaration)?.nameIdentifier?.startOffset ?: shortened.startOffset
+                    (shortened as? KtNamedDeclaration)?.nameIdentifier?.startOffset ?: shortened.startOffset,
+                    true
                 )
             }
         }

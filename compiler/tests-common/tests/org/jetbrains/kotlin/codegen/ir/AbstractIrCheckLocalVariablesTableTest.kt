@@ -7,17 +7,11 @@ package org.jetbrains.kotlin.codegen.ir
 
 import com.intellij.openapi.util.Comparing
 import org.jetbrains.kotlin.codegen.AbstractCheckLocalVariablesTableTest
-import org.jetbrains.kotlin.config.CompilerConfiguration
-import org.jetbrains.kotlin.config.JVMConfigurationKeys
+import org.jetbrains.kotlin.test.TargetBackend
 import org.junit.ComparisonFailure
 import java.io.File
 
 abstract class AbstractIrCheckLocalVariablesTableTest : AbstractCheckLocalVariablesTableTest() {
-
-    override fun updateConfiguration(configuration: CompilerConfiguration) {
-        configuration.put(JVMConfigurationKeys.IR, true)
-    }
-
     override fun doCompare(
         testFile: File,
         text: String,
@@ -47,4 +41,6 @@ abstract class AbstractIrCheckLocalVariablesTableTest : AbstractCheckLocalVariab
             .map { line -> line.replaceFirst("INDEX=\\d+".toRegex(), "INDEX=*") } // Ignore index
             .sorted()
     }
+
+    override fun getBackend() = TargetBackend.JVM_IR
 }

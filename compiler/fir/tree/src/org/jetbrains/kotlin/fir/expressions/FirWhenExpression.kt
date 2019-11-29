@@ -5,25 +5,37 @@
 
 package org.jetbrains.kotlin.fir.expressions
 
-import org.jetbrains.kotlin.fir.visitors.FirVisitor
+import org.jetbrains.kotlin.fir.FirPureAbstractElement
+import org.jetbrains.kotlin.fir.FirSourceElement
+import org.jetbrains.kotlin.fir.declarations.FirVariable
+import org.jetbrains.kotlin.fir.references.FirReference
+import org.jetbrains.kotlin.fir.types.FirTypeRef
+import org.jetbrains.kotlin.fir.visitors.*
 
-interface FirWhenExpression : FirExpression {
-    val subject: FirExpression?
+/*
+ * This file was generated automatically
+ * DO NOT MODIFY IT MANUALLY
+ */
 
-    // when (val subjectVariable = subject()) { ... }
-    val subjectVariable: FirVariable?
+abstract class FirWhenExpression : FirPureAbstractElement(), FirExpression, FirResolvable {
+    abstract override val source: FirSourceElement?
+    abstract override val typeRef: FirTypeRef
+    abstract override val annotations: List<FirAnnotationCall>
+    abstract override val calleeReference: FirReference
+    abstract val subject: FirExpression?
+    abstract val subjectVariable: FirVariable<*>?
+    abstract val branches: List<FirWhenBranch>
+    abstract val isExhaustive: Boolean
 
-    val branches: List<FirWhenBranch>
+    override fun <R, D> accept(visitor: FirVisitor<R, D>, data: D): R = visitor.visitWhenExpression(this, data)
 
-    override fun <R, D> accept(visitor: FirVisitor<R, D>, data: D): R =
-        visitor.visitWhenExpression(this, data)
+    abstract fun replaceIsExhaustive(newIsExhaustive: Boolean)
 
+    abstract override fun <D> transformCalleeReference(transformer: FirTransformer<D>, data: D): FirWhenExpression
 
-    override fun <R, D> acceptChildren(visitor: FirVisitor<R, D>, data: D) {
-        subjectVariable?.accept(visitor, data) ?: subject?.accept(visitor, data)
-        for (branch in branches) {
-            branch.accept(visitor, data)
-        }
-        super.acceptChildren(visitor, data)
-    }
+    abstract fun <D> transformSubject(transformer: FirTransformer<D>, data: D): FirWhenExpression
+
+    abstract fun <D> transformBranches(transformer: FirTransformer<D>, data: D): FirWhenExpression
+
+    abstract fun <D> transformOtherChildren(transformer: FirTransformer<D>, data: D): FirWhenExpression
 }

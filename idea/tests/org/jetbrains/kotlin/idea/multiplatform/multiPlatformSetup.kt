@@ -18,7 +18,8 @@ import org.jetbrains.kotlin.codegen.forTestCompile.ForTestCompileRuntime
 import org.jetbrains.kotlin.idea.framework.CommonLibraryKind
 import org.jetbrains.kotlin.idea.framework.JSLibraryKind
 import org.jetbrains.kotlin.idea.stubs.AbstractMultiModuleTest
-import org.jetbrains.kotlin.idea.stubs.createFacet
+import org.jetbrains.kotlin.idea.stubs.createMultiplatformFacetM1
+import org.jetbrains.kotlin.idea.stubs.createMultiplatformFacetM3
 import org.jetbrains.kotlin.idea.test.ConfigLibraryUtil
 import org.jetbrains.kotlin.idea.test.PluginTestCaseBase
 import org.jetbrains.kotlin.test.TestJdkKind
@@ -28,6 +29,7 @@ import org.jetbrains.kotlin.platform.jvm.isJvm
 import org.jetbrains.kotlin.platform.js.isJs
 import org.jetbrains.kotlin.platform.jvm.JvmPlatforms
 import org.jetbrains.kotlin.projectModel.*
+import org.jetbrains.kotlin.types.typeUtil.closure
 import java.io.File
 
 // allows to configure a test mpp project
@@ -35,6 +37,12 @@ import java.io.File
 // configuration is based on those directories names
 fun AbstractMultiModuleTest.setupMppProjectFromDirStructure(testRoot: File) {
     assert(testRoot.isDirectory) { testRoot.absolutePath + " must be a directory" }
+    val dependencies = dependenciesFile(testRoot)
+    if (dependencies.exists()) {
+        setupMppProjectFromDependenciesFile(dependencies, testRoot)
+        return
+    }
+
     val dirs = testRoot.listFiles().filter { it.isDirectory }
     val rootInfos = dirs.map { parseDirName(it) }
     doSetupProject(rootInfos)
@@ -42,7 +50,13 @@ fun AbstractMultiModuleTest.setupMppProjectFromDirStructure(testRoot: File) {
 
 fun AbstractMultiModuleTest.setupMppProjectFromTextFile(testRoot: File) {
     assert(testRoot.isDirectory) { testRoot.absolutePath + " must be a directory" }
-    val dependencies = File(testRoot, "dependencies.txt")
+    val dependencies = dependenciesFile(testRoot)
+    setupMppProjectFromDependenciesFile(dependencies, testRoot)
+}
+
+private fun dependenciesFile(testRoot: File) = File(testRoot, "dependencies.txt")
+
+fun AbstractMultiModuleTest.setupMppProjectFromDependenciesFile(dependencies: File, testRoot: File) {
     val projectModel = ProjectStructureParser(testRoot).parse(FileUtil.loadFile(dependencies))
 
     check(projectModel.modules.isNotEmpty()) { "No modules were parsed from dependencies.txt" }
@@ -74,9 +88,9 @@ fun AbstractMultiModuleTest.doSetup(projectModel: ProjectResolveModel) {
     }.toMap()
 
     for ((resolveModule, ideaModule) in resolveModulesToIdeaModules.entries) {
-        resolveModule.dependencies.forEach {
+        resolveModule.dependencies.closure(preserveOrder = true) { it.to.dependencies }.forEach {
             when (val to = it.to) {
-                FullJdk -> ConfigLibraryUtil.configureSdk(module, PluginTestCaseBase.addJdk(testRootDisposable) {
+                FullJdk -> ConfigLibraryUtil.configureSdk(ideaModule, PluginTestCaseBase.addJdk(testRootDisposable) {
                     PluginTestCaseBase.jdk(TestJdkKind.FULL_JDK)
                 })
 
@@ -89,11 +103,12 @@ fun AbstractMultiModuleTest.doSetup(projectModel: ProjectResolveModel) {
 
     for ((resolveModule, ideaModule) in resolveModulesToIdeaModules.entries) {
         val platform = resolveModule.platform
-        ideaModule.createFacet(
+        ideaModule.createMultiplatformFacetM3(
             platform,
-            implementedModuleNames = resolveModule.dependencies.filter { it.kind == ResolveDependency.Kind.DEPENDS_ON }.map { it.to.name }
+            dependsOnModuleNames = resolveModule.dependencies.filter { it.kind == ResolveDependency.Kind.DEPENDS_ON }.map { it.to.name }
         )
-        ideaModule.enableMultiPlatform()
+        // New inference is enabled here as these tests are using type refinement feature that is working only along with NI
+        ideaModule.enableMultiPlatform(additionalCompilerArguments = "-Xnew-inference")
     }
 }
 
@@ -136,11 +151,14 @@ private fun AbstractMultiModuleTest.doSetupProject(rootInfos: List<RootInfo>) {
     modulesById.forEach { (nameAndPlatform, module) ->
         val (name, platform) = nameAndPlatform
         when {
-            platform.isCommon() -> module.createFacet(platform, useProjectSettings = false)
+            platform.isCommon() -> {
+                module.createMultiplatformFacetM1(platform, useProjectSettings = false, implementedModuleNames = emptyList())
+            }
+
             else -> {
                 val commonModuleId = ModuleId(name, CommonPlatforms.defaultCommonPlatform)
 
-                module.createFacet(platform, implementedModuleNames = listOf(commonModuleId.ideaModuleName()))
+                module.createMultiplatformFacetM1(platform, implementedModuleNames = listOf(commonModuleId.ideaModuleName()))
                 module.enableMultiPlatform()
 
                 modulesById[commonModuleId]?.let { commonModule ->

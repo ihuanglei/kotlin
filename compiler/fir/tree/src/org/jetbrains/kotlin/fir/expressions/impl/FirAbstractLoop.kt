@@ -5,26 +5,31 @@
 
 package org.jetbrains.kotlin.fir.expressions.impl
 
-import com.intellij.psi.PsiElement
-import org.jetbrains.kotlin.fir.*
+import org.jetbrains.kotlin.fir.FirLabel
+import org.jetbrains.kotlin.fir.FirSourceElement
+import org.jetbrains.kotlin.fir.expressions.FirAnnotationCall
 import org.jetbrains.kotlin.fir.expressions.FirBlock
 import org.jetbrains.kotlin.fir.expressions.FirExpression
 import org.jetbrains.kotlin.fir.expressions.FirLoop
-import org.jetbrains.kotlin.fir.visitors.FirTransformer
+import org.jetbrains.kotlin.fir.impl.FirAbstractAnnotatedElement
+import org.jetbrains.kotlin.fir.visitors.*
 
-abstract class FirAbstractLoop(
-    session: FirSession,
-    psi: PsiElement?,
+/*
+ * This file was generated automatically
+ * DO NOT MODIFY IT MANUALLY
+ */
+
+interface FirAbstractLoop : FirLoop, FirAbstractAnnotatedElement {
+    override val source: FirSourceElement?
+    override val annotations: MutableList<FirAnnotationCall>
+    override var block: FirBlock
     override var condition: FirExpression
-) : FirAbstractStatement(session, psi), FirLoop {
-    override lateinit var block: FirBlock
+    override var label: FirLabel?
+    override fun <D> transformChildren(transformer: FirTransformer<D>, data: D): FirAbstractLoop
 
-    override var label: FirLabel? = null
+    override fun <D> transformBlock(transformer: FirTransformer<D>, data: D): FirAbstractLoop
 
-    override fun <D> transformChildren(transformer: FirTransformer<D>, data: D): FirElement {
-        condition = condition.transformSingle(transformer, data)
-        block = block.transformSingle(transformer, data)
-        label = label?.transformSingle(transformer, data)
-        return super<FirAbstractStatement>.transformChildren(transformer, data)
-    }
+    override fun <D> transformCondition(transformer: FirTransformer<D>, data: D): FirAbstractLoop
+
+    override fun <D> transformOtherChildren(transformer: FirTransformer<D>, data: D): FirAbstractLoop
 }

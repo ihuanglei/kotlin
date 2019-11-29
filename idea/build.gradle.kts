@@ -7,6 +7,48 @@ repositories {
     maven("https://jetbrains.bintray.com/markdown")
 }
 
+sourceSets {
+    "main" {
+        projectDefault()
+        java.srcDirs(
+            "idea-completion/src",
+            "idea-live-templates/src",
+            "idea-repl/src"
+        )
+        resources.srcDirs(
+            "idea-completion/resources",
+            "idea-live-templates/resources",
+            "idea-repl/resources"
+        )
+    }
+    "test" {
+        projectDefault()
+        java.srcDirs(
+            "idea-completion/tests",
+            "idea-live-templates/tests"
+        )
+    }
+
+    "performanceTest" {
+        java.srcDirs("performanceTests")
+    }
+}
+
+val performanceTestCompile by configurations
+performanceTestCompile.apply {
+    extendsFrom(configurations["testCompile"])
+}
+
+val performanceTestCompileOnly by configurations
+performanceTestCompileOnly.apply {
+    extendsFrom(configurations["testCompileOnly"])
+}
+
+val performanceTestRuntime by configurations
+performanceTestRuntime.apply {
+    extendsFrom(configurations["testRuntime"])
+}
+
 dependencies {
     testRuntime(intellijDep())
     testRuntime(intellijRuntimeAnnotations())
@@ -16,7 +58,6 @@ dependencies {
     compile(project(":core:descriptors"))
     compile(project(":core:descriptors.jvm"))
     compile(project(":compiler:backend"))
-    compile(project(":compiler:cli-common"))
     compile(project(":compiler:frontend"))
     compile(project(":compiler:frontend.common"))
     compile(project(":compiler:frontend.java"))
@@ -29,7 +70,6 @@ dependencies {
     compile(project(":daemon-common"))
     compile(project(":daemon-common-new"))
     compile(projectRuntimeJar(":kotlin-daemon-client"))
-    compile(project(":kotlin-compiler-runner")) { isTransitive = false }
     compile(project(":compiler:plugin-api"))
     compile(project(":idea:jvm-debugger:jvm-debugger-util"))
     compile(project(":idea:jvm-debugger:jvm-debugger-core"))
@@ -57,12 +97,23 @@ dependencies {
     compileOnly(project(":kotlin-daemon-client"))
 
     compileOnly(intellijDep())
+    Platform[192].orHigher {
+        compileOnly(intellijPluginDep("java"))
+        testCompileOnly(intellijPluginDep("java"))
+        testRuntime(intellijPluginDep("java"))
+    }
+
+    Platform[193].orHigher {
+        implementation(commonDep("org.jetbrains.intellij.deps.completion", "completion-ranking-kotlin"))
+    }
+
     compileOnly(commonDep("org.jetbrains", "markdown"))
     compileOnly(commonDep("com.google.code.findbugs", "jsr305"))
     compileOnly(intellijPluginDep("IntelliLang"))
     compileOnly(intellijPluginDep("copyright"))
     compileOnly(intellijPluginDep("properties"))
     compileOnly(intellijPluginDep("java-i18n"))
+    compileOnly(intellijPluginDep("gradle"))
 
     testCompileOnly(project(":kotlin-reflect-api")) // TODO: fix import (workaround for jps build)
     testCompile(project(":kotlin-test:kotlin-test-junit"))
@@ -74,6 +125,7 @@ dependencies {
     testCompile(project(":idea:idea-native")) { isTransitive = false }
     testCompile(project(":idea:idea-gradle-native")) { isTransitive = false }
     testCompile(commonDep("junit:junit"))
+    testCompileOnly(intellijPluginDep("coverage"))
 
     testRuntime(project(":kotlin-native:kotlin-native-library-reader")) { isTransitive = false }
     testRuntime(project(":kotlin-native:kotlin-native-utils")) { isTransitive = false }
@@ -111,7 +163,8 @@ dependencies {
     testCompile(intellijPluginDep("copyright"))
     testCompile(intellijPluginDep("properties"))
     testCompile(intellijPluginDep("java-i18n"))
-    testCompile(intellijPluginDep("stream-debugger"))
+    testCompile(intellijPluginDep("junit"))
+
     testCompileOnly(intellijDep())
     testCompileOnly(commonDep("com.google.code.findbugs", "jsr305"))
     testCompileOnly(intellijPluginDep("gradle"))
@@ -129,48 +182,25 @@ dependencies {
     testRuntime(intellijPluginDep("android"))
     testRuntime(intellijPluginDep("smali"))
     testRuntime(intellijPluginDep("testng"))
-}
 
-sourceSets {
-    "main" {
-        projectDefault()
-        java.srcDirs(
-            "idea-completion/src",
-            "idea-live-templates/src",
-            "idea-repl/src"
-        )
-        resources.srcDirs(
-            "idea-completion/resources",
-            "idea-live-templates/resources",
-            "idea-repl/resources"
-        )
-    }
-    "test" {
-        projectDefault()
-        java.srcDirs(
-            "idea-completion/tests",
-            "idea-live-templates/tests"
-        )
+    if (Ide.AS36.orHigher()) {
+        testRuntime(intellijPluginDep("android-layoutlib"))
+        testRuntime(intellijPluginDep("git4idea"))
+        testRuntime(intellijPluginDep("google-cloud-tools-core-as"))
+        testRuntime(intellijPluginDep("google-login-as"))
+        testRuntime(intellijPluginDep("android-wizardTemplate-plugin"))
     }
 
+    performanceTestCompile(sourceSets["test"].output)
+    performanceTestCompile(sourceSets["main"].output)
+    performanceTestCompile(project(":nj2k"))
+    performanceTestCompile(intellijPluginDep("gradle"))
+    performanceTestRuntime(sourceSets["performanceTest"].output)
 }
 
-
-val performanceTestCompile by configurations.creating {
-    extendsFrom(configurations["testCompile"])
-}
-
-val performanceTestRuntime by configurations.creating {
-    extendsFrom(configurations["testRuntime"])
-}
-
-val performanceTest by run {
-    sourceSets.creating {
-        compileClasspath += sourceSets["test"].output
-        compileClasspath += sourceSets["main"].output
-        runtimeClasspath += sourceSets["test"].output
-        runtimeClasspath += sourceSets["main"].output
-        java.srcDirs("performanceTests")
+tasks.named<Copy>("processResources") {
+    from(provider { project(":compiler:cli-common").mainSourceSet.resources }) {
+        include("META-INF/extensions/compiler.xml")
     }
 }
 
@@ -179,12 +209,12 @@ projectTest(parallel = true) {
     workingDir = rootDir
 }
 
-
 projectTest(taskName = "performanceTest") {
     dependsOn(":dist")
-    dependsOn(performanceTest.output)
-    testClassesDirs = performanceTest.output.classesDirs
-    classpath = performanceTest.runtimeClasspath
+    dependsOn(performanceTestRuntime)
+
+    testClassesDirs = sourceSets["performanceTest"].output.classesDirs
+    classpath = performanceTestRuntime + files("${System.getenv("ASYNC_PROFILER_HOME")}/build/async-profiler.jar")
     workingDir = rootDir
 
     jvmArgs?.removeAll { it.startsWith("-Xmx") }
@@ -199,9 +229,14 @@ projectTest(taskName = "performanceTest") {
 
     doFirst {
         systemProperty("idea.home.path", intellijRootDir().canonicalPath)
+        project.findProperty("cacheRedirectorEnabled")?.let {
+            systemProperty("kotlin.test.gradle.import.arguments", "-PcacheRedirectorEnabled=$it")
+        }
     }
 }
 
-testsJar {}
+testsJar {
+    from(sourceSets["performanceTest"].output)
+}
 
 configureFormInstrumentation()

@@ -7,17 +7,19 @@ plugins {
 }
 
 dependencies {
+    compile(project(":plugins:android-extensions-compiler"))
+
     testRuntime(intellijDep())
 
-    compile(project(":compiler:util"))
-    compile(project(":compiler:light-classes"))
-    compile(project(":idea:idea-core"))
-    compile(project(":idea"))
-    compile(project(":idea:idea-jvm"))
-    compile(project(":idea:idea-gradle"))
-    compile(project(":plugins:android-extensions-compiler"))
+    compileOnly(project(":compiler:util"))
+    compileOnly(project(":compiler:light-classes"))
+    compileOnly(project(":idea:idea-core"))
+    compileOnly(project(":idea"))
+    compileOnly(project(":idea:idea-jvm"))
+    compileOnly(project(":idea:idea-gradle"))
     compileOnly(project(":kotlin-android-extensions-runtime"))
     compileOnly(intellijPluginDep("android"))
+    compileOnly(intellijPluginDep("gradle"))
     compileOnly(intellijPluginDep("Groovy"))
     compileOnly(intellijDep())
 
@@ -57,28 +59,37 @@ dependencies {
         testRuntime(intellijPluginDep("maven"))
     }
     testRuntime(intellijPluginDep("android"))
-    if (Platform[181].orHigher()) {
-        testRuntime(intellijPluginDep("smali"))
+    testRuntime(intellijPluginDep("smali"))
+
+    if (Ide.AS36.orHigher()) {
+        testRuntime(intellijPluginDep("android-layoutlib"))
+        testRuntime(intellijPluginDep("android-wizardTemplate-plugin"))
     }
 }
 
 sourceSets {
-    if (Ide.AS33.orHigher() || Ide.IJ191.orHigher()) {
-        "main" { }
-        "test" { }
-    } else {
+    if (Ide.IJ183()) {
         "main" { projectDefault() }
         "test" { projectDefault() }
+    } else {
+        "main" { }
+        "test" { }
     }
 }
 
 testsJar {}
 
 projectTest(parallel = true) {
-    dependsOn(":kotlin-android-extensions-runtime:dist")
+    dependsOn(":dist")
     workingDir = rootDir
     useAndroidSdk()
     useAndroidJar()
 }
 
 runtimeJar()
+
+sourcesJar()
+
+javadocJar()
+
+apply(from = "$rootDir/gradle/kotlinPluginPublication.gradle.kts")

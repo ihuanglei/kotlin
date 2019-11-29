@@ -442,9 +442,24 @@ public class IrBlackBoxAgainstJavaCodegenTestGenerated extends AbstractIrBlackBo
             KotlinTestUtils.assertAllTestsPresentByMetadata(this.getClass(), new File("compiler/testData/codegen/boxAgainstJava/notNullAssertions"), Pattern.compile("^(.+)\\.kt$"), TargetBackend.JVM_IR, true);
         }
 
+        @TestMetadata("callAssertions.kt")
+        public void testCallAssertions() throws Exception {
+            runTest("compiler/testData/codegen/boxAgainstJava/notNullAssertions/callAssertions.kt");
+        }
+
         @TestMetadata("delegation.kt")
         public void testDelegation() throws Exception {
             runTest("compiler/testData/codegen/boxAgainstJava/notNullAssertions/delegation.kt");
+        }
+
+        @TestMetadata("doGenerateParamAssertions.kt")
+        public void testDoGenerateParamAssertions() throws Exception {
+            runTest("compiler/testData/codegen/boxAgainstJava/notNullAssertions/doGenerateParamAssertions.kt");
+        }
+
+        @TestMetadata("noCallAssertions.kt")
+        public void testNoCallAssertions() throws Exception {
+            runTest("compiler/testData/codegen/boxAgainstJava/notNullAssertions/noCallAssertions.kt");
         }
 
         @TestMetadata("rightElvisOperand.kt")
@@ -659,6 +674,11 @@ public class IrBlackBoxAgainstJavaCodegenTestGenerated extends AbstractIrBlackBo
         @TestMetadata("kt4753_2.kt")
         public void testKt4753_2() throws Exception {
             runTest("compiler/testData/codegen/boxAgainstJava/sam/kt4753_2.kt");
+        }
+
+        @TestMetadata("propertyReference.kt")
+        public void testPropertyReference() throws Exception {
+            runTest("compiler/testData/codegen/boxAgainstJava/sam/propertyReference.kt");
         }
 
         @TestMetadata("samConstructorGenericSignature.kt")
@@ -1070,6 +1090,11 @@ public class IrBlackBoxAgainstJavaCodegenTestGenerated extends AbstractIrBlackBo
             @TestMetadata("overrideProtectedFunInPackage.kt")
             public void testOverrideProtectedFunInPackage() throws Exception {
                 runTest("compiler/testData/codegen/boxAgainstJava/visibility/protectedAndPackage/overrideProtectedFunInPackage.kt");
+            }
+
+            @TestMetadata("protectedAccessor.kt")
+            public void testProtectedAccessor() throws Exception {
+                runTest("compiler/testData/codegen/boxAgainstJava/visibility/protectedAndPackage/protectedAccessor.kt");
             }
 
             @TestMetadata("protectedFunInPackage.kt")

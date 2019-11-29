@@ -5,21 +5,40 @@
 
 package org.jetbrains.kotlin.fir.expressions.impl
 
-import com.intellij.psi.PsiElement
-import org.jetbrains.kotlin.fir.FirElement
-import org.jetbrains.kotlin.fir.FirSession
+import org.jetbrains.kotlin.fir.FirSourceElement
+import org.jetbrains.kotlin.fir.expressions.FirAnnotationCall
 import org.jetbrains.kotlin.fir.expressions.FirClassReferenceExpression
-import org.jetbrains.kotlin.fir.transformSingle
+import org.jetbrains.kotlin.fir.impl.FirAbstractAnnotatedElement
 import org.jetbrains.kotlin.fir.types.FirTypeRef
-import org.jetbrains.kotlin.fir.visitors.FirTransformer
+import org.jetbrains.kotlin.fir.types.impl.FirImplicitTypeRefImpl
+import org.jetbrains.kotlin.fir.visitors.*
+
+/*
+ * This file was generated automatically
+ * DO NOT MODIFY IT MANUALLY
+ */
 
 class FirClassReferenceExpressionImpl(
-    session: FirSession,
-    psi: PsiElement?,
+    override val source: FirSourceElement?,
     override var classTypeRef: FirTypeRef
-) : FirAbstractExpression(session, psi), FirClassReferenceExpression {
-    override fun <D> transformChildren(transformer: FirTransformer<D>, data: D): FirElement {
+) : FirClassReferenceExpression(), FirAbstractAnnotatedElement {
+    override var typeRef: FirTypeRef = FirImplicitTypeRefImpl(null)
+    override val annotations: MutableList<FirAnnotationCall> = mutableListOf()
+
+    override fun <R, D> acceptChildren(visitor: FirVisitor<R, D>, data: D) {
+        typeRef.accept(visitor, data)
+        annotations.forEach { it.accept(visitor, data) }
+        classTypeRef.accept(visitor, data)
+    }
+
+    override fun <D> transformChildren(transformer: FirTransformer<D>, data: D): FirClassReferenceExpressionImpl {
+        typeRef = typeRef.transformSingle(transformer, data)
+        annotations.transformInplace(transformer, data)
         classTypeRef = classTypeRef.transformSingle(transformer, data)
-        return super<FirAbstractExpression>.transformChildren(transformer, data)
+        return this
+    }
+
+    override fun replaceTypeRef(newTypeRef: FirTypeRef) {
+        typeRef = newTypeRef
     }
 }

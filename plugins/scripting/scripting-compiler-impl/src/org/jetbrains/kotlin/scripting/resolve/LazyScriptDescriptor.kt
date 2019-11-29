@@ -17,6 +17,7 @@ import org.jetbrains.kotlin.diagnostics.Errors
 import org.jetbrains.kotlin.diagnostics.Errors.MISSING_IMPORTED_SCRIPT_FILE
 import org.jetbrains.kotlin.diagnostics.Errors.MISSING_IMPORTED_SCRIPT_PSI
 import org.jetbrains.kotlin.name.ClassId
+import org.jetbrains.kotlin.name.FqName
 import org.jetbrains.kotlin.name.Name
 import org.jetbrains.kotlin.psi.*
 import org.jetbrains.kotlin.psi.psiUtil.getChildOfType
@@ -29,6 +30,7 @@ import org.jetbrains.kotlin.resolve.lazy.ResolveSession
 import org.jetbrains.kotlin.resolve.lazy.data.KtScriptInfo
 import org.jetbrains.kotlin.resolve.lazy.declarations.ClassMemberDeclarationProvider
 import org.jetbrains.kotlin.resolve.lazy.descriptors.LazyClassDescriptor
+import org.jetbrains.kotlin.resolve.lazy.descriptors.LazyClassMemberScope
 import org.jetbrains.kotlin.resolve.scopes.LexicalScope
 import org.jetbrains.kotlin.resolve.scopes.LexicalScopeImpl
 import org.jetbrains.kotlin.resolve.scopes.LexicalScopeKind
@@ -36,7 +38,7 @@ import org.jetbrains.kotlin.resolve.source.toSourceElement
 import org.jetbrains.kotlin.scripting.definitions.ScriptDefinition
 import org.jetbrains.kotlin.scripting.definitions.ScriptDependenciesProvider
 import org.jetbrains.kotlin.scripting.definitions.ScriptPriorities
-import org.jetbrains.kotlin.scripting.definitions.findScriptDefinitionByFileName
+import org.jetbrains.kotlin.scripting.definitions.findScriptCompilationConfiguration
 import org.jetbrains.kotlin.types.TypeSubstitutor
 import org.jetbrains.kotlin.types.typeUtil.isNothing
 import org.jetbrains.kotlin.types.typeUtil.isUnit
@@ -44,7 +46,12 @@ import org.jetbrains.kotlin.utils.addToStdlib.firstIsInstanceOrNull
 import java.io.File
 import kotlin.reflect.KClass
 import kotlin.reflect.KType
-import kotlin.script.experimental.api.valueOrNull
+import kotlin.script.experimental.api.*
+import kotlin.script.experimental.host.FileBasedScriptSource
+import kotlin.script.experimental.host.GetScriptingClass
+import kotlin.script.experimental.host.ScriptingHostConfiguration
+import kotlin.script.experimental.host.getScriptingClass
+import kotlin.script.experimental.jvm.defaultJvmScriptingHostConfiguration
 
 
 class LazyScriptDescriptor(
@@ -87,14 +94,17 @@ class LazyScriptDescriptor(
     }
 
     fun resultFieldName(): String? {
-        val scriptPriority = scriptInfo.script.getUserData(ScriptPriorities.PRIORITY_KEY)
-        if (scriptPriority != null) {
-            return "res$scriptPriority"
+        // TODO: implement robust REPL/script selection
+        val replSnippetId =
+            scriptInfo.script.getUserData(ScriptPriorities.PRIORITY_KEY)?.toString()
+        return if (replSnippetId != null) {
+            // assuming repl
+            scriptCompilationConfiguration()[ScriptCompilationConfiguration.repl.resultFieldPrefix]?.takeIf { it.isNotBlank() }?.let {
+                "$it$replSnippetId"
+            }
+        } else {
+            scriptCompilationConfiguration()[ScriptCompilationConfiguration.resultField]?.takeIf { it.isNotBlank() }
         }
-        val scriptName = name.asString()
-        return if (scriptName.startsWith("Line_")) {
-            "res${scriptName.split("_")[1]}"
-        } else "\$\$result"
     }
 
     private val sourceElement = scriptInfo.script.toSourceElement()
@@ -105,35 +115,60 @@ class LazyScriptDescriptor(
 
     override fun getPriority() = priority
 
-    // rewrite without using legacyDefinition below
-    val scriptDefinition: () -> ScriptDefinition = resolveSession.storageManager.createLazyValue {
-        findScriptDefinitionByFileName(
-            resolveSession.project,
-            scriptInfo.script.containingKtFile.name
-        )
+    val scriptCompilationConfiguration: () -> ScriptCompilationConfiguration = resolveSession.storageManager.createLazyValue {
+        scriptInfo.script.containingKtFile.findScriptCompilationConfiguration()
+            ?: throw IllegalArgumentException("Unable to find script compilation configuration for the script ${scriptInfo.script.containingFile}")
     }
+
+    private val scriptingHostConfiguration: () -> ScriptingHostConfiguration = resolveSession.storageManager.createLazyValue {
+        // TODO: use platform-specific configuration by default instead
+        scriptCompilationConfiguration()[ScriptCompilationConfiguration.hostConfiguration] ?: defaultJvmScriptingHostConfiguration
+    }
+
+    private val scriptingClassGetter: () -> GetScriptingClass = resolveSession.storageManager.createLazyValue {
+        scriptingHostConfiguration()[ScriptingHostConfiguration.getScriptingClass]
+            ?: throw IllegalArgumentException("Expecting 'getScriptingClass' property in the scripting host configuration for the script ${scriptInfo.script.containingFile}")
+    }
+
+    fun getScriptingClass(type: KotlinType): KClass<*> =
+        scriptingClassGetter()(
+            type,
+            ScriptDefinition::class, // Assuming that the ScriptDefinition class is loaded in the proper classloader, TODO: consider more reliable way to load or cache classes
+            scriptingHostConfiguration()
+        )
 
     override fun substitute(substitutor: TypeSubstitutor) = this
 
     override fun <R, D> accept(visitor: DeclarationDescriptorVisitor<R, D>, data: D): R =
         visitor.visitScriptDescriptor(this, data)
 
-    override fun createMemberScope(c: LazyClassContext, declarationProvider: ClassMemberDeclarationProvider): LazyScriptClassMemberScope =
-        LazyScriptClassMemberScope(
-            // Must be a ResolveSession for scripts
-            c as ResolveSession,
-            declarationProvider,
-            this,
-            c.trace
-        )
+    override fun createMemberScope(
+        c: LazyClassContext,
+        declarationProvider: ClassMemberDeclarationProvider
+    ): ScopesHolderForClass<LazyClassMemberScope> =
+        ScopesHolderForClass.create(this, c.storageManager, c.kotlinTypeChecker.kotlinTypeRefiner) {
+            LazyScriptClassMemberScope(
+                // Must be a ResolveSession for scripts
+                c as ResolveSession,
+                declarationProvider,
+                this,
+                c.trace
+            )
+        }
 
     override fun getUnsubstitutedPrimaryConstructor() = super.getUnsubstitutedPrimaryConstructor()!!
 
     internal val baseClassDescriptor: () -> ClassDescriptor? = resolveSession.storageManager.createNullableLazyValue {
-        val template = scriptDefinition().legacyDefinition.template
+        val scriptBaseType = scriptCompilationConfiguration()[ScriptCompilationConfiguration.baseClass]
+            ?: error("Base class is not configured for the script ${scriptInfo.script.containingFile}")
+        val typeName = scriptBaseType.run { fromClass?.toString()?.replace("class ", "") ?: typeName }
+        val fqnName = FqName(typeName)
+        val classId = ClassId.topLevel(fqnName)
+
         findTypeDescriptor(
-            template,
-            if (template.qualifiedName?.startsWith("kotlin.script.templates.standard") == true) Errors.MISSING_SCRIPT_STANDARD_TEMPLATE
+            classId,
+            typeName,
+            if (fqnName.parent().asString().startsWith("kotlin.script.templates.standard")) Errors.MISSING_SCRIPT_STANDARD_TEMPLATE
             else Errors.MISSING_SCRIPT_BASE_CLASS
         )
     }
@@ -142,26 +177,38 @@ class LazyScriptDescriptor(
 
     private inner class ImportedScriptDescriptorsFinder {
 
-        val fileManager = VirtualFileManager.getInstance()
-        val localFS = fileManager.getFileSystem(StandardFileSystems.FILE_PROTOCOL)
-        val psiManager = PsiManager.getInstance(scriptInfo.script.project)
+        val localFS by lazy {
+            val fileManager = VirtualFileManager.getInstance()
+            fileManager.getFileSystem(StandardFileSystems.FILE_PROTOCOL) 
+        }
+        val psiManager by lazy { PsiManager.getInstance(scriptInfo.script.project) }
 
-        operator fun invoke(importedScriptFile: File): ScriptDescriptor? {
+        operator fun invoke(importedScript: SourceCode): ScriptDescriptor? {
+            // Note: is not an error now - if import references other valid source file, it is simply compiled along with script
+            // TODO: check if this is the behavior we want to have - see #KT-28916
+            val ktScript = getKtFile(importedScript)?.declarations?.firstIsInstanceOrNull<KtScript>()
+                ?: return null
+            return resolveSession.getScriptDescriptor(ktScript) as ScriptDescriptor
+        }
 
-            fun errorDescriptor(errorDiagnostic: DiagnosticFactory1<PsiElement, String>?): ScriptDescriptor? {
-                reportErrorString1(errorDiagnostic, importedScriptFile.path)
+        private fun getKtFile(script: SourceCode): KtFile? {
+            if (script is KtFileScriptSource) return script.ktFile
+
+            // TODO: support any kind of ScriptSource.
+            if (script !is FileBasedScriptSource) return null
+
+            fun errorKtFile(errorDiagnostic: DiagnosticFactory1<PsiElement, String>?): KtFile? {
+                reportErrorString1(errorDiagnostic, script.file.path)
                 return null
             }
 
-            val vfile = localFS.findFileByPath(importedScriptFile.path)
-                ?: return errorDescriptor(MISSING_IMPORTED_SCRIPT_FILE)
-            val psiFile = psiManager.findFile(vfile)
-                ?: return errorDescriptor(MISSING_IMPORTED_SCRIPT_PSI)
-            // Note: is not an error now - if import references other valid source file, it is simply compiled along with script
-            // TODO: check if this is the behavior we want to have - see #KT-28916
-            val ktScript = (psiFile as? KtFile)?.declarations?.firstIsInstanceOrNull<KtScript>()
-                ?: return null
-            return resolveSession.getScriptDescriptor(ktScript) as ScriptDescriptor
+            val virtualFile = when (script) {
+                is VirtualFileScriptSource -> script.virtualFile
+                else -> localFS.findFileByPath(script.file.absolutePath) ?: return errorKtFile(MISSING_IMPORTED_SCRIPT_FILE)
+            }
+
+            val psiFile = psiManager.findFile(virtualFile) ?: return errorKtFile(MISSING_IMPORTED_SCRIPT_PSI)
+            return psiFile as? KtFile
         }
     }
 
@@ -169,7 +216,7 @@ class LazyScriptDescriptor(
         val res = ArrayList<ClassDescriptor>()
 
         val importedScriptsFiles = ScriptDependenciesProvider.getInstance(scriptInfo.script.project)
-            ?.getScriptConfigurationResult(scriptInfo.script.containingKtFile)?.valueOrNull()?.importedScripts
+            ?.getScriptConfiguration(scriptInfo.script.containingKtFile)?.importedScripts
         if (importedScriptsFiles != null) {
             val findImportedScriptDescriptor = ImportedScriptDescriptorsFinder()
             importedScriptsFiles.mapNotNullTo(res) {
@@ -177,8 +224,8 @@ class LazyScriptDescriptor(
             }
         }
 
-        scriptDefinition().legacyDefinition.implicitReceivers.mapNotNullTo(res) { receiver ->
-            findTypeDescriptor(receiver, Errors.MISSING_SCRIPT_RECEIVER_CLASS)
+        scriptCompilationConfiguration()[ScriptCompilationConfiguration.implicitReceivers]?.mapNotNullTo(res) { receiver ->
+            findTypeDescriptor(getScriptingClass(receiver), Errors.MISSING_SCRIPT_RECEIVER_CLASS)
         }
 
         res
@@ -224,10 +271,10 @@ class LazyScriptDescriptor(
     private val scriptOuterScope: () -> LexicalScope = resolveSession.storageManager.createLazyValue {
         var outerScope = super.getOuterScope()
         val outerScopeReceivers = implicitReceivers.let {
-            if (scriptDefinition().legacyDefinition.providedProperties.isEmpty()) {
-                it
-            } else {
+            if (scriptCompilationConfiguration()[ScriptCompilationConfiguration.providedProperties]?.isNotEmpty() == true) {
                 it + ScriptProvidedPropertiesDescriptor(this)
+            } else {
+                it
             }
         }
         for (receiverClassDescriptor in outerScopeReceivers.asReversed()) {

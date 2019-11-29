@@ -12,11 +12,14 @@ dependencies {
     compileOnly(project(":compiler:psi"))
     compileOnly(project(":compiler:plugin-api"))
     compileOnly(project(":compiler:cli"))
+    compileOnly(project(":compiler:backend.js"))
+    compileOnly(project(":core:descriptors.runtime"))
     compile(project(":kotlin-scripting-common"))
+    compile(project(":kotlin-scripting-js"))
+    compile(project(":kotlin-util-klib"))
     compile(project(":kotlin-scripting-jvm"))
     compile(project(":kotlin-scripting-compiler-impl"))
     compile(kotlinStdlib())
-    compileOnly(project(":kotlin-reflect-api"))
     compileOnly(intellijCoreDep()) { includeJars("intellij-core") }
 
     testCompile(project(":compiler:frontend"))
@@ -25,8 +28,12 @@ dependencies {
     testCompile(project(":compiler:cli"))
     testCompile(project(":compiler:cli-common"))
     testCompile(project(":compiler:frontend.java"))
+    testCompile(project(":compiler:backend.js"))
     testCompile(projectTests(":compiler:tests-common"))
     testCompile(commonDep("junit:junit"))
+
+    testRuntimeOnly(intellijCoreDep()) { includeJars("intellij-core") }
+    testRuntimeOnly(intellijDep()) { includeJars("jps-model") }
 }
 
 sourceSets {
@@ -44,12 +51,13 @@ tasks.withType<org.jetbrains.kotlin.gradle.dsl.KotlinCompile<*>> {
 
 publish()
 
-val jar = runtimeJar {}
+runtimeJar()
 sourcesJar()
 javadocJar()
 
-dist()
+testsJar()
 
 projectTest {
+    dependsOn(":dist")
     workingDir = rootDir
 }

@@ -5,14 +5,41 @@
 
 package org.jetbrains.kotlin.fir.expressions
 
-import org.jetbrains.kotlin.fir.visitors.FirVisitor
+import org.jetbrains.kotlin.fir.FirSourceElement
+import org.jetbrains.kotlin.fir.references.FirNamedReference
+import org.jetbrains.kotlin.fir.types.FirTypeProjection
+import org.jetbrains.kotlin.fir.types.FirTypeRef
+import org.jetbrains.kotlin.fir.visitors.*
 
-interface FirComponentCall : FirFunctionCall {
-    // Starting from 1, not from 0
-    val componentIndex: Int
+/*
+ * This file was generated automatically
+ * DO NOT MODIFY IT MANUALLY
+ */
 
-    override val explicitReceiver: FirExpression
+abstract class FirComponentCall : FirFunctionCall() {
+    abstract override val source: FirSourceElement?
+    abstract override val typeRef: FirTypeRef
+    abstract override val annotations: List<FirAnnotationCall>
+    abstract override val safe: Boolean
+    abstract override val typeArguments: List<FirTypeProjection>
+    abstract override val dispatchReceiver: FirExpression
+    abstract override val extensionReceiver: FirExpression
+    abstract override val arguments: List<FirExpression>
+    abstract override val calleeReference: FirNamedReference
+    abstract override val explicitReceiver: FirExpression
+    abstract val componentIndex: Int
 
-    override fun <R, D> accept(visitor: FirVisitor<R, D>, data: D): R =
-        visitor.visitComponentCall(this, data)
+    override fun <R, D> accept(visitor: FirVisitor<R, D>, data: D): R = visitor.visitComponentCall(this, data)
+
+    abstract override fun <D> transformTypeArguments(transformer: FirTransformer<D>, data: D): FirComponentCall
+
+    abstract override fun <D> transformDispatchReceiver(transformer: FirTransformer<D>, data: D): FirComponentCall
+
+    abstract override fun <D> transformExtensionReceiver(transformer: FirTransformer<D>, data: D): FirComponentCall
+
+    abstract override fun <D> transformArguments(transformer: FirTransformer<D>, data: D): FirComponentCall
+
+    abstract override fun <D> transformCalleeReference(transformer: FirTransformer<D>, data: D): FirComponentCall
+
+    abstract override fun <D> transformExplicitReceiver(transformer: FirTransformer<D>, data: D): FirComponentCall
 }

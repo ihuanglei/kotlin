@@ -6,9 +6,9 @@
 package org.jetbrains.kotlin.ir.backend.js.lower.calls
 
 import org.jetbrains.kotlin.ir.declarations.IrFunction
-import org.jetbrains.kotlin.ir.expressions.IrCall
 import org.jetbrains.kotlin.ir.expressions.IrExpression
 import org.jetbrains.kotlin.ir.expressions.IrFunctionAccessExpression
+import org.jetbrains.kotlin.ir.symbols.IrClassifierSymbol
 import org.jetbrains.kotlin.ir.symbols.IrFunctionSymbol
 import org.jetbrains.kotlin.ir.types.*
 import org.jetbrains.kotlin.ir.util.irCall
@@ -17,13 +17,13 @@ import org.jetbrains.kotlin.types.SimpleType
 
 typealias SymbolToTransformer = MutableMap<IrFunctionSymbol, (IrFunctionAccessExpression) -> IrExpression>
 
-internal fun SymbolToTransformer.add(from: Map<SimpleType, IrFunctionSymbol>, to: IrFunctionSymbol) {
+internal fun SymbolToTransformer.add(from: Map<IrClassifierSymbol, IrFunctionSymbol>, to: IrFunctionSymbol) {
     from.forEach { _, func ->
         add(func, to)
     }
 }
 
-internal fun SymbolToTransformer.add(from: Map<SimpleType, IrFunctionSymbol>, to: (IrFunctionAccessExpression) -> IrExpression) {
+internal fun SymbolToTransformer.add(from: Map<IrClassifierSymbol, IrFunctionSymbol>, to: (IrFunctionAccessExpression) -> IrExpression) {
     from.forEach { _, func ->
         add(func, to)
     }
@@ -48,7 +48,7 @@ internal fun <K> MutableMap<K, (IrFunctionAccessExpression) -> IrExpression>.add
 internal typealias MemberToTransformer = HashMap<SimpleMemberKey, (IrFunctionAccessExpression) -> IrExpression>
 
 internal fun MemberToTransformer.add(type: IrType, name: Name, v: IrFunctionSymbol) {
-    add(type, name) { irCall(it, v, dispatchReceiverAsFirstArgument = true) }
+    add(type, name) { irCall(it, v, receiversAsArguments = true) }
 }
 
 internal fun MemberToTransformer.add(type: IrType, name: Name, v: IrFunction) {

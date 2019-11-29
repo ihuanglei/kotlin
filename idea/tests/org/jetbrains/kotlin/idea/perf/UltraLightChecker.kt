@@ -6,19 +6,31 @@
 package org.jetbrains.kotlin.idea.perf
 
 import com.intellij.openapi.Disposable
+import com.intellij.openapi.module.Module
 import com.intellij.openapi.project.Project
+import com.intellij.openapi.util.Conditions
 import com.intellij.openapi.util.Disposer
 import com.intellij.psi.*
+import com.intellij.psi.impl.light.LightElement
 import com.intellij.psi.search.GlobalSearchScope
+import com.intellij.psi.util.PsiTreeUtil
 import com.intellij.testFramework.UsefulTestCase
+import com.intellij.util.PairProcessor
+import com.intellij.util.ref.DebugReflectionUtil
+import junit.framework.TestCase
 import org.jetbrains.kotlin.asJava.LightClassGenerationSupport
 import org.jetbrains.kotlin.asJava.classes.*
 import org.jetbrains.kotlin.asJava.elements.KtLightNullabilityAnnotation
+import org.jetbrains.kotlin.asJava.elements.KtLightPsiArrayInitializerMemberValue
+import org.jetbrains.kotlin.config.LanguageFeature
+import org.jetbrains.kotlin.descriptors.DeclarationDescriptor
+import org.jetbrains.kotlin.idea.project.languageVersionSettings
 import org.jetbrains.kotlin.load.kotlin.NON_EXISTENT_CLASS_NAME
 import org.jetbrains.kotlin.name.FqName
 import org.jetbrains.kotlin.psi.KtClassOrObject
 import org.jetbrains.kotlin.psi.KtFile
 import org.junit.Assert
+import kotlin.test.assertFails
 
 fun UsefulTestCase.forceUsingOldLightClassesForTest() {
     KtUltraLightSupport.forceUsingOldLightClasses = true
@@ -31,6 +43,15 @@ object UltraLightChecker {
     fun checkClassEquivalence(file: KtFile) {
         for (ktClass in allClasses(file)) {
             checkClassEquivalence(ktClass)
+        }
+    }
+
+    fun checkForReleaseCoroutine(sourceFileText: String, module: Module) {
+        if (sourceFileText.contains("//RELEASE_COROUTINE_NEEDED")) {
+            TestCase.assertTrue(
+                "Test should be runned under language version that supports released coroutines",
+                module.languageVersionSettings.supportsFeature(LanguageFeature.ReleaseCoroutines)
+            )
         }
     }
 
@@ -81,23 +102,40 @@ object UltraLightChecker {
         }
     }
 
-    private fun PsiAnnotation.renderAnnotation() =
-        "@" + qualifiedName + "(" + parameterList.attributes.joinToString { it.name + "=" + (it.value?.text ?: "?") } + ")"
+    private fun PsiAnnotation.renderAnnotation(): String {
+
+        val renderedAttributes = parameterList.attributes.map {
+            val attributeValue = it.value?.renderAnnotationMemberValue() ?: "?"
+
+            val name = when {
+                it.name === null && qualifiedName?.startsWith("java.lang.annotation.") == true -> "value"
+                else -> it.name
+            }
+
+            if (name !== null) "$name = $attributeValue" else attributeValue
+        }
+        return "@$qualifiedName(${renderedAttributes.joinToString()})"
+    }
+
 
     private fun PsiModifierListOwner.renderModifiers(typeIfApplicable: PsiType? = null): String {
-        val buffer = StringBuilder()
+        val annotationsBuffer = mutableListOf<String>()
         for (annotation in annotations) {
             if (annotation is KtLightNullabilityAnnotation<*> && skipRenderingNullability(typeIfApplicable)) {
                 continue
             }
 
-            buffer.append(annotation.renderAnnotation())
-            buffer.append(if (this is PsiParameter) " " else "\n")
+            annotationsBuffer.add(
+                annotation.renderAnnotation() + (if (this is PsiParameter) " " else "\n")
+            )
         }
+        annotationsBuffer.sort()
+
+        val resultBuffer = StringBuffer(annotationsBuffer.joinToString(separator = ""))
         for (modifier in PsiModifier.MODIFIERS.filter(::hasModifierProperty)) {
-            buffer.append(modifier).append(" ")
+            resultBuffer.append(modifier).append(" ")
         }
-        return buffer.toString()
+        return resultBuffer.toString()
     }
 
     private fun PsiModifierListOwner.skipRenderingNullability(typeIfApplicable: PsiType?) =
@@ -114,9 +152,17 @@ object UltraLightChecker {
 
     private fun PsiType.renderType() = getCanonicalText(true)
 
-    private fun PsiReferenceList?.renderRefList(keyword: String): String {
-        if (this == null || this.referencedTypes.isEmpty()) return ""
-        return " " + keyword + " " + referencedTypes.joinToString { it.renderType() }
+    private fun PsiReferenceList?.renderRefList(keyword: String, sortReferences: Boolean = true): String {
+        if (this == null) return ""
+
+        val references = referencedTypes
+        if (references.isEmpty()) return ""
+
+        val referencesTypes = references.map { it.renderType() }.toTypedArray()
+
+        if (sortReferences) referencesTypes.sort()
+
+        return " " + keyword + " " + referencesTypes.joinToString()
     }
 
     private fun PsiVariable.renderVar(): String {
@@ -138,6 +184,12 @@ object UltraLightChecker {
             it.name!! + bounds
         } + "> "
 
+    private fun PsiAnnotationMemberValue.renderAnnotationMemberValue(): String = when (this) {
+        is KtLightPsiArrayInitializerMemberValue -> "{${initializers.joinToString { it.renderAnnotationMemberValue() }}}"
+        is PsiAnnotation -> renderAnnotation()
+        else -> text
+    }
+
     private fun PsiMethod.renderMethod() =
         renderModifiers(returnType) +
                 (if (isVarArgs) "/* vararg */ " else "") +
@@ -145,7 +197,7 @@ object UltraLightChecker {
                 (returnType?.renderType() ?: "") + " " +
                 name +
                 "(" + parameterList.parameters.joinToString { it.renderModifiers(it.type) + it.type.renderType() } + ")" +
-                (this as? PsiAnnotationMethod)?.defaultValue?.let { " default " + it.text }.orEmpty() +
+                (this as? PsiAnnotationMethod)?.defaultValue?.let { " default " + it.renderAnnotationMemberValue() }.orEmpty() +
                 throwsList.referencedTypes.let { thrownTypes ->
                     if (thrownTypes.isEmpty()) ""
                     else " throws " + thrownTypes.joinToString { it.renderType() }
@@ -217,4 +269,29 @@ object UltraLightChecker {
     }
 
     private fun String.prependDefaultIndent() = prependIndent("  ")
+
+    private fun checkDescriptorLeakOnElement(element: PsiElement) {
+        DebugReflectionUtil.walkObjects(
+            10,
+            mapOf(element to element.javaClass.name),
+            Any::class.java,
+            Conditions.alwaysTrue(),
+            PairProcessor { value, backLink ->
+                if (value is DeclarationDescriptor) {
+                    assertFails {
+                        """Leaked descriptor ${value.javaClass.name} in ${element.javaClass.name}\n$backLink"""
+                    }
+                }
+                true
+            })
+    }
+
+    fun checkDescriptorsLeak(lightClass: KtLightClass) {
+        checkDescriptorLeakOnElement(lightClass)
+        lightClass.methods.forEach {
+            checkDescriptorLeakOnElement(it)
+            it.parameterList.parameters.forEach { parameter -> checkDescriptorLeakOnElement(parameter) }
+        }
+        lightClass.fields.forEach { checkDescriptorLeakOnElement(it) }
+    }
 }

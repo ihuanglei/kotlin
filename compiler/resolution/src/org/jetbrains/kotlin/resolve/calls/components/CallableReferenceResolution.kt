@@ -6,6 +6,7 @@
 package org.jetbrains.kotlin.resolve.calls.components
 
 import org.jetbrains.kotlin.builtins.*
+import org.jetbrains.kotlin.config.LanguageFeature
 import org.jetbrains.kotlin.descriptors.*
 import org.jetbrains.kotlin.descriptors.annotations.Annotations
 import org.jetbrains.kotlin.resolve.calls.components.CreateFreshVariablesSubstitutor.createToFreshVariableSubstitutorAndAddInitialConstraints
@@ -19,10 +20,12 @@ import org.jetbrains.kotlin.resolve.calls.tasks.ExplicitReceiverKind.EXTENSION_R
 import org.jetbrains.kotlin.resolve.calls.tower.*
 import org.jetbrains.kotlin.resolve.descriptorUtil.builtIns
 import org.jetbrains.kotlin.resolve.scopes.receivers.DetailedReceiver
-import org.jetbrains.kotlin.resolve.scopes.receivers.QualifierReceiver
 import org.jetbrains.kotlin.resolve.scopes.receivers.ReceiverValue
 import org.jetbrains.kotlin.resolve.scopes.receivers.ReceiverValueWithSmartCastInfo
-import org.jetbrains.kotlin.types.*
+import org.jetbrains.kotlin.types.ErrorUtils
+import org.jetbrains.kotlin.types.KotlinType
+import org.jetbrains.kotlin.types.UnwrappedType
+import org.jetbrains.kotlin.types.Variance
 import org.jetbrains.kotlin.types.checker.captureFromExpression
 import org.jetbrains.kotlin.types.expressions.CoercionStrategy
 import org.jetbrains.kotlin.types.typeUtil.immediateSupertypes
@@ -32,11 +35,10 @@ import org.jetbrains.kotlin.utils.SmartList
 import org.jetbrains.kotlin.utils.addIfNotNull
 
 sealed class CallableReceiver(val receiver: ReceiverValueWithSmartCastInfo) {
-    class UnboundReference(val qualifier: QualifierReceiver, receiver: ReceiverValueWithSmartCastInfo) : CallableReceiver(receiver)
-    class BoundValueReference(val qualifier: QualifierReceiver, receiver: ReceiverValueWithSmartCastInfo) : CallableReceiver(receiver)
+    class UnboundReference(receiver: ReceiverValueWithSmartCastInfo) : CallableReceiver(receiver)
+    class BoundValueReference(receiver: ReceiverValueWithSmartCastInfo) : CallableReceiver(receiver)
     class ScopeReceiver(receiver: ReceiverValueWithSmartCastInfo) : CallableReceiver(receiver)
-    class ExplicitValueReceiver(val lhsArgument: SimpleKotlinCallArgument, receiver: ReceiverValueWithSmartCastInfo) :
-        CallableReceiver(receiver)
+    class ExplicitValueReceiver(receiver: ReceiverValueWithSmartCastInfo) : CallableReceiver(receiver)
 }
 
 // todo investigate similar code in CheckVisibility
@@ -89,7 +91,7 @@ fun createCallableReferenceProcessor(factory: CallableReferencesCandidateFactory
             // note that if we use PrioritizedCompositeScopeTowerProcessor then static will win over unbound members
             val staticOrUnbound = SamePriorityCompositeScopeTowerProcessor(static, unbound)
 
-            val asValue = lhsResult.qualifier.classValueReceiverWithSmartCastInfo ?: return staticOrUnbound
+            val asValue = lhsResult.qualifier?.classValueReceiverWithSmartCastInfo ?: return staticOrUnbound
             return PrioritizedCompositeScopeTowerProcessor(staticOrUnbound, factory.createCallableProcessor(asValue))
         }
         is LHSResult.Object -> {
@@ -119,8 +121,10 @@ fun ConstraintSystemOperation.checkCallableReference(
         addSubtypeConstraint(toFreshSubstitutor.safeSubstitute(reflectionCandidateType), expectedType, position)
     }
 
-    addReceiverConstraint(toFreshSubstitutor, dispatchReceiver, candidateDescriptor.dispatchReceiverParameter, position)
-    addReceiverConstraint(toFreshSubstitutor, extensionReceiver, candidateDescriptor.extensionReceiverParameter, position)
+    if (!ErrorUtils.isError(candidateDescriptor)) {
+        addReceiverConstraint(toFreshSubstitutor, dispatchReceiver, candidateDescriptor.dispatchReceiverParameter, position)
+        addReceiverConstraint(toFreshSubstitutor, extensionReceiver, candidateDescriptor.extensionReceiverParameter, position)
+    }
 
     val invisibleMember = Visibilities.findInvisibleMember(
         dispatchReceiver?.asReceiverValueForVisibilityChecks,
@@ -175,10 +179,13 @@ class CallableReferencesCandidateFactory(
             candidateDescriptor,
             dispatchCallableReceiver,
             extensionCallableReceiver,
-            expectedType
+            expectedType,
+            callComponents.builtIns
         )
 
-        if (defaults != 0) {
+        if (defaults != 0 &&
+            !callComponents.languageVersionSettings.supportsFeature(LanguageFeature.FunctionReferenceWithDefaultValueAsOtherType)
+        ) {
             diagnostics.add(CallableReferencesDefaultArgumentUsed(argument, candidateDescriptor, defaults))
         }
 
@@ -219,10 +226,15 @@ class CallableReferencesCandidateFactory(
         )
     }
 
+    private enum class VarargMappingState {
+        UNMAPPED, MAPPED_WITH_PLAIN_ARGS, MAPPED_WITH_ARRAY
+    }
+
     private fun getArgumentAndReturnTypeUseMappingByExpectedType(
         descriptor: FunctionDescriptor,
         expectedType: UnwrappedType?,
-        unboundReceiverCount: Int
+        unboundReceiverCount: Int,
+        builtins: KotlinBuiltIns
     ): Triple<Array<KotlinType>, CoercionStrategy, Int>? {
         val inputOutputTypes = extractInputOutputTypesFromCallableReferenceExpectedType(expectedType) ?: return null
 
@@ -239,13 +251,29 @@ class CallableReferencesCandidateFactory(
          * fun foo(a: A, b: B = B(), vararg c: C)
          */
         var defaults = 0
+        var varargMappingState = VarargMappingState.UNMAPPED
         val mappedArguments = arrayOfNulls<KotlinType?>(fakeArguments.size)
+
         for ((valueParameter, resolvedArgument) in argumentMapping.parameterToCallArgumentMap) {
             for (fakeArgument in resolvedArgument.arguments) {
                 val index = (fakeArgument as FakeKotlinCallArgumentForCallableReference).index
                 val substitutedParameter = descriptor.valueParameters.getOrNull(valueParameter.index) ?: continue
 
-                mappedArguments[index] = substitutedParameter.varargElementType ?: substitutedParameter.type
+                val mappedArgument: KotlinType?
+                if (substitutedParameter.isVararg) {
+                    val (varargType, newVarargMappingState) = varargParameterTypeByExpectedParameter(
+                        inputOutputTypes.inputTypes[index],
+                        substitutedParameter,
+                        varargMappingState,
+                        builtins
+                    )
+                    varargMappingState = newVarargMappingState
+                    mappedArgument = varargType
+                } else {
+                    mappedArgument = substitutedParameter.type
+                }
+
+                mappedArguments[index] = mappedArgument
             }
             if (resolvedArgument == ResolvedCallArgument.DefaultArgument) defaults++
         }
@@ -260,11 +288,42 @@ class CallableReferencesCandidateFactory(
         return Triple(mappedArguments as Array<KotlinType>, coercion, defaults)
     }
 
+    private fun varargParameterTypeByExpectedParameter(
+        expectedParameterType: KotlinType,
+        substitutedParameter: ValueParameterDescriptor,
+        varargMappingState: VarargMappingState,
+        builtins: KotlinBuiltIns
+    ): Pair<KotlinType?, VarargMappingState> {
+        val elementType = substitutedParameter.varargElementType
+            ?: error("Vararg parameter $substitutedParameter does not have vararg type")
+
+        return when (varargMappingState) {
+            VarargMappingState.UNMAPPED -> {
+                if (KotlinBuiltIns.isArrayOrPrimitiveArray(expectedParameterType)) {
+                    val arrayType = builtins.getPrimitiveArrayKotlinTypeByPrimitiveKotlinType(elementType)
+                        ?: builtins.getArrayType(Variance.OUT_VARIANCE, elementType)
+                    arrayType to VarargMappingState.MAPPED_WITH_ARRAY
+                } else {
+                    elementType to VarargMappingState.MAPPED_WITH_PLAIN_ARGS
+                }
+            }
+            VarargMappingState.MAPPED_WITH_PLAIN_ARGS -> {
+                if (KotlinBuiltIns.isArrayOrPrimitiveArray(expectedParameterType))
+                    null to VarargMappingState.MAPPED_WITH_PLAIN_ARGS
+                else
+                    elementType to VarargMappingState.MAPPED_WITH_PLAIN_ARGS
+            }
+            VarargMappingState.MAPPED_WITH_ARRAY ->
+                null to VarargMappingState.MAPPED_WITH_ARRAY
+        }
+    }
+
     private fun buildReflectionType(
         descriptor: CallableDescriptor,
         dispatchReceiver: CallableReceiver?,
         extensionReceiver: CallableReceiver?,
-        expectedType: UnwrappedType?
+        expectedType: UnwrappedType?,
+        builtins: KotlinBuiltIns
     ): Pair<UnwrappedType, /*defaults*/ Int> {
         val argumentsAndReceivers = ArrayList<KotlinType>(descriptor.valueParameters.size + 2)
 
@@ -276,7 +335,7 @@ class CallableReferencesCandidateFactory(
         }
 
         val descriptorReturnType = descriptor.returnType
-                ?: ErrorUtils.createErrorType("Error return type for descriptor: $descriptor")
+            ?: ErrorUtils.createErrorType("Error return type for descriptor: $descriptor")
 
         when (descriptor) {
             is PropertyDescriptor -> {
@@ -300,7 +359,8 @@ class CallableReferencesCandidateFactory(
                 val defaults: Int
                 val argumentsAndExpectedTypeCoercion = getArgumentAndReturnTypeUseMappingByExpectedType(
                     descriptor, expectedType,
-                    unboundReceiverCount = argumentsAndReceivers.size
+                    unboundReceiverCount = argumentsAndReceivers.size,
+                    builtins = builtins
                 )
 
                 if (argumentsAndExpectedTypeCoercion == null) {
@@ -327,17 +387,16 @@ class CallableReferencesCandidateFactory(
     private fun toCallableReceiver(receiver: ReceiverValueWithSmartCastInfo, isExplicit: Boolean): CallableReceiver {
         if (!isExplicit) return CallableReceiver.ScopeReceiver(receiver)
 
-        val lhsResult = argument.lhsResult
-        return when (lhsResult) {
-            is LHSResult.Expression -> CallableReceiver.ExplicitValueReceiver(lhsResult.lshCallArgument, receiver)
+        return when (val lhsResult = argument.lhsResult) {
+            is LHSResult.Expression -> CallableReceiver.ExplicitValueReceiver(receiver)
             is LHSResult.Type -> {
-                if (lhsResult.qualifier.classValueReceiver?.type == receiver.receiverValue.type) {
-                    CallableReceiver.BoundValueReference(lhsResult.qualifier, receiver)
+                if (lhsResult.qualifier?.classValueReceiver?.type == receiver.receiverValue.type) {
+                    CallableReceiver.BoundValueReference(receiver)
                 } else {
-                    CallableReceiver.UnboundReference(lhsResult.qualifier, receiver)
+                    CallableReceiver.UnboundReference(receiver)
                 }
             }
-            is LHSResult.Object -> CallableReceiver.BoundValueReference(lhsResult.qualifier, receiver)
+            is LHSResult.Object -> CallableReceiver.BoundValueReference(receiver)
             else -> throw IllegalStateException("Unsupported kind of lhsResult: $lhsResult")
         }
     }

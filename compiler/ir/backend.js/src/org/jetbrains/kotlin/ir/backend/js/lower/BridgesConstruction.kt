@@ -6,21 +6,18 @@
 package org.jetbrains.kotlin.ir.backend.js.lower
 
 import org.jetbrains.kotlin.backend.common.ClassLoweringPass
+import org.jetbrains.kotlin.backend.common.CommonBackendContext
 import org.jetbrains.kotlin.backend.common.bridges.FunctionHandle
 import org.jetbrains.kotlin.backend.common.bridges.generateBridges
 import org.jetbrains.kotlin.backend.common.ir.copyTo
 import org.jetbrains.kotlin.backend.common.ir.copyTypeParametersFrom
 import org.jetbrains.kotlin.backend.common.ir.isMethodOfAny
 import org.jetbrains.kotlin.backend.common.ir.isSuspend
-import org.jetbrains.kotlin.backend.common.lower.SpecialBridgeMethods
-import org.jetbrains.kotlin.backend.common.lower.createIrBuilder
-import org.jetbrains.kotlin.backend.common.lower.irBlockBody
-import org.jetbrains.kotlin.backend.common.lower.irNot
+import org.jetbrains.kotlin.backend.common.lower.*
 import org.jetbrains.kotlin.descriptors.Modality
-import org.jetbrains.kotlin.ir.backend.js.JsIrBackendContext
 import org.jetbrains.kotlin.ir.backend.js.JsLoweredDeclarationOrigin
 import org.jetbrains.kotlin.ir.backend.js.ir.JsIrBuilder
-import org.jetbrains.kotlin.ir.backend.js.utils.asString
+import org.jetbrains.kotlin.ir.backend.js.utils.functionSignature
 import org.jetbrains.kotlin.ir.backend.js.utils.getJsName
 import org.jetbrains.kotlin.ir.builders.*
 import org.jetbrains.kotlin.ir.declarations.*
@@ -28,7 +25,6 @@ import org.jetbrains.kotlin.ir.declarations.impl.IrValueParameterImpl
 import org.jetbrains.kotlin.ir.expressions.IrExpression
 import org.jetbrains.kotlin.ir.types.IrType
 import org.jetbrains.kotlin.ir.types.classifierOrNull
-import org.jetbrains.kotlin.ir.types.isUnit
 import org.jetbrains.kotlin.ir.util.*
 
 // Constructs bridges for inherited generic functions
@@ -50,7 +46,7 @@ import org.jetbrains.kotlin.ir.util.*
 //            fun foo(t: Any?) = foo(t as Int)  // Constructed bridge
 //          }
 //
-class BridgesConstruction(val context: JsIrBackendContext) : ClassLoweringPass {
+class BridgesConstruction(val context: CommonBackendContext) : ClassLoweringPass {
 
     private val specialBridgeMethods = SpecialBridgeMethods(context)
 
@@ -68,7 +64,7 @@ class BridgesConstruction(val context: JsIrBackendContext) : ClassLoweringPass {
         if (function.isMethodOfAny())
             return
 
-        val (specialOverride: IrSimpleFunction?, specialOverrideValueGenerator) =
+        val (specialOverride: IrSimpleFunction?, specialOverrideInfo) =
             specialBridgeMethods.findSpecialWithOverride(function) ?: Pair(null, null)
 
         val specialOverrideSignature = specialOverride?.let { FunctionAndSignature(it) }
@@ -94,7 +90,7 @@ class BridgesConstruction(val context: JsIrBackendContext) : ClassLoweringPass {
 
             val bridge: IrDeclaration = when {
                 specialOverrideSignature == from ->
-                    createBridge(function, from.function, to.function, specialOverrideValueGenerator)
+                    createBridge(function, from.function, to.function, specialOverrideInfo)
 
                 else ->
                     createBridge(function, from.function, to.function, null)
@@ -110,11 +106,11 @@ class BridgesConstruction(val context: JsIrBackendContext) : ClassLoweringPass {
         function: IrSimpleFunction,
         bridge: IrSimpleFunction,
         delegateTo: IrSimpleFunction,
-        defaultValueGenerator: ((IrSimpleFunction) -> IrExpression)?
+        specialMethodInfo: SpecialMethodWithDefaultInfo?
     ): IrFunction {
 
         val origin =
-            if (bridge.isEffectivelyExternal())
+            if (bridge.isEffectivelyExternal() || bridge.getJsName() != null)
                 JsLoweredDeclarationOrigin.BRIDGE_TO_EXTERNAL_FUNCTION
             else
                 IrDeclarationOrigin.BRIDGE
@@ -126,11 +122,12 @@ class BridgesConstruction(val context: JsIrBackendContext) : ClassLoweringPass {
             function.parent,
             bridge.visibility,
             bridge.modality, // TODO: should copy modality?
-            bridge.isInline,
-            bridge.isExternal,
-            bridge.isTailrec,
-            bridge.isSuspend,
-            origin
+            isInline = bridge.isInline,
+            isExternal = bridge.isExternal,
+            isTailrec = bridge.isTailrec,
+            isSuspend = bridge.isSuspend,
+            isExpect = bridge.isExpect,
+            origin = origin
         ).apply {
             copyTypeParametersFrom(bridge)
             // TODO: should dispatch receiver be copied?
@@ -141,15 +138,16 @@ class BridgesConstruction(val context: JsIrBackendContext) : ClassLoweringPass {
             valueParameters += bridge.valueParameters.map { p -> p.copyTo(this) }
             annotations += bridge.annotations
             overriddenSymbols.addAll(delegateTo.overriddenSymbols)
+            overriddenSymbols.add(bridge.symbol)
         }
 
         context.createIrBuilder(irFunction.symbol).irBlockBody(irFunction) {
-            if (defaultValueGenerator != null) {
-                irFunction.valueParameters.forEach {
+            if (specialMethodInfo != null) {
+                irFunction.valueParameters.take(specialMethodInfo.argumentsToCheck).forEach {
                     +irIfThen(
                         context.irBuiltIns.unitType,
                         irNot(irIs(irGet(it), delegateTo.valueParameters[it.index].type)),
-                        irReturn(defaultValueGenerator(irFunction))
+                        irReturn(specialMethodInfo.defaultValueGenerator(irFunction))
                     )
                 }
             }
@@ -200,26 +198,7 @@ class FunctionAndSignature(val function: IrSimpleFunction) {
     // TODO: Use type-upper-bound-based signature instead of Strings
     // Currently strings are used for compatibility with a hack-based name generator
 
-    private data class Signature(
-        val name: String,
-        val extensionReceiverType: String? = null,
-        val valueParameters: List<String?> = emptyList(),
-        val returnType: String? = null
-    )
-
-    private val jsName = function.getJsName()
-    private val signature = when {
-        jsName != null -> Signature(jsName)
-        function.isEffectivelyExternal() -> Signature(function.name.asString())
-        else -> Signature(
-            function.name.asString(),
-            function.extensionReceiverParameter?.type?.asString(),
-            function.valueParameters.map { it.type.asString() },
-            // Return type used in signature for inline classes and Unit because
-            // they are binary incompatible with supertypes and require bridges.
-            function.returnType.run { if (isInlined() || isUnit()) asString() else null }
-        )
-    }
+    private val signature = functionSignature(function)
 
     override fun equals(other: Any?): Boolean {
         if (this === other) return true

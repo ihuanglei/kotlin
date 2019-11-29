@@ -127,6 +127,10 @@ var JsFunction.coroutineMetadata: CoroutineMetadata? by MetadataProperty(default
 
 var JsExpression.range: Pair<RangeType, RangeKind>? by MetadataProperty(default = null)
 
+var JsExpression.primitiveKClass: JsExpression? by MetadataProperty(default = null)
+
+var JsExpression.kType: JsExpression? by MetadataProperty(default = null)
+
 data class CoroutineMetadata(
         val doResumeName: JsName,
         val stateName: JsName,
@@ -163,7 +167,9 @@ enum class SpecialFunction(val suggestedName: String) {
     COROUTINE_RESULT("coroutineResult"),
     COROUTINE_CONTROLLER("coroutineController"),
     COROUTINE_RECEIVER("coroutineReceiver"),
-    SET_COROUTINE_RESULT("setCoroutineResult")
+    SET_COROUTINE_RESULT("setCoroutineResult"),
+    GET_KCLASS("getKClass"),
+    GET_REIFIED_TYPE_PARAMETER_KTYPE("getReifiedTypeParameterKType")
 }
 
 enum class BoxingKind {

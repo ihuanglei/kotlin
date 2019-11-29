@@ -11,8 +11,6 @@ import com.intellij.psi.impl.PsiImplUtil
 import com.intellij.psi.impl.light.LightIdentifier
 import com.intellij.psi.meta.PsiMetaData
 import com.intellij.psi.util.TypeConversionUtil
-import org.jetbrains.annotations.NotNull
-import org.jetbrains.annotations.Nullable
 import org.jetbrains.kotlin.asJava.elements.KtLightAbstractAnnotation
 import org.jetbrains.kotlin.asJava.elements.KtLightElementBase
 import org.jetbrains.kotlin.asJava.elements.KtLightNullabilityAnnotation
@@ -22,46 +20,33 @@ import org.jetbrains.kotlin.descriptors.annotations.AnnotationDescriptor
 import org.jetbrains.kotlin.psi.KtCallElement
 import org.jetbrains.kotlin.psi.KtElement
 import org.jetbrains.kotlin.resolve.constants.*
-import org.jetbrains.kotlin.types.KotlinType
-import org.jetbrains.kotlin.types.TypeUtils
-import org.jetbrains.kotlin.types.isError
-import org.jetbrains.kotlin.types.typeUtil.TypeNullability
-import org.jetbrains.kotlin.types.typeUtil.isTypeParameter
-import org.jetbrains.kotlin.types.typeUtil.nullability
 
 class KtUltraLightNullabilityAnnotation(
     member: KtUltraLightElementWithNullabilityAnnotation<*, *>,
     parent: PsiElement
 ) : KtLightNullabilityAnnotation<KtUltraLightElementWithNullabilityAnnotation<*, *>>(member, parent) {
-    override fun getQualifiedName(): String? {
-        val kotlinType = member.kotlinTypeForNullabilityAnnotation?.takeUnless(KotlinType::isError) ?: return null
-        val psiType = member.psiTypeForNullabilityAnnotation ?: return null
-        if (psiType is PsiPrimitiveType) return null
-
-        if (kotlinType.isTypeParameter()) {
-            if (!TypeUtils.hasNullableSuperType(kotlinType)) return NotNull::class.java.name
-            if (!kotlinType.isMarkedNullable) return null
-        }
-
-        val nullability = kotlinType.nullability()
-        return when (nullability) {
-            TypeNullability.NOT_NULL -> NotNull::class.java.name
-            TypeNullability.NULLABLE -> Nullable::class.java.name
-            TypeNullability.FLEXIBLE -> null
-        }
-    }
+    override fun getQualifiedName(): String? = member.qualifiedNameForNullabilityAnnotation
 }
+
+fun AnnotationDescriptor.toLightAnnotation(ultraLightSupport: KtUltraLightSupport, parent: PsiElement) =
+    KtUltraLightSimpleAnnotation(
+        fqName?.asString(),
+        allValueArguments.map { it.key.asString() to it.value },
+        ultraLightSupport,
+        parent
+    )
 
 fun DeclarationDescriptor.obtainLightAnnotations(
     ultraLightSupport: KtUltraLightSupport,
     parent: PsiElement
-): List<KtLightAbstractAnnotation> = annotations.map { KtUltraLightAnnotationForDescriptor(it, ultraLightSupport, parent) }
+): List<KtLightAbstractAnnotation> = annotations.map { it.toLightAnnotation(ultraLightSupport, parent) }
 
-class KtUltraLightAnnotationForDescriptor(
-    private val annotationDescriptor: AnnotationDescriptor,
+class KtUltraLightSimpleAnnotation(
+    private val annotationFqName: String?,
+    private val argumentsList: List<Pair<String, ConstantValue<*>>>,
     private val ultraLightSupport: KtUltraLightSupport,
     parent: PsiElement
-) : KtLightAbstractAnnotation(parent, { error("clsDelegate for annotation based on descriptor: $annotationDescriptor") }) {
+) : KtLightAbstractAnnotation(parent, computeDelegate = null) {
     override fun getNameReferenceElement(): PsiJavaCodeReferenceElement? = null
 
     override fun getMetaData(): PsiMetaData? = null
@@ -80,12 +65,12 @@ class KtUltraLightAnnotationForDescriptor(
     override fun findDeclaredAttributeValue(attributeName: String?) =
         PsiImplUtil.findDeclaredAttributeValue(this, attributeName)
 
-    override fun getQualifiedName() = annotationDescriptor.fqName?.asString()
+    override fun getQualifiedName() = annotationFqName
 
-    private inner class ParameterListImpl : KtLightElementBase(this@KtUltraLightAnnotationForDescriptor), PsiAnnotationParameterList {
+    private inner class ParameterListImpl : KtLightElementBase(this@KtUltraLightSimpleAnnotation), PsiAnnotationParameterList {
         private val _attributes: Array<PsiNameValuePair> by lazyPub {
-            annotationDescriptor.allValueArguments.map {
-                PsiNameValuePairForAnnotationArgument(it.key.asString(), it.value, ultraLightSupport, this)
+            argumentsList.map {
+                PsiNameValuePairForAnnotationArgument(it.first, it.second, ultraLightSupport, this)
             }.toTypedArray()
         }
 
@@ -124,7 +109,7 @@ private fun ConstantValue<*>.toAnnotationMemberValue(
     parent: PsiElement, ultraLightSupport: KtUltraLightSupport
 ): PsiAnnotationMemberValue? = when (this) {
 
-    is AnnotationValue -> KtUltraLightAnnotationForDescriptor(value, ultraLightSupport, parent)
+    is AnnotationValue -> value.toLightAnnotation(ultraLightSupport, parent)
 
     is ArrayValue ->
         KtUltraLightPsiArrayInitializerMemberValue(lightParent = parent) { arrayLiteralParent ->

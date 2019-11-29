@@ -65,6 +65,24 @@ class TCServiceMessageOutputStreamHandlerTest {
     }
 
     @Test
+    fun testFlush() {
+        handler.write("xxx##teamc".toByteArray())
+        handler.flush()
+        handler.write("ity[testStarted]\n".toByteArray())
+        handler.write("yyy##teamcity[testStarted]".toByteArray())
+        handler.close()
+        assertEquals(
+            "TEXT: `xxx`\n" +
+                    "MESSAGE: `##teamcity[testStarted]`\n" +
+                    "TEXT: `\n`\n" + // this will be ignore in org.jetbrains.kotlin.gradle.internal.testing.TCServiceMessagesClient.regularText
+                    "TEXT: `yyy`\n" +
+                    "MESSAGE: `##teamcity[testStarted]`\n",
+            clientCalls
+        )
+        assertEquals("[]", logString)
+    }
+
+    @Test
     fun testMessage() {
         handler.write("xxx##teamcity[testStarted]\n".toByteArray())
         handler.write("yyy##teamcity[testStarted]".toByteArray())
@@ -153,15 +171,15 @@ class TCServiceMessageOutputStreamHandlerTest {
         val log = StringBuffer()
 
         override fun parseException(p0: ParseException, p1: String) {
-            log.appendln("EXCEPTION `$p0`, `$p1`")
+            log.append("EXCEPTION `$p0`, `$p1`\n")
         }
 
         override fun serviceMessage(p0: ServiceMessage) {
-            log.appendln("MESSAGE: `$p0`")
+            log.append("MESSAGE: `$p0`\n")
         }
 
         override fun regularText(p0: String) {
-            log.appendln("TEXT: `$p0`")
+            log.append("TEXT: `$p0`\n")
         }
     }
 }

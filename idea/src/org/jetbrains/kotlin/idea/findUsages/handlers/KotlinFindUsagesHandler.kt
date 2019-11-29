@@ -19,7 +19,6 @@ package org.jetbrains.kotlin.idea.findUsages.handlers
 import com.intellij.find.findUsages.FindUsagesHandler
 import com.intellij.find.findUsages.FindUsagesOptions
 import com.intellij.openapi.diagnostic.Logger
-import com.intellij.openapi.project.DumbService
 import com.intellij.psi.PsiElement
 import com.intellij.psi.PsiReference
 import com.intellij.psi.impl.light.LightMemberReference
@@ -32,6 +31,7 @@ import org.jetbrains.kotlin.idea.findUsages.KotlinFindUsagesHandlerFactory
 import org.jetbrains.kotlin.idea.findUsages.KotlinReferencePreservingUsageInfo
 import org.jetbrains.kotlin.idea.findUsages.KotlinReferenceUsageInfo
 import org.jetbrains.kotlin.idea.util.application.runReadAction
+import org.jetbrains.kotlin.idea.util.runReadActionInSmartMode
 import java.util.*
 
 abstract class KotlinFindUsagesHandler<T : PsiElement>(
@@ -71,12 +71,17 @@ abstract class KotlinFindUsagesHandler<T : PsiElement>(
     }
 
     override fun processElementUsages(element: PsiElement, processor: Processor<UsageInfo>, options: FindUsagesOptions): Boolean {
-        return searchReferences(element, processor, options) && searchTextOccurrences(element, processor, options)
+        return searchReferences(element, processor, options, forHighlight = false) && searchTextOccurrences(element, processor, options)
     }
 
-    private fun searchReferences(element: PsiElement, processor: Processor<UsageInfo>, options: FindUsagesOptions): Boolean {
+    private fun searchReferences(
+        element: PsiElement,
+        processor: Processor<UsageInfo>,
+        options: FindUsagesOptions,
+        forHighlight: Boolean
+    ): Boolean {
         val searcher = createSearcher(element, processor, options)
-        if (!DumbService.getInstance(element.project).runReadActionInSmartMode<Boolean> { searcher.buildTaskList() }) return false
+        if (!runReadAction { project }.runReadActionInSmartMode { searcher.buildTaskList(forHighlight) }) return false
         return searcher.executeTasks()
     }
 
@@ -92,7 +97,7 @@ abstract class KotlinFindUsagesHandler<T : PsiElement>(
                 results.add(reference)
             }
             true
-        }, options)
+        }, options, forHighlight = true)
         return results
     }
 
@@ -116,7 +121,7 @@ abstract class KotlinFindUsagesHandler<T : PsiElement>(
         /**
          * Invoked under read-action, should use [addTask] for all time-consuming operations
          */
-        abstract fun buildTaskList(): Boolean
+        abstract fun buildTaskList(forHighlight: Boolean): Boolean
     }
 
     companion object {

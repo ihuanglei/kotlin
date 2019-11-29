@@ -25,16 +25,13 @@ import org.jdom.Element
 import org.jdom.Text
 import org.jetbrains.kotlin.cli.common.arguments.*
 import org.jetbrains.kotlin.load.java.JvmAbi
-import org.jetbrains.kotlin.platform.IdePlatformKind
-import org.jetbrains.kotlin.platform.TargetPlatform
+import org.jetbrains.kotlin.platform.*
 import org.jetbrains.kotlin.platform.impl.FakeK2NativeCompilerArguments
 import org.jetbrains.kotlin.platform.impl.JvmIdePlatformKind
 import org.jetbrains.kotlin.platform.js.JsPlatform
 import org.jetbrains.kotlin.platform.jvm.JdkPlatform
 import org.jetbrains.kotlin.platform.jvm.JvmPlatform
 import org.jetbrains.kotlin.platform.konan.KonanPlatform
-import org.jetbrains.kotlin.platform.oldFashionedDescription
-import org.jetbrains.kotlin.platform.orDefault
 import java.lang.reflect.Modifier
 import kotlin.reflect.KClass
 import kotlin.reflect.full.superclasses
@@ -67,7 +64,7 @@ private fun readV1Config(element: Element): KotlinFacetSettings {
         val targetPlatformName = versionInfoElement?.getOptionValue("targetPlatformName")
         val languageLevel = versionInfoElement?.getOptionValue("languageLevel")
         val apiLevel = versionInfoElement?.getOptionValue("apiLevel")
-        val targetPlatform = IdePlatformKind.All_PLATFORMS
+        val targetPlatform = CommonPlatforms.allSimplePlatforms.union(setOf(CommonPlatforms.defaultCommonPlatform))
             .firstOrNull { it.oldFashionedDescription == targetPlatformName }
             ?: JvmIdePlatformKind.defaultPlatform // FIXME(dsavvinov): choose proper default
 
@@ -115,28 +112,36 @@ private fun readV1Config(element: Element): KotlinFacetSettings {
 
         this.compilerSettings = compilerSettings
         this.compilerArguments = compilerArguments
+        this.targetPlatform = IdePlatformKind.platformByCompilerArguments(compilerArguments)
     }
 }
 
 fun Element.getFacetPlatformByConfigurationElement(): TargetPlatform {
+    val platformNames = getAttributeValue("allPlatforms")?.split('/')?.toSet()
+    if (platformNames != null) {
+        return TargetPlatform(CommonPlatforms.allSimplePlatforms
+                                  .flatMap { it.componentPlatforms }
+                                  .filter { platformNames.contains(it.serializeToString()) }
+                                  .toSet())
+    }
+    // failed to read list of all platforms. Fallback to legacy algorythm
     val platformName = getAttributeValue("platform")
-    return IdePlatformKind.All_PLATFORMS
-        .firstOrNull { it.oldFashionedDescription == platformName }
-        .orDefault()
+    // this code could be simplified using union after fixing the equals method in SimplePlatform
+    val allPlatforms = ArrayList(CommonPlatforms.allSimplePlatforms).also { it.add(CommonPlatforms.defaultCommonPlatform) }
+    return allPlatforms.firstOrNull { it.oldFashionedDescription == platformName }.orDefault()
 }
 
 private fun readV2AndLaterConfig(element: Element): KotlinFacetSettings {
     return KotlinFacetSettings().apply {
         element.getAttributeValue("useProjectSettings")?.let { useProjectSettings = it.toBoolean() }
         val targetPlatform = element.getFacetPlatformByConfigurationElement()
-        element.getChild("implements")?.let {
-            val items = it.getChildren("implement")
-            implementedModuleNames = if (items.isNotEmpty()) {
-                items.mapNotNull { (it.content.firstOrNull() as? Text)?.textTrim }
-            } else {
-                listOfNotNull((it.content.firstOrNull() as? Text)?.textTrim)
-            }
+        this.targetPlatform = targetPlatform
+        readElementsList(element, "implements", "implement")?.let { implementedModuleNames = it }
+        readElementsList(element, "dependsOnModuleNames", "dependsOn")?.let { dependsOnModuleNames = it }
+        readElementsList(element, "externalSystemTestTasks", "externalSystemTestTask")?.let {
+            externalSystemTestTasks = it.mapNotNull { ExternalSystemTestTask.fromStringRepresentation(it) }
         }
+
         element.getChild("sourceSets")?.let {
             val items = it.getChildren("sourceSet")
             sourceSetNames = items.mapNotNull { (it.content.firstOrNull() as? Text)?.textTrim }
@@ -153,6 +158,8 @@ private fun readV2AndLaterConfig(element: Element): KotlinFacetSettings {
         } ?: KotlinModuleKind.DEFAULT
         isTestModule = element.getAttributeValue("isTestModule")?.toBoolean() ?: false
         externalProjectId = element.getAttributeValue("externalProjectId") ?: ""
+        isHmppEnabled = element.getAttribute("isHmppProject")?.booleanValue ?: false
+        pureKotlinSourceFolders = element.getAttributeValue("pureKotlinSourceFolders")?.split(";")?.toList() ?: emptyList()
         element.getChild("compilerSettings")?.let {
             compilerSettings = CompilerSettings()
             XmlSerializer.deserializeInto(compilerSettings!!, it)
@@ -172,6 +179,18 @@ private fun readV2AndLaterConfig(element: Element): KotlinFacetSettings {
             PathUtil.toSystemDependentName((it.content.firstOrNull() as? Text)?.textTrim)
         } ?: (compilerArguments as? K2JSCompilerArguments)?.outputFile
     }
+}
+
+private fun readElementsList(element: Element, rootElementName: String, elementName: String): List<String>? {
+    element.getChild(rootElementName)?.let {
+        val items = it.getChildren(elementName)
+        return if (items.isNotEmpty()) {
+            items.mapNotNull { (it.content.firstOrNull() as? Text)?.textTrim }
+        } else {
+            listOfNotNull((it.content.firstOrNull() as? Text)?.textTrim)
+        }
+    }
+    return null
 }
 
 private fun readV2Config(element: Element): KotlinFacetSettings {
@@ -289,22 +308,14 @@ private fun KotlinFacetSettings.writeLatestConfig(element: Element) {
 
     targetPlatform?.let {
         element.setAttribute("platform", it.oldFashionedDescription)
+        element.setAttribute("allPlatforms", it.componentPlatforms.map { it.serializeToString() }.sorted().joinToString(separator = "/"))
     }
     if (!useProjectSettings) {
         element.setAttribute("useProjectSettings", useProjectSettings.toString())
     }
-    if (implementedModuleNames.isNotEmpty()) {
-        element.addContent(
-                Element("implements").apply {
-                    val singleModule = implementedModuleNames.singleOrNull()
-                    if (singleModule != null) {
-                        addContent(singleModule)
-                    } else {
-                        implementedModuleNames.map { addContent(Element("implement").apply { addContent(it) }) }
-                    }
-                }
-        )
-    }
+    saveElementsList(element, implementedModuleNames, "implements", "implement")
+    saveElementsList(element, dependsOnModuleNames, "dependsOnModuleNames", "dependsOn")
+
     if (sourceSetNames.isNotEmpty()) {
         element.addContent(
             Element("sourceSets").apply {
@@ -318,6 +329,20 @@ private fun KotlinFacetSettings.writeLatestConfig(element: Element) {
     }
     if (externalProjectId.isNotEmpty()) {
         element.setAttribute("externalProjectId", externalProjectId)
+    }
+    if (isHmppEnabled) {
+        element.setAttribute("isHmppProject", mppVersion.isHmpp.toString())
+    }
+    if (externalSystemTestTasks.isNotEmpty()) {
+        saveElementsList(
+            element,
+            externalSystemTestTasks.map { it.toStringRepresentation() },
+            "externalSystemTestTasks",
+            "externalSystemTestTask"
+        )
+    }
+    if (pureKotlinSourceFolders.isNotEmpty()) {
+        element.setAttribute("pureKotlinSourceFolders", pureKotlinSourceFolders.joinToString(";"))
     }
     productionOutputPath?.let {
         if (it != (compilerArguments as? K2JSCompilerArguments)?.outputFile) {
@@ -337,6 +362,21 @@ private fun KotlinFacetSettings.writeLatestConfig(element: Element) {
         it.convertPathsToSystemIndependent()
         val compilerArgumentsXml = buildChildElement(element, "compilerArguments", it, filter)
         compilerArgumentsXml.dropVersionsIfNecessary(it)
+    }
+}
+
+private fun saveElementsList(element: Element, elementsList: List<String>, rootElementName: String, elementName: String) {
+    if (elementsList.isNotEmpty()) {
+        element.addContent(
+            Element(rootElementName).apply {
+                val singleModule = elementsList.singleOrNull()
+                if (singleModule != null) {
+                    addContent(singleModule)
+                } else {
+                    elementsList.map { addContent(Element(elementName).apply { addContent(it) }) }
+                }
+            }
+        )
     }
 }
 

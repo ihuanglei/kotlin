@@ -75,8 +75,6 @@ interface SourceCompilerForInline {
     val compilationContextFunctionDescriptor: FunctionDescriptor
 
     fun getContextLabels(): Set<String>
-
-    fun initializeInlineFunctionContext(functionDescriptor: FunctionDescriptor)
 }
 
 
@@ -357,7 +355,7 @@ class PsiSourceCompilerForInline(private val codegen: ExpressionCodegen, overrid
         return InlineCodegen.getDeclarationLabels(DescriptorToSourceUtils.descriptorToDeclaration(descriptor), descriptor)
     }
 
-    override fun initializeInlineFunctionContext(functionDescriptor: FunctionDescriptor) {
+    fun initializeInlineFunctionContext(functionDescriptor: FunctionDescriptor) {
         context = getContext(
             functionDescriptor,
             functionDescriptor,
@@ -391,7 +389,7 @@ class PsiSourceCompilerForInline(private val codegen: ExpressionCodegen, overrid
 
             return when (descriptor) {
                 is ScriptDescriptor -> {
-                    val earlierScripts = state.replSpecific.earlierScriptsForReplInterpreter
+                    val earlierScripts = state.scriptSpecific.earlierScriptsForReplInterpreter
                     containerContext.intoScript(
                         descriptor,
                         earlierScripts ?: emptyList(),

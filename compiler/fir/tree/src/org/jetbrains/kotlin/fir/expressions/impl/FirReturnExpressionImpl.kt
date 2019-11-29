@@ -5,27 +5,44 @@
 
 package org.jetbrains.kotlin.fir.expressions.impl
 
-import com.intellij.psi.PsiElement
-import org.jetbrains.kotlin.fir.*
+import org.jetbrains.kotlin.fir.FirSourceElement
+import org.jetbrains.kotlin.fir.FirTarget
 import org.jetbrains.kotlin.fir.declarations.FirFunction
+import org.jetbrains.kotlin.fir.expressions.FirAnnotationCall
 import org.jetbrains.kotlin.fir.expressions.FirExpression
 import org.jetbrains.kotlin.fir.expressions.FirReturnExpression
+import org.jetbrains.kotlin.fir.impl.FirAbstractAnnotatedElement
 import org.jetbrains.kotlin.fir.types.FirTypeRef
 import org.jetbrains.kotlin.fir.types.impl.FirImplicitNothingTypeRef
-import org.jetbrains.kotlin.fir.types.impl.FirImplicitUnitTypeRef
-import org.jetbrains.kotlin.fir.visitors.FirTransformer
+import org.jetbrains.kotlin.fir.visitors.*
+
+/*
+ * This file was generated automatically
+ * DO NOT MODIFY IT MANUALLY
+ */
 
 class FirReturnExpressionImpl(
-    session: FirSession,
-    psi: PsiElement?,
+    override val source: FirSourceElement?,
     override var result: FirExpression
-) : FirAbstractExpression(session, psi), FirReturnExpression {
-    override lateinit var target: FirTarget<FirFunction>
+) : FirReturnExpression(), FirAbstractAnnotatedElement {
+    override var typeRef: FirTypeRef = FirImplicitNothingTypeRef(source)
+    override val annotations: MutableList<FirAnnotationCall> = mutableListOf()
+    override lateinit var target: FirTarget<FirFunction<*>>
 
-    override fun <D> transformChildren(transformer: FirTransformer<D>, data: D): FirElement {
-        result = result.transformSingle(transformer, data)
-        return super<FirAbstractExpression>.transformChildren(transformer, data)
+    override fun <R, D> acceptChildren(visitor: FirVisitor<R, D>, data: D) {
+        typeRef.accept(visitor, data)
+        annotations.forEach { it.accept(visitor, data) }
+        result.accept(visitor, data)
     }
 
-    override var typeRef: FirTypeRef = FirImplicitNothingTypeRef(session, psi)
+    override fun <D> transformChildren(transformer: FirTransformer<D>, data: D): FirReturnExpressionImpl {
+        typeRef = typeRef.transformSingle(transformer, data)
+        annotations.transformInplace(transformer, data)
+        result = result.transformSingle(transformer, data)
+        return this
+    }
+
+    override fun replaceTypeRef(newTypeRef: FirTypeRef) {
+        typeRef = newTypeRef
+    }
 }

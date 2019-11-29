@@ -4,6 +4,7 @@ import com.intellij.testFramework.TestDataFile
 import org.gradle.api.logging.LogLevel
 import org.gradle.tooling.GradleConnector
 import org.gradle.util.GradleVersion
+import org.intellij.lang.annotations.Language
 import org.jdom.Element
 import org.jdom.input.SAXBuilder
 import org.jdom.output.Format
@@ -33,7 +34,8 @@ abstract class BaseGradleIT {
 
     @Before
     fun setUp() {
-        workingDir = createTempDir("BaseGradleIT")
+        // Aapt2 from Android Gradle Plugin 3.2 and below does not handle long paths on Windows.
+        workingDir = createTempDir(if (isWindows) "" else "BaseGradleIT")
         acceptAndroidSdkLicenses()
     }
 
@@ -165,9 +167,17 @@ abstract class BaseGradleIT {
             assert(version != runnerGradleVersion) { "Not stopping Gradle daemon v$version as it matches the runner version" }
             println("Stopping gradle daemon v$version")
 
+            val envVariables = if (GradleVersion.version(version) < GradleVersion.version("5.0")) {
+                // Gradle versions below 5.0 do not support running on JDK11, and some of the tests
+                // set JAVA_HOME to JDK11. This makes sure we are using JDK8 when stopping those daemons.
+                environmentVariables + mapOf("JAVA_HOME" to System.getenv()["JDK_18"]!!)
+            } else {
+                environmentVariables
+            }
+
             val wrapperDir = gradleWrappers[version] ?: error("Was asked to stop unknown daemon $version")
             val cmd = createGradleCommand(wrapperDir, arrayListOf("-stop"))
-            val result = runProcess(cmd, wrapperDir, environmentVariables)
+            val result = runProcess(cmd, wrapperDir, envVariables)
             assert(result.isSuccessful) { "Could not stop daemon: $result" }
             DaemonRegistry.unregister(version)
         }
@@ -188,6 +198,7 @@ abstract class BaseGradleIT {
         val daemonOptionSupported: Boolean = true,
         val incremental: Boolean? = null,
         val incrementalJs: Boolean? = null,
+        val jsIrBackend: Boolean? = null,
         val androidHome: File? = null,
         val javaHome: File? = null,
         val androidGradlePluginVersion: AGPVersion? = null,
@@ -286,7 +297,12 @@ abstract class BaseGradleIT {
         build(*params, options = options.copy(kotlinDaemonDebugPort = debugPort), check = check)
     }
 
-    fun Project.build(vararg params: String, options: BuildOptions = defaultBuildOptions(), check: CompiledProject.() -> Unit) {
+    fun Project.build(
+        vararg params: String,
+        options: BuildOptions = defaultBuildOptions(),
+        projectDir: File = File(workingDir, projectName),
+        check: CompiledProject.() -> Unit
+    ) {
         val wrapperVersion = chooseWrapperVersionOrFinishTest()
 
         val env = createEnvironmentVariablesMap(options)
@@ -295,7 +311,6 @@ abstract class BaseGradleIT {
 
         println("<=== Test build: ${this.projectName} $cmd ===>")
 
-        val projectDir = File(workingDir, projectName)
         if (!projectDir.exists()) {
             setupWorkingDir()
         }
@@ -524,11 +539,18 @@ abstract class BaseGradleIT {
     }
 
     fun CompiledProject.getOutputForTask(taskName: String): String {
-        val taskOutputRegex = ("(?:\\[LIFECYCLE] \\[class org\\.gradle(?:\\.internal\\.buildevents)?\\.TaskExecutionLogger] :$taskName|" +
-                "\\[org\\.gradle\\.execution\\.plan\\.DefaultPlanExecutor\\] :$taskName.*?started)" +
-                "([\\s\\S]+?)" +
-                "(?:Finished executing task ':$taskName'|" +
-                "\\[org\\.gradle\\.execution\\.plan\\.DefaultPlanExecutor\\] :$taskName.*?completed)").toRegex()
+        @Language("RegExp")
+        val taskOutputRegex = """
+(?:
+\[LIFECYCLE] \[class org\.gradle(?:\.internal\.buildevents)?\.TaskExecutionLogger] :$taskName|
+\[org\.gradle\.execution\.(?:plan|taskgraph)\.Default(?:Task)?PlanExecutor] :$taskName.*?started
+)
+([\s\S]+?)
+(?:
+Finished executing task ':$taskName'|
+\[org\.gradle\.execution\.(?:plan|taskgraph)\.Default(?:Task)?PlanExecutor] :$taskName.*?completed
+)
+""".trimIndent().replace("\n", "").toRegex()
 
         return taskOutputRegex.find(output)?.run { groupValues[1] } ?: error("Cannot find output for task $taskName")
     }
@@ -698,6 +720,7 @@ abstract class BaseGradleIT {
                 add("-Pkotlin.incremental=$it")
             }
             options.incrementalJs?.let { add("-Pkotlin.incremental.js=$it") }
+            options.jsIrBackend?.let { add("-Pkotlin.js.useIrBackend=$it") }
             options.usePreciseJavaTracking?.let { add("-Pkotlin.incremental.usePreciseJavaTracking=$it") }
             options.androidGradlePluginVersion?.let { add("-Pandroid_tools_version=$it") }
             if (options.debug) {
@@ -730,7 +753,6 @@ abstract class BaseGradleIT {
 
             // Workaround: override a console type set in the user machine gradle.properties (since Gradle 4.3):
             add("--console=plain")
-            add("-Dkotlin.daemon.ea=true")
             addAll(options.freeCommandLineArgs)
         }
 

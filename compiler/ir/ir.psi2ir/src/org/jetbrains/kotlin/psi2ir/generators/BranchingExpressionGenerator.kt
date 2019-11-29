@@ -16,7 +16,6 @@
 
 package org.jetbrains.kotlin.psi2ir.generators
 
-import org.jetbrains.kotlin.builtins.KotlinBuiltIns
 import org.jetbrains.kotlin.ir.UNDEFINED_OFFSET
 import org.jetbrains.kotlin.ir.builders.buildStatement
 import org.jetbrains.kotlin.ir.builders.irIfThenMaybeElse
@@ -26,7 +25,6 @@ import org.jetbrains.kotlin.ir.declarations.IrVariable
 import org.jetbrains.kotlin.ir.expressions.*
 import org.jetbrains.kotlin.ir.expressions.impl.*
 import org.jetbrains.kotlin.ir.types.IrType
-import org.jetbrains.kotlin.ir.types.classifierOrNull
 import org.jetbrains.kotlin.psi.*
 import org.jetbrains.kotlin.psi.psiUtil.endOffset
 import org.jetbrains.kotlin.psi.psiUtil.startOffset
@@ -39,8 +37,6 @@ import org.jetbrains.kotlin.utils.SmartList
 class BranchingExpressionGenerator(statementGenerator: StatementGenerator) : StatementGeneratorExtension(statementGenerator) {
 
     fun generateIfExpression(expression: KtIfExpression): IrExpression {
-        val resultType = getInferredTypeWithImplicitCastsOrFail(expression).toIrType()
-
         var ktLastIf: KtIfExpression = expression
         val irBranches = SmartList<IrBranch>()
         var irElseBranch: IrExpression? = null
@@ -51,8 +47,7 @@ class BranchingExpressionGenerator(statementGenerator: StatementGenerator) : Sta
             val irThenBranch = ktLastIf.then?.genExpr() ?: generateEmptyBlockForMissingBranch(ktLastIf)
             irBranches.add(IrBranchImpl(irCondition, irThenBranch))
 
-            val ktElse = ktLastIf.`else`?.deparenthesize()
-            when (ktElse) {
+            when (val ktElse = ktLastIf.`else`?.deparenthesize()) {
                 null -> break@whenBranches
                 is KtIfExpression -> ktLastIf = ktElse
                 is KtExpression -> {
@@ -63,11 +58,11 @@ class BranchingExpressionGenerator(statementGenerator: StatementGenerator) : Sta
             }
         }
 
-        return createIrWhen(expression, irBranches, irElseBranch, resultType)
+        return createIrWhen(expression, irBranches, irElseBranch, getExpressionTypeWithCoercionToUnitOrFail(expression).toIrType())
     }
 
     private fun generateEmptyBlockForMissingBranch(ktLastIf: KtIfExpression) =
-        IrBlockImpl(ktLastIf.startOffset, ktLastIf.endOffset, context.irBuiltIns.nothingType, IrStatementOrigin.IF, listOf())
+        IrBlockImpl(ktLastIf.startOffset, ktLastIf.endOffset, context.irBuiltIns.unitType, IrStatementOrigin.IF, listOf())
 
     private fun createIrWhen(
         ktIf: KtIfExpression,
@@ -102,16 +97,10 @@ class BranchingExpressionGenerator(statementGenerator: StatementGenerator) : Sta
     fun generateWhenExpression(expression: KtWhenExpression): IrExpression {
         val irSubject = generateWhenSubject(expression)
 
-        val inferredType = getInferredTypeWithImplicitCastsOrFail(expression)
-
-        val resultType = when {
-            // Non-exhaustive when can only be used as statement.
-            expression.isExhaustiveWhen() -> inferredType.toIrType()
-            KotlinBuiltIns.isNothing(inferredType) -> inferredType.toIrType()
-            else -> context.irBuiltIns.unitType
-        }
-
-        val irWhen = IrWhenImpl(expression.startOffsetSkippingComments, expression.endOffset, resultType, IrStatementOrigin.WHEN)
+        val irWhen = IrWhenImpl(
+            expression.startOffsetSkippingComments, expression.endOffset,
+            getExpressionTypeWithCoercionToUnitOrFail(expression).toIrType(), IrStatementOrigin.WHEN
+        )
 
         for (ktEntry in expression.entries) {
             if (ktEntry.isElse) {
@@ -172,12 +161,22 @@ class BranchingExpressionGenerator(statementGenerator: StatementGenerator) : Sta
     private fun generateWhenBody(expression: KtWhenExpression, irSubject: IrVariable?, irWhen: IrWhen): IrExpression =
         if (irSubject == null) {
             if (irWhen.branches.isEmpty())
-                IrBlockImpl(expression.startOffsetSkippingComments, expression.endOffset, context.irBuiltIns.unitType, IrStatementOrigin.WHEN)
+                IrBlockImpl(
+                    expression.startOffsetSkippingComments,
+                    expression.endOffset,
+                    context.irBuiltIns.unitType,
+                    IrStatementOrigin.WHEN
+                )
             else
                 irWhen
         } else {
             if (irWhen.branches.isEmpty()) {
-                val irBlock = IrBlockImpl(expression.startOffsetSkippingComments, expression.endOffset, context.irBuiltIns.unitType, IrStatementOrigin.WHEN)
+                val irBlock = IrBlockImpl(
+                    expression.startOffsetSkippingComments,
+                    expression.endOffset,
+                    context.irBuiltIns.unitType,
+                    IrStatementOrigin.WHEN
+                )
                 irBlock.statements.add(irSubject)
                 irBlock
             } else {
@@ -207,12 +206,11 @@ class BranchingExpressionGenerator(statementGenerator: StatementGenerator) : Sta
     private fun generateIsPatternCondition(irSubject: IrVariable, ktCondition: KtWhenConditionIsPattern): IrExpression {
         val typeOperand = getOrFail(BindingContext.TYPE, ktCondition.typeReference)
         val irTypeOperand = typeOperand.toIrType()
-        val typeSymbol = irTypeOperand.classifierOrNull ?: throw AssertionError("Not a classifier type: $typeOperand")
         val irInstanceOf = IrTypeOperatorCallImpl(
             ktCondition.startOffsetSkippingComments, ktCondition.endOffset,
             context.irBuiltIns.booleanType,
             IrTypeOperator.INSTANCEOF,
-            irTypeOperand, typeSymbol,
+            irTypeOperand,
             irSubject.defaultLoad()
         )
         return if (ktCondition.isNegated)

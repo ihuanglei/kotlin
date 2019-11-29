@@ -17,12 +17,19 @@ import org.jetbrains.kotlin.KtNodeTypes
 import org.jetbrains.kotlin.fir.FirElement
 import org.jetbrains.kotlin.fir.FirRenderer
 import org.jetbrains.kotlin.fir.FirSessionBase
+import org.jetbrains.kotlin.fir.contracts.impl.FirEmptyContractDescription
 import org.jetbrains.kotlin.fir.declarations.FirFile
+import org.jetbrains.kotlin.fir.expressions.FirAnnotationCall
+import org.jetbrains.kotlin.fir.expressions.FirWrappedDelegateExpression
+import org.jetbrains.kotlin.fir.expressions.impl.FirNoReceiverExpression
+import org.jetbrains.kotlin.fir.expressions.impl.FirWrappedDelegateExpressionImpl
 import org.jetbrains.kotlin.fir.render
 import org.jetbrains.kotlin.fir.types.FirTypeRef
+import org.jetbrains.kotlin.fir.types.isExtensionFunctionAnnotationCall
 import org.jetbrains.kotlin.fir.visitors.CompositeTransformResult
 import org.jetbrains.kotlin.fir.visitors.FirTransformer
 import org.jetbrains.kotlin.fir.visitors.FirVisitorVoid
+import org.jetbrains.kotlin.fir.visitors.transformSingle
 import org.jetbrains.kotlin.parsing.KotlinParserDefinition
 import org.jetbrains.kotlin.psi.KtFile
 import org.jetbrains.kotlin.psi.KtPsiFactory
@@ -67,7 +74,7 @@ abstract class AbstractRawFirBuilderTestCase : KtParsingTestCase(
     }
 
     protected fun KtFile.toFirFile(stubMode: Boolean): FirFile =
-        RawFirBuilder(object : FirSessionBase() {}, stubMode).buildFirFile(this)
+        RawFirBuilder(object : FirSessionBase(null) {}, stubMode).buildFirFile(this)
 
     private fun FirElement.traverseChildren(result: MutableSet<FirElement> = hashSetOf()): MutableSet<FirElement> {
         if (!result.add(this)) {
@@ -77,6 +84,7 @@ abstract class AbstractRawFirBuilderTestCase : KtParsingTestCase(
             val childElement = property.getter.apply { isAccessible = true }.call(this)
 
             when (childElement) {
+                is FirNoReceiverExpression -> continue@propertyLoop
                 is FirElement -> childElement.traverseChildren(result)
                 is List<*> -> childElement.filterIsInstance<FirElement>().forEach { it.traverseChildren(result) }
                 else -> continue@propertyLoop
@@ -126,12 +134,14 @@ abstract class AbstractRawFirBuilderTestCase : KtParsingTestCase(
         override fun visitElement(element: FirElement) {
             // NB: types are reused sometimes (e.g. in accessors)
             if (!result.add(element)) {
-                if (element !is FirTypeRef) {
+                if (element !is FirTypeRef && element !is FirNoReceiverExpression && element !is FirEmptyContractDescription && !element.isExtensionFunctionAnnotation) {
                     val elementDump = StringBuilder().also { element.accept(FirRenderer(it)) }.toString()
                     throw AssertionError("FirElement ${element.javaClass} is visited twice: $elementDump")
                 }
-            } else {
+            } else if (element !is FirWrappedDelegateExpression) {
                 element.acceptChildren(this)
+            } else {
+                element.delegateProvider.accept(this)
             }
         }
     }
@@ -141,14 +151,16 @@ abstract class AbstractRawFirBuilderTestCase : KtParsingTestCase(
 
         override fun <E : FirElement> transformElement(element: E, data: Unit): CompositeTransformResult<E> {
             if (!result.add(element)) {
-                if (element !is FirTypeRef) {
+                if (element !is FirTypeRef && element !is FirNoReceiverExpression && element !is FirEmptyContractDescription && !element.isExtensionFunctionAnnotation) {
                     val elementDump = StringBuilder().also { element.accept(FirRenderer(it)) }.toString()
                     throw AssertionError("FirElement ${element.javaClass} is visited twice: $elementDump")
                 }
-            } else {
+            } else if (element !is FirWrappedDelegateExpressionImpl) {
                 element.transformChildren(this, Unit)
+            } else {
+                element.delegateProvider = element.delegateProvider.transformSingle(this, data)
             }
-            return CompositeTransformResult(element)
+            return CompositeTransformResult.single(element)
         }
     }
 
@@ -158,3 +170,6 @@ abstract class AbstractRawFirBuilderTestCase : KtParsingTestCase(
     }
 
 }
+
+private val FirElement.isExtensionFunctionAnnotation: Boolean
+    get() = (this as? FirAnnotationCall)?.isExtensionFunctionAnnotationCall == true

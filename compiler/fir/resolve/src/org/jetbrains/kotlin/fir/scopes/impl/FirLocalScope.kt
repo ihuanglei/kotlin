@@ -5,41 +5,52 @@
 
 package org.jetbrains.kotlin.fir.scopes.impl
 
-import org.jetbrains.kotlin.fir.declarations.FirNamedDeclaration
-import org.jetbrains.kotlin.fir.declarations.FirNamedFunction
-import org.jetbrains.kotlin.fir.expressions.FirVariable
+import org.jetbrains.kotlin.fir.declarations.*
+import org.jetbrains.kotlin.fir.NAME_FOR_BACKING_FIELD
 import org.jetbrains.kotlin.fir.scopes.FirScope
 import org.jetbrains.kotlin.fir.scopes.ProcessorAction
-import org.jetbrains.kotlin.fir.symbols.ConeFunctionSymbol
-import org.jetbrains.kotlin.fir.symbols.ConeVariableSymbol
-import org.jetbrains.kotlin.fir.symbols.impl.FirFunctionSymbol
+import org.jetbrains.kotlin.fir.symbols.impl.*
 import org.jetbrains.kotlin.name.Name
 
-class FirLocalScope : FirScope {
+class FirLocalScope : FirScope() {
 
-    val properties = mutableMapOf<Name, ConeVariableSymbol>()
-    val functions = mutableMapOf<Name, ConeFunctionSymbol>()
+    val properties = mutableMapOf<Name, FirVariableSymbol<*>>()
+    val functions = mutableMapOf<Name, FirFunctionSymbol<*>>()
+    val classes = mutableMapOf<Name, FirRegularClassSymbol>()
 
     fun storeDeclaration(declaration: FirNamedDeclaration) {
         when (declaration) {
-            is FirVariable -> properties[declaration.name] = declaration.symbol
-            is FirNamedFunction -> functions[declaration.name] = declaration.symbol as FirFunctionSymbol
+            is FirVariable<*> -> properties[declaration.name] = declaration.symbol
+            is FirSimpleFunction -> functions[declaration.name] = declaration.symbol as FirNamedFunctionSymbol
+            is FirRegularClass -> classes[declaration.name] = declaration.symbol
         }
     }
 
-    override fun processFunctionsByName(name: Name, processor: (ConeFunctionSymbol) -> ProcessorAction): ProcessorAction {
-        val prop = functions[name]
-        if (prop != null) {
-            return processor(prop)
-        }
-        return ProcessorAction.NEXT
+    fun storeBackingField(property: FirProperty) {
+        properties[NAME_FOR_BACKING_FIELD] = property.backingFieldSymbol
     }
 
-    override fun processPropertiesByName(name: Name, processor: (ConeVariableSymbol) -> ProcessorAction): ProcessorAction {
-        val prop = properties[name]
-        if (prop != null) {
-            return processor(prop)
+    override fun processFunctionsByName(name: Name, processor: (FirFunctionSymbol<*>) -> ProcessorAction): ProcessorAction {
+        val function = functions[name]
+        if (function != null) {
+            return processor(function)
         }
-        return ProcessorAction.NEXT
+        return ProcessorAction.NONE
+    }
+
+    override fun processPropertiesByName(name: Name, processor: (FirCallableSymbol<*>) -> ProcessorAction): ProcessorAction {
+        val property = properties[name]
+        if (property != null) {
+            return processor(property)
+        }
+        return ProcessorAction.NONE
+    }
+
+    override fun processClassifiersByName(name: Name, processor: (FirClassifierSymbol<*>) -> ProcessorAction): ProcessorAction {
+        val klass = classes[name]
+        if (klass != null) {
+            return processor(klass)
+        }
+        return ProcessorAction.NONE
     }
 }

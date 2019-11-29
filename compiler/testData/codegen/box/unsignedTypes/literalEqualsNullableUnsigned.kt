@@ -1,6 +1,6 @@
+// IGNORE_BACKEND_FIR: JVM_IR
 // KJS_WITH_FULL_RUNTIME
 // WITH_RUNTIME
-// IGNORE_BACKEND: JVM_IR
 
 fun isZeroUInt(n: UInt?) = 0U == n
 fun isZeroULong(n: ULong?) = 0UL == n

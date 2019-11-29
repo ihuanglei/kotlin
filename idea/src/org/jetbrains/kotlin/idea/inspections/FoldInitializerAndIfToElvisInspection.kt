@@ -10,8 +10,6 @@ import com.intellij.codeInspection.ProblemHighlightType
 import com.intellij.openapi.editor.Editor
 import com.intellij.openapi.project.Project
 import com.intellij.openapi.util.TextRange
-import com.intellij.psi.PsiComment
-import com.intellij.psi.PsiElement
 import com.intellij.psi.PsiWhiteSpace
 import com.intellij.psi.search.LocalSearchScope
 import com.intellij.psi.search.searches.ReferencesSearch
@@ -25,6 +23,8 @@ import org.jetbrains.kotlin.idea.intentions.branchedTransformations.expressionCo
 import org.jetbrains.kotlin.idea.intentions.branchedTransformations.fromIfKeywordToRightParenthesisTextRangeInThis
 import org.jetbrains.kotlin.idea.intentions.branchedTransformations.shouldBeTransformed
 import org.jetbrains.kotlin.idea.util.CommentSaver
+import org.jetbrains.kotlin.idea.util.application.runWriteAction
+import org.jetbrains.kotlin.idea.util.hasComments
 import org.jetbrains.kotlin.lexer.KtTokens
 import org.jetbrains.kotlin.psi.*
 import org.jetbrains.kotlin.psi.psiUtil.PsiChildRange
@@ -87,29 +87,21 @@ class FoldInitializerAndIfToElvisInspection : AbstractApplicabilityBasedInspecti
             val pattern = elvisPattern(declaration.textLength + ifNullExpr.textLength + 5 >= margin || element.then?.hasComments() == true)
 
             val elvis = factory.createExpressionByPattern(pattern, initializer, ifNullExpr) as KtBinaryExpression
-            if (typeReference != null) {
-                elvis.left!!.replace(factory.createExpressionByPattern("$0 as? $1", initializer, typeReference))
-            }
-            val newElvis = initializer.replaced(elvis)
-            element.delete()
 
-            if (explicitTypeToSet != null && !explicitTypeToSet.isError) {
-                declaration.setType(explicitTypeToSet)
-            }
-
-            commentSaver.restore(childRangeAfter)
-
-            return newElvis
-        }
-
-        private fun PsiElement.hasComments(): Boolean {
-            var result = false
-            accept(object : KtTreeVisitorVoid() {
-                override fun visitComment(comment: PsiComment?) {
-                    result = true
+            return runWriteAction {
+                if (typeReference != null) {
+                    elvis.left!!.replace(factory.createExpressionByPattern("$0 as? $1", initializer, typeReference))
                 }
-            })
-            return result
+                val newElvis = initializer.replaced(elvis)
+                element.delete()
+
+                if (explicitTypeToSet != null && !explicitTypeToSet.isError) {
+                    declaration.setType(explicitTypeToSet)
+                }
+
+                commentSaver.restore(childRangeAfter)
+                newElvis
+            }
         }
 
         private fun calcData(ifExpression: KtIfExpression): Data? {

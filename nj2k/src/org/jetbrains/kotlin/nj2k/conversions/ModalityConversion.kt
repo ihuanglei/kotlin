@@ -8,14 +8,16 @@ package org.jetbrains.kotlin.nj2k.conversions
 import com.intellij.psi.PsiClass
 import com.intellij.psi.PsiMethod
 import org.jetbrains.kotlin.nj2k.NewJ2kConverterContext
+import org.jetbrains.kotlin.nj2k.modality
+import org.jetbrains.kotlin.nj2k.psi
 import org.jetbrains.kotlin.nj2k.tree.*
-import org.jetbrains.kotlin.nj2k.tree.impl.psi
 
-class ModalityConversion(private val context: NewJ2kConverterContext) : RecursiveApplicableConversionBase() {
+
+class ModalityConversion(context: NewJ2kConverterContext) : RecursiveApplicableConversionBase(context) {
     override fun applyToElement(element: JKTreeElement): JKTreeElement {
         when (element) {
             is JKClass -> processClass(element)
-            is JKJavaMethod -> processMethod(element)
+            is JKMethod -> processMethod(element)
             is JKField -> processField(element)
         }
         return recurse(element)
@@ -35,21 +37,30 @@ class ModalityConversion(private val context: NewJ2kConverterContext) : Recursiv
         }
     }
 
-    private fun processMethod(method: JKJavaMethod) {
+    private fun processMethod(method: JKMethod) {
         val psi = method.psi<PsiMethod>() ?: return
         val containingClass = method.parentOfType<JKClass>() ?: return
-        method.modality = when {
+        when {
             method.modality != Modality.ABSTRACT
-                    && psi.findSuperMethods().isNotEmpty() -> Modality.OVERRIDE
+                    && psi.findSuperMethods().isNotEmpty() -> {
+                method.modality = Modality.FINAL
+                if (!method.hasOtherModifier(OtherModifier.OVERRIDE)) {
+                    method.otherModifierElements += JKOtherModifierElement(OtherModifier.OVERRIDE)
+                }
+            }
             method.modality == Modality.OPEN
                     && context.converter.settings.openByDefault
                     && containingClass.modality == Modality.OPEN
-                    && method.visibility != Visibility.PRIVATE -> Modality.OPEN
+                    && method.visibility != Visibility.PRIVATE -> {
+                method.modality = Modality.OPEN
+            }
 
             method.modality == Modality.OPEN
                     && containingClass.classKind != JKClass.ClassKind.INTERFACE
-                    && !context.converter.converterServices.oldServices.referenceSearcher.hasOverrides(psi) -> Modality.FINAL
-            else -> method.modality
+                    && !context.converter.converterServices.oldServices.referenceSearcher.hasOverrides(psi) -> {
+                method.modality = Modality.FINAL
+            }
+            else -> method.modality = method.modality
         }
     }
 

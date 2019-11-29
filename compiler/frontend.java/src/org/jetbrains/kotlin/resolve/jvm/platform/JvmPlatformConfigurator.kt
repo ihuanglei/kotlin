@@ -21,6 +21,7 @@ import org.jetbrains.kotlin.resolve.jvm.checkers.*
 import org.jetbrains.kotlin.resolve.jvm.multiplatform.JavaActualAnnotationArgumentExtractor
 import org.jetbrains.kotlin.synthetic.JavaSyntheticScopes
 import org.jetbrains.kotlin.types.expressions.FunctionWithBigAritySupport
+import org.jetbrains.kotlin.types.expressions.GenericArrayClassLiteralSupport
 
 object JvmPlatformConfigurator : PlatformConfiguratorBase(
     additionalDeclarationCheckers = listOf(
@@ -37,7 +38,8 @@ object JvmPlatformConfigurator : PlatformConfiguratorBase(
         JvmAnnotationsTargetNonExistentAccessorChecker(),
         BadInheritedJavaSignaturesChecker,
         JvmMultifileClassStateChecker,
-        SynchronizedOnInlineMethodChecker
+        SynchronizedOnInlineMethodChecker,
+        DefaultCheckerInTailrec
     ),
 
     additionalCallCheckers = listOf(
@@ -103,6 +105,7 @@ object JvmPlatformConfigurator : PlatformConfiguratorBase(
         container.useImpl<JvmDefaultSuperCallChecker>()
         container.useImpl<JvmSamConversionTransformer>()
         container.useInstance(FunctionWithBigAritySupport.LanguageVersionDependent)
+        container.useInstance(GenericArrayClassLiteralSupport.Enabled)
         container.useInstance(JavaActualAnnotationArgumentExtractor())
     }
 

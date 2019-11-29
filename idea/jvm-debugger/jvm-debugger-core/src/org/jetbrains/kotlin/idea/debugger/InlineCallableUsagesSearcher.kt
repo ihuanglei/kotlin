@@ -22,9 +22,10 @@ import com.intellij.openapi.progress.EmptyProgressIndicator
 import com.intellij.openapi.progress.ProgressManager
 import com.intellij.openapi.ui.MessageType
 import com.intellij.psi.PsiElement
+import com.intellij.psi.PsiReference
 import com.intellij.psi.search.GlobalSearchScope
 import com.intellij.psi.search.searches.ReferencesSearch
-import com.intellij.xdebugger.impl.XDebugSessionImpl
+import com.intellij.xdebugger.impl.XDebuggerManagerImpl
 import org.jetbrains.kotlin.descriptors.FunctionDescriptor
 import org.jetbrains.kotlin.descriptors.PropertyDescriptor
 import org.jetbrains.kotlin.idea.debugger.DebuggerClassNameProvider.Companion.getRelevantElement
@@ -37,15 +38,15 @@ import org.jetbrains.kotlin.idea.util.application.runReadAction
 import org.jetbrains.kotlin.psi.KtDeclaration
 import org.jetbrains.kotlin.psi.KtElement
 import org.jetbrains.kotlin.psi.psiUtil.isAncestor
-import org.jetbrains.kotlin.psi.psiUtil.isInsideOf
 import org.jetbrains.kotlin.resolve.BindingContext
 import org.jetbrains.kotlin.resolve.inline.InlineUtil
 
 class InlineCallableUsagesSearcher(private val myDebugProcess: DebugProcess) {
     fun findInlinedCalls(
             declaration: KtDeclaration,
+            alreadyVisited: Set<PsiElement>,
             bindingContext: BindingContext = KotlinDebuggerCaches.getOrCreateTypeMapper(declaration).bindingContext,
-            transformer: (PsiElement) -> ComputedClassNames
+            transformer: (PsiElement, Set<PsiElement>) -> ComputedClassNames
     ): ComputedClassNames {
         if (!checkIfInline(declaration, bindingContext)) {
             return ComputedClassNames.EMPTY
@@ -55,13 +56,8 @@ class InlineCallableUsagesSearcher(private val myDebugProcess: DebugProcess) {
             val declarationName = runReadAction { declaration.name }
 
             val task = Runnable {
-                ReferencesSearch.search(declaration, getScopeForInlineDeclarationUsages(declaration)).forEach {
-                    if (!runReadAction { it.isImportUsage() }) {
-                        val usage = (it.element as? KtElement)?.let(::getRelevantElement)
-                        if (usage != null && !runReadAction { declaration.isAncestor(usage) }) {
-                            searchResult.add(usage)
-                        }
-                    }
+                for (reference in ReferencesSearch.search(declaration, getScopeForInlineDeclarationUsages(declaration))) {
+                    processReference(declaration, reference, alreadyVisited)?.let { searchResult += it }
                 }
             }
 
@@ -75,19 +71,39 @@ class InlineCallableUsagesSearcher(private val myDebugProcess: DebugProcess) {
                         myDebugProcess.project)
             }
             else {
-                ProgressManager.getInstance().runProcess(task, EmptyProgressIndicator())
+                try {
+                    ProgressManager.getInstance().runProcess(task, EmptyProgressIndicator())
+                } catch (e: InterruptedException) {
+                    isSuccess = false;
+                }
             }
 
             if (!isSuccess) {
-                XDebugSessionImpl.NOTIFICATION_GROUP.createNotification(
+                XDebuggerManagerImpl.NOTIFICATION_GROUP.createNotification(
                         "Debugger can skip some executions of $declarationName because the computation of class names was interrupted",
                         MessageType.WARNING
                 ).notify(myDebugProcess.project)
             }
 
-            val results = searchResult.map { transformer(it) }
+            val newAlreadyVisited = HashSet<PsiElement>().apply {
+                addAll(alreadyVisited)
+                addAll(searchResult)
+                add(declaration)
+            }
+
+            val results = searchResult.map { transformer(it, newAlreadyVisited) }
             return ComputedClassNames(results.flatMap { it.classNames }, shouldBeCached = results.all { it.shouldBeCached })
         }
+    }
+
+    private fun processReference(declaration: KtDeclaration, reference: PsiReference, alreadyVisited: Set<PsiElement>): PsiElement? {
+        if (runReadAction { reference.isImportUsage() }) {
+            return null
+        }
+
+        val usage = (reference.element as? KtElement)?.let(::getRelevantElement) ?: return null
+        val shouldAnalyze = runReadAction { !declaration.isAncestor(usage) && usage !in alreadyVisited }
+        return if (shouldAnalyze) usage else null
     }
 
     private fun checkIfInline(declaration: KtDeclaration, bindingContext: BindingContext): Boolean {

@@ -24,7 +24,6 @@ import org.jetbrains.kotlin.ir.expressions.impl.*
 import org.jetbrains.kotlin.ir.expressions.mapValueParameters
 import org.jetbrains.kotlin.ir.expressions.putTypeArguments
 import org.jetbrains.kotlin.ir.expressions.typeParametersCount
-import org.jetbrains.kotlin.ir.util.StableDescriptorsComparator
 import org.jetbrains.kotlin.ir.util.declareSimpleFunctionWithOverrides
 import org.jetbrains.kotlin.ir.util.referenceFunction
 import org.jetbrains.kotlin.psi.KtClassOrObject
@@ -37,6 +36,10 @@ import org.jetbrains.kotlin.psi.psiUtil.pureStartOffset
 import org.jetbrains.kotlin.psi.psiUtil.startOffsetSkippingComments
 import org.jetbrains.kotlin.psi.synthetics.SyntheticClassOrObjectDescriptor
 import org.jetbrains.kotlin.psi.synthetics.findClassDescriptor
+import org.jetbrains.kotlin.renderer.ClassifierNamePolicy
+import org.jetbrains.kotlin.renderer.DescriptorRenderer
+import org.jetbrains.kotlin.renderer.DescriptorRendererModifier
+import org.jetbrains.kotlin.renderer.OverrideRenderingPolicy
 import org.jetbrains.kotlin.resolve.BindingContext
 import org.jetbrains.kotlin.resolve.DescriptorUtils
 import org.jetbrains.kotlin.resolve.scopes.DescriptorKindFilter
@@ -50,6 +53,23 @@ import org.jetbrains.kotlin.utils.newHashMapWithExpectedSize
 class ClassGenerator(
     declarationGenerator: DeclarationGenerator
 ) : DeclarationGeneratorExtension(declarationGenerator) {
+
+    companion object {
+        private val DESCRIPTOR_RENDERER = DescriptorRenderer.withOptions {
+            withDefinedIn = false
+            overrideRenderingPolicy = OverrideRenderingPolicy.RENDER_OPEN_OVERRIDE
+            includePropertyConstant = true
+            classifierNamePolicy = ClassifierNamePolicy.FULLY_QUALIFIED
+            verbose = true
+            modifiers = DescriptorRendererModifier.ALL
+        }
+
+        fun <T : DeclarationDescriptor> List<T>.sortedByRenderer(): List<T> {
+            val rendered = map(DESCRIPTOR_RENDERER::render)
+            val sortedIndices = (0 until size).sortedWith(Comparator { i, j -> rendered[i].compareTo(rendered[j]) })
+            return sortedIndices.map { this[it] }
+        }
+    }
 
     fun generateClass(ktClassOrObject: KtPureClassOrObject): IrClass {
         val classDescriptor = ktClassOrObject.findClassDescriptor(this.context.bindingContext)
@@ -125,7 +145,7 @@ class ClassGenerator(
                     it?.kind == CallableMemberDescriptor.Kind.FAKE_OVERRIDE
                 }
             }
-            .sortedWith(StableDescriptorsComparator)
+            .sortedByRenderer()
             .forEach { fakeOverride ->
                 declarationGenerator.generateFakeOverrideDeclaration(fakeOverride, ktClassOrObject)?.let { irClass.declarations.add(it) }
             }
@@ -137,7 +157,7 @@ class ClassGenerator(
             .getContributedDescriptors(DescriptorKindFilter.CALLABLES)
             .filterIsInstance<CallableMemberDescriptor>()
             .filter { it.kind == CallableMemberDescriptor.Kind.DELEGATION }
-            .sortedWith(StableDescriptorsComparator)
+            .sortedByRenderer()
         if (delegatedMembers.isEmpty()) return
 
         for (ktEntry in ktSuperTypeList.entries) {
@@ -153,7 +173,7 @@ class ClassGenerator(
         delegatedMembers: List<CallableMemberDescriptor>
     ) {
         val ktDelegateExpression = ktEntry.delegateExpression!!
-        val delegateType = getInferredTypeWithImplicitCastsOrFail(ktDelegateExpression)
+        val delegateType = getTypeInferredByFrontendOrFail(ktDelegateExpression)
         val superType = getOrFail(BindingContext.TYPE, ktEntry.typeReference!!)
         val superTypeConstructorDescriptor = superType.constructor.declarationDescriptor
         val superClass = superTypeConstructorDescriptor as? ClassDescriptor
@@ -259,12 +279,13 @@ class ClassGenerator(
         val substitutedOverridden = substituteOverriddenDescriptorForDelegate(delegated, overridden)
         val returnType = substitutedOverridden.returnType!!
         val irReturnType = returnType.toIrType()
+        val originalSymbol = context.symbolTable.referenceFunction(overridden.original)
         val irCall = IrCallImpl(
             startOffset, endOffset, irReturnType,
-            context.symbolTable.referenceFunction(overridden.original),
-            substitutedOverridden,
+            originalSymbol,
             substitutedOverridden.typeParametersCount
         ).apply {
+            context.callToSubstitutedDescriptorMap[this] = substitutedOverridden
             val typeArguments = getTypeArgumentsForOverriddenDescriptorDelegatingCall(delegated, overridden)
             putTypeArguments(typeArguments) { it.toIrType() }
         }

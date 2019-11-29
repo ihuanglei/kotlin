@@ -5,19 +5,27 @@
 
 package org.jetbrains.kotlin.fir.expressions.impl
 
-import com.intellij.psi.PsiElement
-import org.jetbrains.kotlin.fir.FirSession
+import org.jetbrains.kotlin.fir.FirSourceElement
 import org.jetbrains.kotlin.fir.FirTarget
-import org.jetbrains.kotlin.fir.expressions.FirJump
+import org.jetbrains.kotlin.fir.expressions.FirAnnotationCall
 import org.jetbrains.kotlin.fir.expressions.FirLoop
+import org.jetbrains.kotlin.fir.expressions.FirLoopJump
+import org.jetbrains.kotlin.fir.impl.FirAbstractAnnotatedElement
 import org.jetbrains.kotlin.fir.types.FirTypeRef
-import org.jetbrains.kotlin.fir.types.impl.FirImplicitNothingTypeRef
+import org.jetbrains.kotlin.fir.types.impl.FirImplicitTypeRefImpl
+import org.jetbrains.kotlin.fir.visitors.*
 
-abstract class FirAbstractLoopJump(
-    session: FirSession,
-    psi: PsiElement?
-) : FirAbstractExpression(session, psi), FirJump<FirLoop> {
-    override lateinit var target: FirTarget<FirLoop>
+/*
+ * This file was generated automatically
+ * DO NOT MODIFY IT MANUALLY
+ */
 
-    override var typeRef: FirTypeRef = FirImplicitNothingTypeRef(session, psi)
+interface FirAbstractLoopJump : FirLoopJump, FirAbstractAnnotatedElement {
+    override val source: FirSourceElement?
+    override var typeRef: FirTypeRef
+    override val annotations: MutableList<FirAnnotationCall>
+    override var target: FirTarget<FirLoop>
+    override fun <D> transformChildren(transformer: FirTransformer<D>, data: D): FirAbstractLoopJump
+
+    override fun replaceTypeRef(newTypeRef: FirTypeRef)
 }

@@ -5,10 +5,7 @@
 
 package org.jetbrains.kotlin.gradle
 
-import org.gradle.api.Named
-import org.gradle.api.NamedDomainObjectContainer
-import org.gradle.api.Project
-import org.gradle.api.Task
+import org.gradle.api.*
 import org.gradle.api.artifacts.Configuration
 import org.gradle.api.artifacts.Dependency
 import org.gradle.api.artifacts.component.ProjectComponentIdentifier
@@ -16,6 +13,9 @@ import org.gradle.api.file.FileCollection
 import org.gradle.api.file.SourceDirectorySet
 import org.gradle.api.logging.Logging
 import org.gradle.api.provider.Property
+import org.gradle.api.provider.Provider
+import org.gradle.api.tasks.Exec
+import org.gradle.api.tasks.TaskProvider
 import org.jetbrains.kotlin.gradle.KotlinMPPGradleModel.Companion.NO_KOTLIN_NATIVE_HOME
 import org.jetbrains.plugins.gradle.model.*
 import org.jetbrains.plugins.gradle.tooling.ErrorMessageBuilder
@@ -27,6 +27,10 @@ import java.io.File
 import java.lang.reflect.Method
 
 class KotlinMPPGradleModelBuilder : ModelBuilderService {
+    // This flag enables import of source sets which do not belong to any compilation
+    private val DEFAULT_IMPORT_ORPHAN_SOURCE_SETS = true
+    private val DEFAULT_BUILD_METADATA_DEPENDENCIES_FOR_ACTUALISED_SOURCE_SETS = true
+
     override fun getErrorMessageBuilder(project: Project, e: Exception): ErrorMessageBuilder {
         return ErrorMessageBuilder
             .create(project, e, "Gradle import errors")
@@ -38,6 +42,7 @@ class KotlinMPPGradleModelBuilder : ModelBuilderService {
     }
 
     override fun buildAll(modelName: String, project: Project): Any? {
+        val projectTargets = project.getTargets() ?: return null
         val dependencyResolver = DependencyResolverImpl(
             project,
             false,
@@ -45,14 +50,43 @@ class KotlinMPPGradleModelBuilder : ModelBuilderService {
             true,
             SourceSetCachedFinder(project)
         )
-        val sourceSets = buildSourceSets(dependencyResolver, project) ?: return null
+        val dependencyMapper = KotlinDependencyMapper()
+        val sourceSets = buildSourceSets(dependencyResolver, project, dependencyMapper) ?: return null
         val sourceSetMap = sourceSets.map { it.name to it }.toMap()
-        val targets = buildTargets(sourceSetMap, dependencyResolver, project) ?: return null
-        computeSourceSetsDeferredInfo(sourceSets, targets)
+        val targets = buildTargets(projectTargets, sourceSetMap, dependencyResolver, project, dependencyMapper) ?: return null
+        computeSourceSetsDeferredInfo(sourceSetMap, targets, isHMPPEnabled(project))
         val coroutinesState = getCoroutinesState(project)
         reportUnresolvedDependencies(targets)
         val kotlinNativeHome = KotlinNativeHomeEvaluator.getKotlinNativeHome(project) ?: NO_KOTLIN_NATIVE_HOME
-        return KotlinMPPGradleModelImpl(sourceSetMap, targets, ExtraFeaturesImpl(coroutinesState), kotlinNativeHome)
+        return KotlinMPPGradleModelImpl(
+            filterOrphanSourceSets(sourceSetMap, targets, project),
+            targets,
+            ExtraFeaturesImpl(coroutinesState, isHMPPEnabled(project), isNativeDependencyPropagationEnabled(project)),
+            kotlinNativeHome,
+            dependencyMapper.toDependencyMap()
+        )
+    }
+
+    private fun filterOrphanSourceSets(
+        sourceSets: Map<String, KotlinSourceSetImpl>,
+        targets: Collection<KotlinTarget>,
+        project: Project
+    ): Map<String, KotlinSourceSetImpl> {
+        if (project.properties["import_orphan_source_sets"]?.toString()?.toBoolean() ?: DEFAULT_IMPORT_ORPHAN_SOURCE_SETS) return sourceSets
+        val compiledSourceSets: Collection<String> = targets.flatMap { it.compilations }.flatMap { it.sourceSets }.flatMap { it.dependsOnSourceSets.union(listOf(it.name)) }.distinct()
+        sourceSets.filter { !compiledSourceSets.contains(it.key) }.forEach {
+            logger.warn("[sync warning] Source set \"${it.key}\" is not compiled with any compilation. This source set is not imported in the IDE.")
+        }
+        return sourceSets.filter { compiledSourceSets.contains(it.key) }
+    }
+
+    private fun isHMPPEnabled(project: Project): Boolean {
+        //TODO(auskov): replace with Project.isKotlinGranularMetadataEnabled after merging with gradle branch
+        return (project.findProperty("kotlin.mpp.enableGranularSourceSetsMetadata") as? String)?.toBoolean() ?: false
+    }
+
+    private fun isNativeDependencyPropagationEnabled(project: Project): Boolean {
+        return (project.findProperty("kotlin.native.enableDependencyPropagation") as? String)?.toBoolean() ?: true
     }
 
     private fun reportUnresolvedDependencies(targets: Collection<KotlinTarget>) {
@@ -73,20 +107,66 @@ class KotlinMPPGradleModelBuilder : ModelBuilderService {
         return getCoroutines(experimentalExt) as? String
     }
 
-    private fun buildSourceSets(dependencyResolver: DependencyResolver, project: Project): Collection<KotlinSourceSetImpl>? {
+
+    private fun calculateDependsOnClosure(
+        sourceSet: KotlinSourceSetImpl?,
+        sourceSetsMap: Map<String, KotlinSourceSetImpl>,
+        cache: MutableMap<String, Set<String>>
+    ): Set<String> {
+        return if (sourceSet == null) {
+            emptySet()
+        } else {
+            cache[sourceSet.name] ?: sourceSet.dependsOnSourceSets.flatMap { name ->
+                calculateDependsOnClosure(
+                    sourceSetsMap[name],
+                    sourceSetsMap,
+                    cache
+                ).union(setOf(name))
+            }.toSet().also { cache[sourceSet.name] = it }
+        }
+    }
+
+    private fun buildSourceSets(dependencyResolver: DependencyResolver, project: Project, dependencyMapper: KotlinDependencyMapper): Collection<KotlinSourceSetImpl>? {
         val kotlinExt = project.extensions.findByName("kotlin") ?: return null
         val getSourceSets = kotlinExt.javaClass.getMethodOrNull("getSourceSets") ?: return null
         @Suppress("UNCHECKED_CAST")
         val sourceSets =
             (getSourceSets(kotlinExt) as? NamedDomainObjectContainer<Named>)?.asMap?.values ?: emptyList<Named>()
-        return sourceSets.mapNotNull { buildSourceSet(it, dependencyResolver, project) }
+
+        // Some performance optimisation: do not build metadata dependencies if source set is not common
+        val doBuildMetadataDependencies =
+            project.properties["build_metadata_dependencies_for_actualised_source_sets"]?.toString()?.toBoolean()
+                ?: DEFAULT_BUILD_METADATA_DEPENDENCIES_FOR_ACTUALISED_SOURCE_SETS
+        val allSourceSetsProtos = sourceSets.mapNotNull { buildSourceSet(it, dependencyResolver, project, dependencyMapper) }
+        val allSourceSets = if (doBuildMetadataDependencies) {
+            allSourceSetsProtos.map { proto -> proto.buildKotlinSourceSetImpl(true)}
+        } else {
+            val unactualizedSourceSets = allSourceSetsProtos.flatMap { it.dependsOnSourceSets }.distinct()
+            allSourceSetsProtos.map { proto -> proto.buildKotlinSourceSetImpl(unactualizedSourceSets.contains(proto.name))}
+        }
+
+        val map = allSourceSets.map { it.name to it }.toMap()
+        val dependsOnCache = HashMap<String, Set<String>>()
+        return allSourceSets.map { sourceSet ->
+            KotlinSourceSetImpl(
+                sourceSet.name,
+                sourceSet.languageSettings,
+                sourceSet.sourceDirs,
+                sourceSet.resourceDirs,
+                sourceSet.dependencies,
+                calculateDependsOnClosure(sourceSet, map, dependsOnCache),
+                sourceSet.actualPlatforms as KotlinPlatformContainerImpl,
+                sourceSet.isTestModule
+            )
+        }
     }
 
     private fun buildSourceSet(
         gradleSourceSet: Named,
         dependencyResolver: DependencyResolver,
-        project: Project
-    ): KotlinSourceSetImpl? {
+        project: Project,
+        dependencyMapper: KotlinDependencyMapper
+    ): KotlinSourceSetProto? {
         val sourceSetClass = gradleSourceSet.javaClass
         val getLanguageSettings = sourceSetClass.getMethodOrNull("getLanguageSettings") ?: return null
         val getSourceDirSet = sourceSetClass.getMethodOrNull("getKotlin") ?: return null
@@ -95,10 +175,22 @@ class KotlinMPPGradleModelBuilder : ModelBuilderService {
         val languageSettings = getLanguageSettings(gradleSourceSet)?.let { buildLanguageSettings(it) } ?: return null
         val sourceDirs = (getSourceDirSet(gradleSourceSet) as? SourceDirectorySet)?.srcDirs ?: emptySet()
         val resourceDirs = (getResourceDirSet(gradleSourceSet) as? SourceDirectorySet)?.srcDirs ?: emptySet()
-        val dependencies = buildSourceSetDependencies(gradleSourceSet, dependencyResolver, project)
+
         @Suppress("UNCHECKED_CAST")
         val dependsOnSourceSets = (getDependsOn(gradleSourceSet) as? Set<Named>)?.mapTo(LinkedHashSet()) { it.name } ?: emptySet<String>()
-        return KotlinSourceSetImpl(gradleSourceSet.name, languageSettings, sourceDirs, resourceDirs, dependencies, dependsOnSourceSets)
+
+        val sourceSetDependenciesBuilder: () -> Array<KotlinDependencyId> = {
+            buildSourceSetDependencies(gradleSourceSet, dependencyResolver, project).map { dependencyMapper.getId(it) }.distinct()
+                .toTypedArray()
+        }
+        return KotlinSourceSetProto(
+            gradleSourceSet.name,
+            languageSettings,
+            sourceDirs,
+            resourceDirs,
+            sourceSetDependenciesBuilder,
+            dependsOnSourceSets
+        )
     }
 
     private fun buildLanguageSettings(gradleLanguageSettings: Any): KotlinLanguageSettings? {
@@ -117,7 +209,7 @@ class KotlinMPPGradleModelBuilder : ModelBuilderService {
             getProgressiveMode(gradleLanguageSettings) as? Boolean ?: false,
             getEnabledLanguageFeatures(gradleLanguageSettings) as? Set<String> ?: emptySet(),
             getExperimentalAnnotationsInUse?.invoke(gradleLanguageSettings) as? Set<String> ?: emptySet(),
-            getCompilerPluginArguments?.invoke(gradleLanguageSettings) as? List<String> ?: emptyList(),
+            (getCompilerPluginArguments?.invoke(gradleLanguageSettings) as? List<String> ?: emptyList()).toTypedArray(),
             (getCompilerPluginClasspath?.invoke(gradleLanguageSettings) as? FileCollection)?.files ?: emptySet()
         )
     }
@@ -134,7 +226,6 @@ class KotlinMPPGradleModelBuilder : ModelBuilderService {
         val getConfigurationName = dependencyHolderClass.getMethodOrNull(configurationNameAccessor) ?: return emptyList()
         val configurationName = getConfigurationName(dependencyHolder) as? String ?: return emptyList()
         val configuration = project.configurations.findByName(configurationName) ?: return emptyList()
-        @Suppress("UnstableApiUsage")
         if (!configuration.isCanBeResolved) return emptyList()
 
         val dependencyAdjuster =
@@ -160,22 +251,73 @@ class KotlinMPPGradleModelBuilder : ModelBuilderService {
     }
 
     private fun buildTargets(
+        projectTargets: Collection<Named>,
         sourceSetMap: Map<String, KotlinSourceSet>,
         dependencyResolver: DependencyResolver,
-        project: Project
+        project: Project,
+        dependencyMapper: KotlinDependencyMapper
     ): Collection<KotlinTarget>? {
-        return project.getTargets()?.mapNotNull { buildTarget(it, sourceSetMap, dependencyResolver, project) }
+        val isHMPPEnabled = isHMPPEnabled(project)
+        return projectTargets.mapNotNull { buildTarget(it, sourceSetMap, dependencyResolver, project, dependencyMapper, isHMPPEnabled) }
+    }
+
+    private operator fun Any?.get(methodName: String, vararg params: Any): Any? {
+        return this[methodName, params.map { it.javaClass }, params.toList()]
+    }
+
+    private operator fun Any?.get(methodName: String, paramTypes: List<Class<*>>, params: List<Any?>): Any? {
+        if (this == null) return null
+        return this::class.java.getMethodOrNull(methodName, *paramTypes.toTypedArray())?.invoke(this, *params.toTypedArray())
+    }
+
+    private fun buildArtifact(
+        executableName: String,
+        linkTask: Task,
+        runConfiguration: KonanRunConfigurationModel
+    ): KonanArtifactModel? {
+        val outputKind = linkTask["getOutputKind"]["name"] as? String ?: return null
+        val konanTargetName = linkTask["getTarget"] as? String ?: error("No arch target found")
+        val outputFile = (linkTask["getOutputFile"] as? Provider<*>)?.orNull as? File ?: return null
+        val compilationTarget = linkTask["getCompilation"]["getTarget"]
+        val compilationTargetName = compilationTarget["getName"] as? String ?: return null
+        val isTests = linkTask["getProcessTests"] as? Boolean ?: return null
+
+        return KonanArtifactModelImpl(
+            compilationTargetName,
+            executableName,
+            outputKind,
+            konanTargetName,
+            outputFile,
+            linkTask.path,
+            runConfiguration,
+            isTests
+        )
+    }
+
+    private fun konanArtifacts(target: Named): List<KonanArtifactModel> {
+        val result = ArrayList<KonanArtifactModel>()
+
+        val binaries = target["getBinaries"] as? Collection<*> ?: return result
+        binaries.forEach { binary ->
+            val executableName = binary["getBaseName"] as? String ?: ""
+            val linkTask = binary["getLinkTask"] as? Task ?: return@forEach
+            val runConfiguration = KonanRunConfigurationModelImpl(binary["getRunTask"] as? Exec)
+            buildArtifact(executableName, linkTask, runConfiguration)?.let { result.add(it) }
+        }
+
+        return result
     }
 
     private fun buildTarget(
         gradleTarget: Named,
         sourceSetMap: Map<String, KotlinSourceSet>,
         dependencyResolver: DependencyResolver,
-        project: Project
+        project: Project,
+        dependencyMapper: KotlinDependencyMapper,
+        isHMPPEnabled: Boolean
     ): KotlinTarget? {
         val targetClass = gradleTarget.javaClass
         val getPlatformType = targetClass.getMethodOrNull("getPlatformType") ?: return null
-        val getCompilations = targetClass.getMethodOrNull("getCompilations") ?: return null
         val getDisambiguationClassifier = targetClass.getMethodOrNull("getDisambiguationClassifier") ?: return null
         val platformId = (getPlatformType.invoke(gradleTarget) as? Named)?.name ?: return null
         val platform = KotlinPlatform.byId(platformId) ?: return null
@@ -189,19 +331,120 @@ class KotlinMPPGradleModelBuilder : ModelBuilderService {
         } catch (e: Throwable) {
             "${e::class.java.name}:${e.message}"
         }
-        @Suppress("UNCHECKED_CAST")
-        val gradleCompilations =
-            (getCompilations.invoke(gradleTarget) as? NamedDomainObjectContainer<Named>)?.asMap?.values ?: emptyList<Named>()
+
+        val gradleCompilations = getCompilations(gradleTarget) ?: return null
         val compilations = gradleCompilations.mapNotNull {
-            buildCompilation(it, disambiguationClassifier, sourceSetMap, dependencyResolver, project)
+            val compilation = buildCompilation(it, disambiguationClassifier, sourceSetMap, dependencyResolver, project, dependencyMapper)
+            if (compilation == null || platform != KotlinPlatform.ANDROID) {
+                compilation
+            } else {
+                compilation.addDependsOnSourceSetsToCompilation(sourceSetMap, isHMPPEnabled)
+            }
         }
         val jar = buildTargetJar(gradleTarget, project)
-        val target = KotlinTargetImpl(gradleTarget.name, targetPresetName, disambiguationClassifier, platform, compilations, jar)
+        val testTasks = buildTestTasks(project, gradleTarget)
+        val artifacts = konanArtifacts(gradleTarget)
+        val target = KotlinTargetImpl(
+            gradleTarget.name,
+            targetPresetName,
+            disambiguationClassifier,
+            platform,
+            compilations,
+            testTasks,
+            jar,
+            artifacts
+        )
         compilations.forEach {
             it.disambiguationClassifier = target.disambiguationClassifier
             it.platform = target.platform
         }
         return target
+    }
+
+    private fun KotlinCompilationImpl.addDependsOnSourceSetsToCompilation(sourceSetMap: Map<String, KotlinSourceSet>, isHMPPEnabled: Boolean): KotlinCompilationImpl {
+        val dependsOnSourceSets = this.sourceSets.flatMap { it.dependsOnSourceSets }.mapNotNull { sourceSetMap[it] }
+
+        if (!isHMPPEnabled) {
+            // intermediate source sets should be common if HMPP is disabled
+            dependsOnSourceSets.subtract(this.sourceSets).forEach {
+                it.actualPlatforms.addSimplePlatforms(listOf(KotlinPlatform.COMMON))
+            }
+        }
+
+        return KotlinCompilationImpl(
+            this.name,
+            this.sourceSets.union(dependsOnSourceSets),
+            this.dependencies,
+            this.output,
+            this.arguments,
+            this.dependencyClasspath,
+            this.kotlinTaskProperties,
+            this.nativeExtensions
+        )
+    }
+
+    private fun buildTestTasks(project: Project, gradleTarget: Named): Collection<KotlinTestTask> {
+        val getTestRunsMethod = gradleTarget.javaClass.getMethodOrNull("getTestRuns")
+        if (getTestRunsMethod != null) {
+            val testRuns = getTestRunsMethod?.invoke(gradleTarget) as? Iterable<Any>
+            if (testRuns != null) {
+                val testReports = testRuns.mapNotNull { (it.javaClass.getMethodOrNull("getExecutionTask")?.invoke(it) as? TaskProvider<Task>)?.get() }
+                val testTasks = testReports.flatMap {
+                    ((it.javaClass.getMethodOrNull("getTestTasks")?.invoke(it) as? Collection<Any>)?.mapNotNull {
+                        when {
+                            //TODO(auskov): getTestTasks should return collection of TaskProviders without mixing with Tasks
+                            it is Provider<*> -> it.get() as? Task
+                            it is Task -> it
+                            else -> null
+                        }
+                    }) ?: listOf(it)
+                }
+                return testTasks.mapNotNull {
+                    val name = it.name
+                    val compilation = it.javaClass.getMethodOrNull("getCompilation")?.invoke(it)
+                    val compilationName = compilation?.javaClass?.getMethodOrNull("getCompilationName")?.invoke(compilation)?.toString() ?: KotlinCompilation.TEST_COMPILATION_NAME
+                    KotlinTestTaskImpl(name, compilationName)
+                }.toList()
+            }
+            return emptyList()
+        }
+
+        // Otherwise, find the Kotlin test task with names matching the target name. This is a workaround that makes assumptions about
+        // the tasks naming logic and is therefore an unstable and temporary solution until test runs API is implemented:
+        @Suppress("UNCHECKED_CAST")
+        val kotlinTestTaskClass = try {
+            gradleTarget.javaClass.classLoader.loadClass("org.jetbrains.kotlin.gradle.tasks.KotlinTest") as Class<out Task>
+        } catch (_: ClassNotFoundException) {
+            return emptyList()
+        }
+
+        val targetDisambiguationClassifier = run {
+            val getDisambiguationClassifier = gradleTarget.javaClass.getMethodOrNull("getDisambiguationClassifier")
+                ?: return emptyList()
+
+            getDisambiguationClassifier(gradleTarget) as String?
+        }
+
+        // The 'targetName' of a test task matches the target disambiguation classifier, potentially with suffix, e.g. jsBrowser
+        val getTargetName = kotlinTestTaskClass.getDeclaredMethodOrNull("getTargetName") ?: return emptyList()
+
+        val jvmTestTaskClass = try {
+            gradleTarget.javaClass.classLoader.loadClass("org.jetbrains.kotlin.gradle.targets.jvm.tasks.KotlinJvmTest") as Class<out Task>
+        } catch (_: ClassNotFoundException) {
+            return emptyList()
+        }
+        val getJvmTargetName = jvmTestTaskClass.getDeclaredMethodOrNull("getTargetName") ?: return emptyList()
+
+
+        return project.tasks.filter { kotlinTestTaskClass.isInstance(it) ||  jvmTestTaskClass.isInstance(it)}.mapNotNull { task ->
+            val testTaskDisambiguationClassifier =
+                (if (kotlinTestTaskClass.isInstance(task)) getTargetName(task) else getJvmTargetName(task)) as String?
+            task.name.takeIf {
+                targetDisambiguationClassifier.isNullOrEmpty() ||
+                        testTaskDisambiguationClassifier != null &&
+                        testTaskDisambiguationClassifier.startsWith(targetDisambiguationClassifier.orEmpty())
+            }
+        }.map { KotlinTestTaskImpl(it, KotlinCompilation.TEST_COMPILATION_NAME) }
     }
 
     private fun buildTargetJar(gradleTarget: Named, project: Project): KotlinTargetJar? {
@@ -220,22 +463,42 @@ class KotlinMPPGradleModelBuilder : ModelBuilderService {
         classifier: String?,
         sourceSetMap: Map<String, KotlinSourceSet>,
         dependencyResolver: DependencyResolver,
-        project: Project
+        project: Project,
+        dependencyMapper: KotlinDependencyMapper
+
     ): KotlinCompilationImpl? {
         val compilationClass = gradleCompilation.javaClass
         val getKotlinSourceSets = compilationClass.getMethodOrNull("getKotlinSourceSets") ?: return null
         @Suppress("UNCHECKED_CAST")
         val kotlinGradleSourceSets = (getKotlinSourceSets(gradleCompilation) as? Collection<Named>) ?: return null
         val kotlinSourceSets = kotlinGradleSourceSets.mapNotNull { sourceSetMap[it.name] }
-        val getCompileKotlinTaskName = compilationClass.getMethodOrNull("getCompileKotlinTaskName") ?: return null
-        @Suppress("UNCHECKED_CAST")
-        val compileKotlinTaskName = (getCompileKotlinTaskName(gradleCompilation) as? String) ?: return null
-        val compileKotlinTask = project.tasks.findByName(compileKotlinTaskName) ?: return null
+        val compileKotlinTask = getCompileKotlinTaskName(project, gradleCompilation) ?: return null
         val output = buildCompilationOutput(gradleCompilation, compileKotlinTask) ?: return null
         val arguments = buildCompilationArguments(compileKotlinTask) ?: return null
         val dependencyClasspath = buildDependencyClasspath(compileKotlinTask)
-        val dependencies = buildCompilationDependencies(gradleCompilation, classifier, sourceSetMap, dependencyResolver, project)
-        return KotlinCompilationImpl(gradleCompilation.name, kotlinSourceSets, dependencies, output, arguments, dependencyClasspath)
+        val dependencies =
+            buildCompilationDependencies(gradleCompilation, classifier, sourceSetMap, dependencyResolver, project, dependencyMapper)
+        val kotlinTaskProperties = getKotlinTaskProperties(compileKotlinTask)
+
+        // Get konanTarget (for native compilations only).
+        val konanTarget = compilationClass.getMethodOrNull("getKonanTarget")?.let { getKonanTarget ->
+            val konanTarget = getKonanTarget.invoke(gradleCompilation)
+            konanTarget.javaClass.getMethodOrNull("getName")?.let {
+                it.invoke(konanTarget) as? String
+            }
+        }
+        val nativeExtensions = KotlinNativeCompilationExtensionsImpl(konanTarget)
+
+        return KotlinCompilationImpl(
+            gradleCompilation.name,
+            kotlinSourceSets,
+            dependencies.map { dependencyMapper.getId(it) }.distinct().toTypedArray(),
+            output,
+            arguments,
+            dependencyClasspath.toTypedArray(),
+            kotlinTaskProperties,
+            nativeExtensions
+        )
     }
 
     private fun buildCompilationDependencies(
@@ -243,7 +506,8 @@ class KotlinMPPGradleModelBuilder : ModelBuilderService {
         classifier: String?,
         sourceSetMap: Map<String, KotlinSourceSet>,
         dependencyResolver: DependencyResolver,
-        project: Project
+        project: Project,
+        dependencyMapper: KotlinDependencyMapper
     ): Set<KotlinDependency> {
         return LinkedHashSet<KotlinDependency>().apply {
             val transformationBuilder = MetadataDependencyTransformationBuilder(gradleCompilation)
@@ -253,7 +517,10 @@ class KotlinMPPGradleModelBuilder : ModelBuilderService {
             this += buildDependencies(
                 gradleCompilation, dependencyResolver, "getRuntimeDependencyConfigurationName", "RUNTIME", project, transformationBuilder
             )
-            this += sourceSetMap[compilationFullName(gradleCompilation.name, classifier)]?.dependencies ?: emptySet()
+            this += sourceSetMap[compilationFullName(
+                gradleCompilation.name,
+                classifier
+            )]?.dependencies?.map { dependencyMapper.getDependency(it) }?.filterNotNull() ?: emptySet()
         }
     }
 
@@ -312,8 +579,8 @@ class KotlinMPPGradleModelBuilder : ModelBuilderService {
         gradleSourceSet: Named,
         dependencyResolver: DependencyResolver,
         project: Project
-    ): Set<KotlinDependency> {
-        return LinkedHashSet<KotlinDependency>().apply {
+    ): List<KotlinDependency> {
+        return ArrayList<KotlinDependency>().apply {
             val transformationBuilder = MetadataDependencyTransformationBuilder(gradleSourceSet)
             this += buildDependencies(
                 gradleSourceSet, dependencyResolver, "getApiMetadataConfigurationName", "COMPILE", project, transformationBuilder
@@ -344,7 +611,7 @@ class KotlinMPPGradleModelBuilder : ModelBuilderService {
         val getDefaultArguments = compileTaskClass.getMethodOrNull("getDefaultSerializedCompilerArguments")
         val currentArguments = safelyGetArguments(compileKotlinTask, getCurrentArguments)
         val defaultArguments = safelyGetArguments(compileKotlinTask, getDefaultArguments)
-        return KotlinCompilationArgumentsImpl(defaultArguments, currentArguments)
+        return KotlinCompilationArgumentsImpl(defaultArguments.toTypedArray(), currentArguments.toTypedArray())
     }
 
     private fun buildDependencyClasspath(compileKotlinTask: Task): List<String> {
@@ -356,7 +623,6 @@ class KotlinMPPGradleModelBuilder : ModelBuilderService {
         return (getCompileClasspath(compileKotlinTask) as? Collection<File>)?.map { it.path } ?: emptyList()
     }
 
-    @Suppress("UnstableApiUsage")
     private fun buildCompilationOutput(
         gradleCompilation: Named,
         compileKotlinTask: Task
@@ -381,42 +647,53 @@ class KotlinMPPGradleModelBuilder : ModelBuilderService {
     }
 
     private fun computeSourceSetsDeferredInfo(
-        sourceSets: Collection<KotlinSourceSetImpl>,
-        targets: Collection<KotlinTarget>
+        sourceSets: Map<String, KotlinSourceSetImpl>,
+        targets: Collection<KotlinTarget>,
+        isHMPPEnabled: Boolean
     ) {
-        val sourceSetToCompilations = LinkedHashMap<KotlinSourceSet, MutableSet<KotlinCompilation>>()
+        // includes only compilations where source set is listed
+        val compiledSourceSetToCompilations = LinkedHashMap<KotlinSourceSet, MutableSet<KotlinCompilation>>()
+        // includes compilations where source set is included via dependsOn
+        val allSourceSetToCompilations = LinkedHashMap<KotlinSourceSet, MutableSet<KotlinCompilation>>()
         for (target in targets) {
             for (compilation in target.compilations) {
                 for (sourceSet in compilation.sourceSets) {
-                    sourceSetToCompilations.getOrPut(sourceSet) { LinkedHashSet() } += compilation
+                    compiledSourceSetToCompilations.getOrPut(sourceSet) { LinkedHashSet() } += compilation
+                    allSourceSetToCompilations.getOrPut(sourceSet) { LinkedHashSet() } += compilation
+                    sourceSet.dependsOnSourceSets.mapNotNull { sourceSets[it] }.forEach {
+                        allSourceSetToCompilations.getOrPut(it) { LinkedHashSet() } += compilation
+                    }
                 }
             }
         }
-        for (sourceSet in sourceSets) {
-            val name = sourceSet.name
-            if (name == KotlinSourceSet.COMMON_MAIN_SOURCE_SET_NAME) {
-                sourceSet.platform = KotlinPlatform.COMMON
-                sourceSet.isTestModule = false
-                continue
-            }
-            if (name == KotlinSourceSet.COMMON_TEST_SOURCE_SET_NAME) {
-                sourceSet.platform = KotlinPlatform.COMMON
-                sourceSet.isTestModule = true
-                continue
+
+        for (sourceSet in sourceSets.values) {
+            if (!isHMPPEnabled) {
+                val name = sourceSet.name
+                if (name == KotlinSourceSet.COMMON_MAIN_SOURCE_SET_NAME) {
+                    sourceSet.isTestModule = false
+                    continue
+                }
+                if (name == KotlinSourceSet.COMMON_TEST_SOURCE_SET_NAME) {
+                    sourceSet.isTestModule = true
+                    continue
+                }
             }
 
-            val compilations = sourceSetToCompilations[sourceSet]
-            if (compilations != null) {
-                sourceSet.platform = compilations.map { it.platform }.distinct().singleOrNull() ?: KotlinPlatform.COMMON
-                sourceSet.isTestModule = compilations.all { it.isTestModule }
-            } else {
-                // TODO: change me after design about it
-                sourceSet.isTestModule = "Test" in sourceSet.name
+            (allSourceSetToCompilations[sourceSet]?.all { it.isTestModule }
+                ?: if (!isHMPPEnabled && sourceSet.name == KotlinSourceSet.COMMON_TEST_SOURCE_SET_NAME) true else null)?.let { isTest ->
+                sourceSet.isTestModule = isTest
+            }
+            (if (isHMPPEnabled) allSourceSetToCompilations[sourceSet] else compiledSourceSetToCompilations[sourceSet])?.let { compilations ->
+                val platforms = compilations.map { it.platform }
+                sourceSet.actualPlatforms.addSimplePlatforms(platforms)
+            }
+            if ((!isHMPPEnabled) && sourceSet.actualPlatforms.platforms.size != 1) {
+                sourceSet.actualPlatforms.addSimplePlatforms(listOf(KotlinPlatform.COMMON))
             }
         }
     }
 
-    @Suppress("UnstableApiUsage")
     private class DependencyAdjuster(
         private val configuration: Configuration,
         private val scope: String,
@@ -546,6 +823,20 @@ class KotlinMPPGradleModelBuilder : ModelBuilderService {
             val getTargets = kotlinExt.javaClass.getMethodOrNull("getTargets") ?: return null
             @Suppress("UNCHECKED_CAST")
             return (getTargets.invoke(kotlinExt) as? NamedDomainObjectContainer<Named>)?.asMap?.values ?: emptyList()
+        }
+
+        fun getCompilations(target: Named): Collection<Named>? {
+            val getCompilationsMethod = target.javaClass.getMethodOrNull("getCompilations") ?: return null
+            @Suppress("UNCHECKED_CAST")
+            return (getCompilationsMethod.invoke(target) as? NamedDomainObjectContainer<Named>)?.asMap?.values ?: emptyList()
+        }
+
+        fun getCompileKotlinTaskName(project: Project, compilation: Named): Task? {
+            val compilationClass = compilation.javaClass
+            val getCompileKotlinTaskName = compilationClass.getMethodOrNull("getCompileKotlinTaskName") ?: return null
+            @Suppress("UNCHECKED_CAST")
+            val compileKotlinTaskName = (getCompileKotlinTaskName(compilation) as? String) ?: return null
+            return project.tasks.findByName(compileKotlinTaskName) ?: return null
         }
     }
 }

@@ -5,65 +5,40 @@
 
 package org.jetbrains.kotlin.gradle.targets.js.subtargets
 
-import org.jetbrains.kotlin.gradle.plugin.TaskHolder
 import org.jetbrains.kotlin.gradle.plugin.mpp.KotlinJsCompilation
 import org.jetbrains.kotlin.gradle.targets.js.KotlinJsTarget
 import org.jetbrains.kotlin.gradle.targets.js.dsl.KotlinJsNodeDsl
 import org.jetbrains.kotlin.gradle.targets.js.nodejs.NodeJsExec
-import org.jetbrains.kotlin.gradle.targets.js.nodejs.nodeJs
-import org.jetbrains.kotlin.gradle.targets.js.npm.npmProject
 import org.jetbrains.kotlin.gradle.targets.js.testing.KotlinJsTest
-import org.jetbrains.kotlin.gradle.tasks.createOrRegisterTask
+import javax.inject.Inject
 
-class KotlinNodeJs(target: KotlinJsTarget) :
+open class KotlinNodeJs @Inject constructor(target: KotlinJsTarget) :
     KotlinJsSubTarget(target, "node"),
     KotlinJsNodeDsl {
-
     override val testTaskDescription: String
         get() = "Run all ${target.name} tests inside nodejs using the builtin test framework"
+
+    private val runTaskName = disambiguateCamelCased("run")
 
     override fun runTask(body: NodeJsExec.() -> Unit) {
         (project.tasks.getByName(runTaskName) as NodeJsExec).body()
     }
 
     override fun configureDefaultTestFramework(it: KotlinJsTest) {
-        it.useNodeJs { }
+        it.useMocha { }
     }
 
-    override fun configureRun(compilation: KotlinJsCompilation) {
-        val project = target.project
-
-        "true".toBoolean()
-
-        val runTaskHolder = project.createOrRegisterTask<NodeJsExec>(disambiguateCamelCased("run")) { runTask ->
-            runTask.description = "run compiled js in nodejs"
-
-            val compileKotlinTask = compilation.compileKotlinTask
-            runTask.dependsOn(target.project.nodeJs.root.npmResolveTask, compileKotlinTask)
-
-            runTask.args(compileKotlinTask.outputFile)
-        }
-
-        addSourceMapSupport(compilation, runTaskHolder)
-
-        target.runTask.dependsOn(runTaskHolder.getTaskOrProvider())
+    override fun configureMain(compilation: KotlinJsCompilation) {
+        configureRun(compilation)
     }
 
-    private fun addSourceMapSupport(
-        compilation: KotlinJsCompilation,
-        runTaskHolder: TaskHolder<NodeJsExec>
+    private fun configureRun(
+        compilation: KotlinJsCompilation
     ) {
-        compilation.dependencies {
-            runtimeOnly(kotlin("test-nodejs-runner"))
-        }
+        val runTaskHolder = NodeJsExec.create(compilation, disambiguateCamelCased(RUN_TASK_NAME))
+        target.runTask.dependsOn(runTaskHolder)
+    }
 
-        target.project.nodeJs.root.npmResolveTask.doLast {
-            runTaskHolder.configure { runTask ->
-                runTask.args(
-                    "--require",
-                    compilation.npmProject.require("kotlin-test-nodejs-runner/kotlin-nodejs-source-map-support")
-                )
-            }
-        }
+    override fun configureBuildVariants() {
     }
 }

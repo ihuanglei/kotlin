@@ -25,14 +25,13 @@ internal class D : I {
 }
 
 internal abstract class E {
-    internal abstract fun f1()
-    internal open fun f2() {}
+    abstract fun f1()
+    open fun f2() {}
     fun f3() {}
 }
 
 internal class F : E() {
     override fun f1() {}
-
     override fun f2() {
         super.f2()
     }

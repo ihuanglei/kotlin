@@ -7,6 +7,7 @@ package org.jetbrains.kotlin.ir.util
 
 import org.jetbrains.kotlin.descriptors.*
 import org.jetbrains.kotlin.ir.IrElement
+import org.jetbrains.kotlin.ir.IrStatement
 import org.jetbrains.kotlin.ir.declarations.*
 import org.jetbrains.kotlin.ir.declarations.impl.IrValueParameterImpl
 import org.jetbrains.kotlin.ir.descriptors.IrBuiltIns
@@ -15,12 +16,8 @@ import org.jetbrains.kotlin.ir.expressions.impl.IrCallImpl
 import org.jetbrains.kotlin.ir.expressions.impl.IrConstructorCallImpl
 import org.jetbrains.kotlin.ir.expressions.impl.IrTypeOperatorCallImpl
 import org.jetbrains.kotlin.ir.symbols.*
-import org.jetbrains.kotlin.ir.types.IrSimpleType
-import org.jetbrains.kotlin.ir.types.classifierOrFail
-import org.jetbrains.kotlin.ir.types.isAny
-import org.jetbrains.kotlin.ir.types.toKotlinType
+import org.jetbrains.kotlin.ir.types.*
 import org.jetbrains.kotlin.name.FqName
-import org.jetbrains.kotlin.name.Name
 import org.jetbrains.kotlin.name.SpecialNames
 import org.jetbrains.kotlin.psi.psiUtil.endOffset
 import org.jetbrains.kotlin.psi.psiUtil.startOffset
@@ -36,7 +33,7 @@ import org.jetbrains.kotlin.utils.DFS
  */
 fun IrMemberAccessExpression.getArguments(): List<Pair<ParameterDescriptor, IrExpression>> {
     val res = mutableListOf<Pair<ParameterDescriptor, IrExpression>>()
-    val descriptor = descriptor
+    val descriptor = symbol.descriptor as CallableDescriptor
 
     // TODO: ensure the order below corresponds to the one defined in Kotlin specs.
 
@@ -93,6 +90,10 @@ fun IrMemberAccessExpression.getArgumentsWithIr(): List<Pair<IrValueParameter, I
     val irFunction = when (this) {
         is IrFunctionAccessExpression -> this.symbol.owner
         is IrFunctionReference -> this.symbol.owner
+        is IrPropertyReference -> {
+            assert(this.field == null) { "Field should be null to use `getArgumentsWithIr` on IrPropertyReference: ${this.dump()}}" }
+            this.getter!!.owner
+        }
         else -> error(this)
     }
 
@@ -118,6 +119,7 @@ fun IrMemberAccessExpression.getArgumentsWithIr(): List<Pair<IrValueParameter, I
  * Sets arguments that are specified by given mapping of parameters.
  */
 fun IrMemberAccessExpression.addArguments(args: Map<ParameterDescriptor, IrExpression>) {
+    val descriptor = symbol.descriptor as CallableDescriptor
     descriptor.dispatchReceiverParameter?.let {
         val arg = args[it]
         if (arg != null) {
@@ -157,28 +159,50 @@ fun IrExpression.coerceToUnitIfNeeded(valueType: KotlinType, irBuiltIns: IrBuilt
             startOffset, endOffset,
             irBuiltIns.unitType,
             IrTypeOperator.IMPLICIT_COERCION_TO_UNIT,
-            irBuiltIns.unitType, irBuiltIns.unitType.classifierOrFail,
+            irBuiltIns.unitType,
+            this
+        )
+}
+
+fun IrExpression.coerceToUnitIfNeeded(valueType: IrType, irBuiltIns: IrBuiltIns): IrExpression {
+    return if (valueType.isSubtypeOf(irBuiltIns.unitType, irBuiltIns))
+        this
+    else
+        IrTypeOperatorCallImpl(
+            startOffset, endOffset,
+            irBuiltIns.unitType,
+            IrTypeOperator.IMPLICIT_COERCION_TO_UNIT,
+            irBuiltIns.unitType,
             this
         )
 }
 
 fun IrMemberAccessExpression.usesDefaultArguments(): Boolean =
-    this.descriptor.valueParameters.any { this.getValueArgument(it) == null }
+    (symbol.descriptor as CallableDescriptor).valueParameters.any { this.getValueArgument(it) == null }
 
 val DeclarationDescriptorWithSource.startOffset: Int? get() = (this.source as? PsiSourceElement)?.psi?.startOffset
 val DeclarationDescriptorWithSource.endOffset: Int? get() = (this.source as? PsiSourceElement)?.psi?.endOffset
 
-val IrClassSymbol.functions: Sequence<IrSimpleFunctionSymbol>
-    get() = this.owner.declarations.asSequence().filterIsInstance<IrSimpleFunction>().map { it.symbol }
-
 val IrClass.functions: Sequence<IrSimpleFunction>
-    get() = this.declarations.asSequence().filterIsInstance<IrSimpleFunction>()
+    get() = declarations.asSequence().filterIsInstance<IrSimpleFunction>()
 
-val IrClassSymbol.constructors: Sequence<IrConstructorSymbol>
-    get() = this.owner.declarations.asSequence().filterIsInstance<IrConstructor>().map { it.symbol }
+val IrClassSymbol.functions: Sequence<IrSimpleFunctionSymbol>
+    get() = owner.functions.map { it.symbol }
 
 val IrClass.constructors: Sequence<IrConstructor>
-    get() = this.declarations.asSequence().filterIsInstance<IrConstructor>()
+    get() = declarations.asSequence().filterIsInstance<IrConstructor>()
+
+val IrClassSymbol.constructors: Sequence<IrConstructorSymbol>
+    get() = owner.constructors.map { it.symbol }
+
+val IrClass.fields: Sequence<IrField>
+    get() = declarations.asSequence().filterIsInstance<IrField>()
+
+val IrClassSymbol.fields: Sequence<IrFieldSymbol>
+    get() = owner.fields.map { it.symbol }
+
+val IrClass.primaryConstructor: IrConstructor?
+    get() = this.declarations.singleOrNull { it is IrConstructor && it.isPrimary } as IrConstructor?
 
 val IrDeclarationContainer.properties: Sequence<IrProperty>
     get() = declarations.asSequence().filterIsInstance<IrProperty>()
@@ -186,14 +210,28 @@ val IrDeclarationContainer.properties: Sequence<IrProperty>
 val IrFunction.explicitParameters: List<IrValueParameter>
     get() = (listOfNotNull(dispatchReceiverParameter, extensionReceiverParameter) + valueParameters)
 
+val IrBody.statements: List<IrStatement>
+    get() = when (this) {
+        is IrBlockBody -> statements
+        is IrExpressionBody -> listOf(expression)
+        is IrSyntheticBody -> error("Synthetic body contains no statements: $this")
+        else -> error("Unknown subclass of IrBody: $this")
+    }
+
 val IrClass.defaultType: IrSimpleType
     get() = this.thisReceiver!!.type as IrSimpleType
 
-val IrSimpleFunction.isReal: Boolean get() = descriptor.kind.isReal
-
 val IrSimpleFunction.isSynthesized: Boolean get() = descriptor.kind == CallableMemberDescriptor.Kind.SYNTHESIZED
 
-val IrSimpleFunction.isFakeOverride: Boolean get() = origin == IrDeclarationOrigin.FAKE_OVERRIDE
+val IrDeclaration.isReal: Boolean get() = !isFakeOverride
+
+val IrDeclaration.isFakeOverride: Boolean
+    get() = when (this) {
+        is IrSimpleFunction -> isFakeOverride
+        is IrProperty -> isFakeOverride
+        is IrField -> isFakeOverride
+        else -> false
+    }
 
 fun IrClass.isSubclassOf(ancestor: IrClass): Boolean {
 
@@ -290,7 +328,19 @@ val IrDeclarationWithName.fqNameWhenAvailable: FqName?
         else -> null
     }
 
-val IrDeclaration.parentAsClass get() = parent as IrClass
+val IrDeclaration.parentAsClass: IrClass
+    get() = parent as? IrClass ?: error("Parent of this declaration is not a class: ${render()}")
+
+fun IrClass.isLocalClass(): Boolean {
+    var current: IrDeclarationParent? = this
+    while (current != null && current !is IrPackageFragment) {
+        if (current is IrDeclarationWithVisibility && current.visibility == Visibilities.LOCAL)
+            return true
+        current = (current as? IrDeclaration)?.parent
+    }
+
+    return false
+}
 
 tailrec fun IrElement.getPackageFragment(): IrPackageFragment? {
     if (this is IrPackageFragment) return this
@@ -328,15 +378,16 @@ fun IrFunction.isFakeOverriddenFromAny(): Boolean {
     return (this as IrSimpleFunction).overriddenSymbols.all { it.owner.isFakeOverriddenFromAny() }
 }
 
-fun IrCall.isSuperToAny() = superQualifier?.let { this.symbol.owner.isFakeOverriddenFromAny() } ?: false
+fun IrCall.isSuperToAny() = superQualifierSymbol?.let { this.symbol.owner.isFakeOverriddenFromAny() } ?: false
 
 fun IrDeclaration.isEffectivelyExternal(): Boolean {
 
     fun IrFunction.effectiveParentDeclaration(): IrDeclaration? =
         when (this) {
-            is IrSimpleFunction -> correspondingProperty ?: parent as? IrDeclaration
+            is IrSimpleFunction -> correspondingPropertySymbol?.owner ?: parent as? IrDeclaration
             else -> parent as? IrDeclaration
         }
+
     val parent = parent
     return when (this) {
         is IrFunction -> isExternal || (effectiveParentDeclaration()?.isEffectivelyExternal() ?: false)
@@ -345,6 +396,13 @@ fun IrDeclaration.isEffectivelyExternal(): Boolean {
         is IrClass -> isExternal || parent is IrDeclaration && parent.isEffectivelyExternal()
         else -> false
     }
+}
+
+fun IrFunction.isExternalOrInheritedFromExternal(): Boolean {
+    fun isExternalOrInheritedFromExternalImpl(f: IrSimpleFunction): Boolean =
+        f.isEffectivelyExternal() || f.overriddenSymbols.any { isExternalOrInheritedFromExternalImpl(it.owner) }
+
+    return isEffectivelyExternal() || (this is IrSimpleFunction && isExternalOrInheritedFromExternalImpl(this))
 }
 
 inline fun <reified T : IrDeclaration> IrDeclarationContainer.findDeclaration(predicate: (T) -> Boolean): T? =
@@ -401,23 +459,23 @@ fun ReferenceSymbolTable.referenceFunction(callable: CallableDescriptor): IrFunc
 
 /**
  * Create new call based on given [call] and [newFunction]
- * [dispatchReceiverAsFirstArgument]: optionally convert call with dispatch receiver to static call
- * [firstArgumentAsDispatchReceiver]: optionally convert static call to call with dispatch receiver
+ * [receiversAsArguments]: optionally convert call with dispatch receiver to static call
+ * [argumentsAsReceivers]: optionally convert static call to call with dispatch receiver
  */
 
 fun irConstructorCall(
-    call: IrMemberAccessExpression,
+    call: IrFunctionAccessExpression,
     newFunction: IrConstructor,
-    dispatchReceiverAsFirstArgument: Boolean = false,
-    firstArgumentAsDispatchReceiver: Boolean = false
+    receiversAsArguments: Boolean = false,
+    argumentsAsReceivers: Boolean = false
 ): IrConstructorCall =
-    irConstructorCall(call, newFunction.symbol, dispatchReceiverAsFirstArgument, firstArgumentAsDispatchReceiver)
+    irConstructorCall(call, newFunction.symbol, receiversAsArguments, argumentsAsReceivers)
 
 fun irConstructorCall(
-    call: IrMemberAccessExpression,
+    call: IrFunctionAccessExpression,
     newSymbol: IrConstructorSymbol,
-    dispatchReceiverAsFirstArgument: Boolean = false,
-    firstArgumentAsDispatchReceiver: Boolean = false
+    receiversAsArguments: Boolean = false,
+    argumentsAsDispatchers: Boolean = false
 ): IrConstructorCall =
     call.run {
         IrConstructorCallImpl(
@@ -425,7 +483,6 @@ fun irConstructorCall(
             endOffset,
             type,
             newSymbol,
-            newSymbol.descriptor,
             typeArgumentsCount,
             0,
             call.valueArgumentsCount,
@@ -433,25 +490,30 @@ fun irConstructorCall(
         ).apply {
             copyTypeAndValueArgumentsFrom(
                 call,
-                dispatchReceiverAsFirstArgument,
-                firstArgumentAsDispatchReceiver
+                receiversAsArguments,
+                argumentsAsDispatchers
             )
         }
     }
 
 fun irCall(
-    call: IrMemberAccessExpression,
+    call: IrFunctionAccessExpression,
     newFunction: IrFunction,
-    dispatchReceiverAsFirstArgument: Boolean = false,
-    firstArgumentAsDispatchReceiver: Boolean = false
+    receiversAsArguments: Boolean = false,
+    argumentsAsReceivers: Boolean = false
 ): IrCall =
-    irCall(call, newFunction.symbol, dispatchReceiverAsFirstArgument, firstArgumentAsDispatchReceiver)
+    irCall(
+        call,
+        newFunction.symbol,
+        receiversAsArguments,
+        argumentsAsReceivers
+    )
 
 fun irCall(
-    call: IrMemberAccessExpression,
+    call: IrFunctionAccessExpression,
     newSymbol: IrFunctionSymbol,
-    dispatchReceiverAsFirstArgument: Boolean = false,
-    firstArgumentAsDispatchReceiver: Boolean = false
+    receiversAsArguments: Boolean = false,
+    argumentsAsReceivers: Boolean = false
 ): IrCall =
     call.run {
         IrCallImpl(
@@ -459,52 +521,105 @@ fun irCall(
             endOffset,
             type,
             newSymbol,
-            newSymbol.descriptor,
             typeArgumentsCount,
             origin
         ).apply {
             copyTypeAndValueArgumentsFrom(
                 call,
-                dispatchReceiverAsFirstArgument,
-                firstArgumentAsDispatchReceiver
+                receiversAsArguments,
+                argumentsAsReceivers
             )
         }
     }
 
-private fun IrMemberAccessExpression.copyTypeAndValueArgumentsFrom(
-    call: IrMemberAccessExpression,
-    dispatchReceiverAsFirstArgument: Boolean = false,
-    firstArgumentAsDispatchReceiver: Boolean = false
-) {
-    copyTypeArgumentsFrom(call)
+fun IrFunctionAccessExpression.copyTypeAndValueArgumentsFrom(
+    src: IrFunctionAccessExpression,
+    receiversAsArguments: Boolean = false,
+    argumentsAsReceivers: Boolean = false
+) = copyTypeAndValueArgumentsFrom(
+    src,
+    src.symbol.owner,
+    symbol.owner,
+    receiversAsArguments,
+    argumentsAsReceivers
+)
 
-    var toValueArgumentIndex = 0
-    var fromValueArgumentIndex = 0
+fun IrFunctionReference.copyTypeAndValueArgumentsFrom(
+    src: IrFunctionReference,
+    receiversAsArguments: Boolean = false,
+    argumentsAsReceivers: Boolean = false
+) = copyTypeAndValueArgumentsFrom(
+    src,
+    src.symbol.owner,
+    symbol.owner,
+    receiversAsArguments,
+    argumentsAsReceivers
+)
+
+private fun IrMemberAccessExpression.copyTypeAndValueArgumentsFrom(
+    src: IrMemberAccessExpression,
+    srcFunction: IrFunction,
+    destFunction: IrFunction,
+    receiversAsArguments: Boolean = false,
+    argumentsAsReceivers: Boolean = false
+) {
+    copyTypeArgumentsFrom(src)
+
+    var destValueArgumentIndex = 0
+    var srcValueArgumentIndex = 0
 
     when {
-        dispatchReceiverAsFirstArgument -> {
-            putValueArgument(toValueArgumentIndex++, call.dispatchReceiver)
+        receiversAsArguments && srcFunction.dispatchReceiverParameter != null -> {
+            putValueArgument(destValueArgumentIndex++, src.dispatchReceiver)
         }
-        firstArgumentAsDispatchReceiver -> {
-            dispatchReceiver = call.getValueArgument(fromValueArgumentIndex++)
+        argumentsAsReceivers && destFunction.dispatchReceiverParameter != null -> {
+            dispatchReceiver = src.getValueArgument(srcValueArgumentIndex++)
         }
         else -> {
-            dispatchReceiver = call.dispatchReceiver
+            dispatchReceiver = src.dispatchReceiver
         }
     }
 
-    extensionReceiver = call.extensionReceiver
+    when {
+        receiversAsArguments && srcFunction.extensionReceiverParameter != null -> {
+            putValueArgument(destValueArgumentIndex++, src.extensionReceiver)
+        }
+        argumentsAsReceivers && destFunction.extensionReceiverParameter != null -> {
+            extensionReceiver = src.getValueArgument(srcValueArgumentIndex++)
+        }
+        else -> {
+            extensionReceiver = src.extensionReceiver
+        }
+    }
 
-    while (fromValueArgumentIndex < call.valueArgumentsCount) {
-        putValueArgument(toValueArgumentIndex++, call.getValueArgument(fromValueArgumentIndex++))
+    while (srcValueArgumentIndex < src.valueArgumentsCount) {
+        putValueArgument(destValueArgumentIndex++, src.getValueArgument(srcValueArgumentIndex++))
     }
 }
 
-val IrDeclaration.file: IrFile get() = parent.let {
-    when (it) {
-        is IrFile -> it
-        is IrPackageFragment -> TODO("Unknown file")
-        is IrDeclaration -> it.file
-        else -> TODO("Unexpected declaration parent")
+val IrDeclaration.file: IrFile
+    get() = parent.let {
+        when (it) {
+            is IrFile -> it
+            is IrPackageFragment -> TODO("Unknown file")
+            is IrDeclaration -> it.file
+            else -> TODO("Unexpected declaration parent")
+        }
     }
-}
+
+val IrFunction.allTypeParameters: List<IrTypeParameter>
+    get() = if (this is IrConstructor)
+        parentAsClass.typeParameters + typeParameters
+    else
+        typeParameters
+
+fun IrMemberAccessExpression.getTypeSubstitutionMap(irFunction: IrFunction): Map<IrTypeParameterSymbol, IrType> =
+    irFunction.allTypeParameters.withIndex().associate {
+        it.value.symbol to getTypeArgument(it.index)!!
+    }
+
+val IrFunctionReference.typeSubstitutionMap: Map<IrTypeParameterSymbol, IrType>
+    get() = getTypeSubstitutionMap(symbol.owner)
+
+val IrFunctionAccessExpression.typeSubstitutionMap: Map<IrTypeParameterSymbol, IrType>
+    get() = getTypeSubstitutionMap(symbol.owner)

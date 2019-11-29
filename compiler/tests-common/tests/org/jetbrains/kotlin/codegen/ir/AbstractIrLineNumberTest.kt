@@ -6,9 +6,8 @@
 package org.jetbrains.kotlin.codegen.ir
 
 import org.jetbrains.kotlin.codegen.AbstractLineNumberTest
-import org.jetbrains.kotlin.config.CompilerConfiguration
-import org.jetbrains.kotlin.config.JVMConfigurationKeys
 import org.jetbrains.kotlin.psi.KtFile
+import org.jetbrains.kotlin.test.TargetBackend
 import org.jetbrains.kotlin.test.testFramework.KtUsefulTestCase
 import org.jetbrains.org.objectweb.asm.ClassReader
 import org.jetbrains.org.objectweb.asm.Label
@@ -17,11 +16,6 @@ import org.jetbrains.org.objectweb.asm.Opcodes
 import java.io.File
 
 abstract class AbstractIrLineNumberTest : AbstractLineNumberTest() {
-    override fun updateConfiguration(configuration: CompilerConfiguration) {
-        super.updateConfiguration(configuration)
-        configuration.put(JVMConfigurationKeys.IR, true)
-    }
-
     override fun compareCustom(psiFile: KtFile, wholeFile: File) {
         val fileText = psiFile.text
         val expectedLineNumbers = normalize(
@@ -76,4 +70,8 @@ abstract class AbstractIrLineNumberTest : AbstractLineNumberTest() {
             .toMutableList()
             .sortedBy { it.toInt() }
             .toList()
+
+    override fun getBackend(): TargetBackend {
+        return TargetBackend.JVM_IR
+    }
 }

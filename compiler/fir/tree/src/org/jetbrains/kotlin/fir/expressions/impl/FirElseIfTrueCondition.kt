@@ -5,16 +5,38 @@
 
 package org.jetbrains.kotlin.fir.expressions.impl
 
-import com.intellij.psi.PsiElement
-import org.jetbrains.kotlin.fir.FirSession
+import org.jetbrains.kotlin.fir.FirPureAbstractElement
+import org.jetbrains.kotlin.fir.FirSourceElement
+import org.jetbrains.kotlin.fir.expressions.FirAnnotationCall
+import org.jetbrains.kotlin.fir.expressions.FirExpression
+import org.jetbrains.kotlin.fir.impl.FirAbstractAnnotatedElement
 import org.jetbrains.kotlin.fir.types.FirTypeRef
-import org.jetbrains.kotlin.fir.types.impl.FirImplicitUnitTypeRef
+import org.jetbrains.kotlin.fir.types.impl.FirImplicitBooleanTypeRef
+import org.jetbrains.kotlin.fir.visitors.*
 
-// Representation of "dummy" condition at else branch
+/*
+ * This file was generated automatically
+ * DO NOT MODIFY IT MANUALLY
+ */
+
 class FirElseIfTrueCondition(
-    session: FirSession,
-    psi: PsiElement?
-) : FirAbstractExpression(session, psi) {
+    override val source: FirSourceElement?
+) : FirPureAbstractElement(), FirExpression, FirAbstractAnnotatedElement {
+    override var typeRef: FirTypeRef = FirImplicitBooleanTypeRef(source)
+    override val annotations: MutableList<FirAnnotationCall> = mutableListOf()
 
-    override var typeRef: FirTypeRef = FirImplicitUnitTypeRef(session, psi)
+    override fun <R, D> acceptChildren(visitor: FirVisitor<R, D>, data: D) {
+        typeRef.accept(visitor, data)
+        annotations.forEach { it.accept(visitor, data) }
+    }
+
+    override fun <D> transformChildren(transformer: FirTransformer<D>, data: D): FirElseIfTrueCondition {
+        typeRef = typeRef.transformSingle(transformer, data)
+        annotations.transformInplace(transformer, data)
+        return this
+    }
+
+    override fun replaceTypeRef(newTypeRef: FirTypeRef) {
+        typeRef = newTypeRef
+    }
 }

@@ -37,6 +37,7 @@ interface IrElementTransformer<in D> : IrElementVisitor<IrElement, D> {
     override fun visitDeclaration(declaration: IrDeclaration, data: D): IrStatement =
         declaration.also { it.transformChildren(this, data) }
 
+    override fun visitScript(declaration: IrScript, data: D) = visitDeclaration(declaration, data)
     override fun visitClass(declaration: IrClass, data: D) = visitDeclaration(declaration, data)
     override fun visitFunction(declaration: IrFunction, data: D) = visitDeclaration(declaration, data)
     override fun visitSimpleFunction(declaration: IrSimpleFunction, data: D) = visitFunction(declaration, data)
@@ -49,6 +50,7 @@ interface IrElementTransformer<in D> : IrElementVisitor<IrElement, D> {
     override fun visitVariable(declaration: IrVariable, data: D) = visitDeclaration(declaration, data)
     override fun visitTypeParameter(declaration: IrTypeParameter, data: D) = visitDeclaration(declaration, data)
     override fun visitValueParameter(declaration: IrValueParameter, data: D) = visitDeclaration(declaration, data)
+    override fun visitTypeAlias(declaration: IrTypeAlias, data: D) = visitDeclaration(declaration, data)
 
     override fun visitBody(body: IrBody, data: D): IrBody =
         body.also { it.transformChildren(this, data) }
@@ -97,6 +99,8 @@ interface IrElementTransformer<in D> : IrElementVisitor<IrElement, D> {
     override fun visitPropertyReference(expression: IrPropertyReference, data: D) = visitCallableReference(expression, data)
     override fun visitLocalDelegatedPropertyReference(expression: IrLocalDelegatedPropertyReference, data: D) =
         visitCallableReference(expression, data)
+
+    override fun visitFunctionExpression(expression: IrFunctionExpression, data: D): IrElement = visitExpression(expression, data)
 
     override fun visitClassReference(expression: IrClassReference, data: D) = visitDeclarationReference(expression, data)
 

@@ -30,14 +30,10 @@ import org.jetbrains.kotlin.ir.declarations.*
 import org.jetbrains.kotlin.ir.declarations.impl.IrFileImpl
 import org.jetbrains.kotlin.ir.descriptors.IrBuiltIns
 import org.jetbrains.kotlin.ir.symbols.*
-import org.jetbrains.kotlin.ir.types.IrDynamicType
-import org.jetbrains.kotlin.ir.types.IrSimpleType
-import org.jetbrains.kotlin.ir.types.classifierOrFail
+import org.jetbrains.kotlin.ir.types.*
 import org.jetbrains.kotlin.ir.types.impl.IrDynamicTypeImpl
-import org.jetbrains.kotlin.ir.util.SymbolTable
-import org.jetbrains.kotlin.ir.util.getPropertyGetter
-import org.jetbrains.kotlin.ir.util.getPropertySetter
-import org.jetbrains.kotlin.ir.util.kotlinPackageFqn
+import org.jetbrains.kotlin.ir.util.*
+import org.jetbrains.kotlin.js.config.JSConfigurationKeys
 import org.jetbrains.kotlin.name.FqName
 import org.jetbrains.kotlin.name.Name
 import org.jetbrains.kotlin.resolve.scopes.MemberScope
@@ -48,14 +44,22 @@ class JsIrBackendContext(
     override val irBuiltIns: IrBuiltIns,
     val symbolTable: SymbolTable,
     irModuleFragment: IrModuleFragment,
-    override val configuration: CompilerConfiguration
+    val additionalExportedDeclarations: Set<FqName>,
+    override val configuration: CompilerConfiguration, // TODO: remove configuration from backend context
+    override val scriptMode: Boolean = false
 ) : CommonBackendContext {
+    override val transformedFunction = mutableMapOf<IrFunctionSymbol, IrSimpleFunctionSymbol>()
+    override val lateinitNullableFields = mutableMapOf<IrField, IrField>()
+
+    val memberMap = mutableMapOf<IrSimpleFunctionSymbol, IrSimpleFunction>()
 
     override val builtIns = module.builtIns
 
     override var inVerbosePhase: Boolean = false
 
-    var externalPackageFragment = mutableMapOf<FqName, IrPackageFragment>()
+    val devMode = configuration[JSConfigurationKeys.DEVELOPER_MODE] ?: false
+
+    var externalPackageFragment = mutableMapOf<IrFileSymbol, IrFile>()
     lateinit var bodilessBuiltInsPackageFragment: IrPackageFragment
 
     val externalNestedClasses = mutableListOf<IrClass>()
@@ -133,6 +137,7 @@ class JsIrBackendContext(
     private val coroutineIntrinsicsPackage = module.getPackage(COROUTINE_INTRINSICS_PACKAGE_FQNAME)
 
     val enumEntryToGetInstanceFunction = mutableMapOf<IrEnumEntrySymbol, IrSimpleFunction>()
+    val objectToGetInstanceFunction = mutableMapOf<IrClassSymbol, IrSimpleFunction>()
     val enumEntryExternalToInstanceField = mutableMapOf<IrEnumEntrySymbol, IrField>()
     val callableReferencesCache = mutableMapOf<CallableReferenceKey, IrSimpleFunction>()
     val secondaryConstructorToFactoryCache = mutableMapOf<IrConstructor, ConstructorPair>()
@@ -187,6 +192,18 @@ class JsIrBackendContext(
                 )
 
             override val getContinuation = symbolTable.referenceSimpleFunction(getJsInternalFunction("getContinuation"))
+
+            override val coroutineContextGetter = symbolTable.referenceSimpleFunction(context.coroutineContextProperty.getter!!)
+
+            override val suspendCoroutineUninterceptedOrReturn = symbolTable.referenceSimpleFunction(getJsInternalFunction(COROUTINE_SUSPEND_OR_RETURN_JS_NAME))
+
+            override val coroutineGetContext = symbolTable.referenceSimpleFunction(getJsInternalFunction(GET_COROUTINE_CONTEXT_NAME))
+
+            override val returnIfSuspended = symbolTable.referenceSimpleFunction(getJsInternalFunction("returnIfSuspended"))
+        }
+
+        override fun unfoldInlineClassType(irType: IrType): IrType? {
+            return irType.getInlinedClass()?.typeWith()
         }
 
         override fun shouldGenerateHandlerParameterForDefaultBodyFun() = true
@@ -213,7 +230,7 @@ class JsIrBackendContext(
 
     // Top-level functions forced to be loaded
 
-    val coroutineSuspendOrReturn = symbolTable.referenceSimpleFunction(getJsInternalFunction(COROUTINE_SUSPEND_OR_RETURN_JS_NAME))
+    val coroutineSuspendOrReturn = ir.symbols.suspendCoroutineUninterceptedOrReturn
     val coroutineSuspendGetter = ir.symbols.coroutineSuspendedGetter
     val coroutineGetContext: IrSimpleFunctionSymbol
         get() {
@@ -223,7 +240,9 @@ class JsIrBackendContext(
             return contextGetter.symbol
         }
 
-    val coroutineGetContextJs = symbolTable.referenceSimpleFunction(getJsInternalFunction(GET_COROUTINE_CONTEXT_NAME))
+    val coroutineGetContextJs
+        get() = ir.symbols.coroutineGetContext
+
     val coroutineEmptyContinuation = symbolTable.referenceField(getProperty(FqName.fromSegments(listOf("kotlin", "coroutines", "js", "internal", "EmptyContinuation"))))
 
     val coroutineContextProperty: PropertyDescriptor
@@ -235,10 +254,11 @@ class JsIrBackendContext(
             return vars.single()
         }
 
-    val captureStackSymbol = symbolTable.referenceSimpleFunction(getJsInternalFunction("captureStack"))
     val newThrowableSymbol = symbolTable.referenceSimpleFunction(getJsInternalFunction("newThrowable"))
+    val extendThrowableSymbol = symbolTable.referenceSimpleFunction(getJsInternalFunction("extendThrowable"))
 
-    val throwISEymbol = symbolTable.referenceSimpleFunction(getFunctions(kotlinPackageFqn.child(Name.identifier("THROW_ISE"))).single())
+    val throwISEsymbol = symbolTable.referenceSimpleFunction(getFunctions(kotlinPackageFqn.child(Name.identifier("THROW_ISE"))).single())
+    val throwIAEsymbol = symbolTable.referenceSimpleFunction(getFunctions(kotlinPackageFqn.child(Name.identifier("THROW_IAE"))).single())
 
     val suiteFun = getFunctions(FqName("kotlin.test.suite")).singleOrNull()?.let { symbolTable.referenceSimpleFunction(it) }
     val testFun = getFunctions(FqName("kotlin.test.test")).singleOrNull()?.let { symbolTable.referenceSimpleFunction(it) }
@@ -263,7 +283,7 @@ class JsIrBackendContext(
     }
 
     val throwableConstructors by lazy { throwableClass.owner.declarations.filterIsInstance<IrConstructor>().map { it.symbol } }
-    val defaultThrowableCtor by lazy { throwableConstructors.single { it.owner.valueParameters.size == 0 } }
+    val defaultThrowableCtor by lazy { throwableConstructors.single { !it.owner.isPrimary && it.owner.valueParameters.size == 0 } }
 
     private fun referenceOperators(): Map<Name, MutableMap<IrClassifierSymbol, IrSimpleFunctionSymbol>> {
         val primitiveIrSymbols = irBuiltIns.primitiveIrTypes.map { it.classifierOrFail as IrClassSymbol }

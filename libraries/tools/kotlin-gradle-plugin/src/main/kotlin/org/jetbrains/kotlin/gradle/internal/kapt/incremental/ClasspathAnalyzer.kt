@@ -13,6 +13,7 @@ import java.security.MessageDigest
 import java.util.zip.ZipFile
 
 const val CLASS_STRUCTURE_ARTIFACT_TYPE = "class-structure"
+private const val MODULE_INFO = "module-info.class"
 
 class StructureArtifactTransform : ArtifactTransform() {
     override fun transform(input: File): MutableList<File> {
@@ -26,10 +27,7 @@ class StructureArtifactTransform : ArtifactTransform() {
             val dataFile = outputDirectory.resolve("output.bin")
             data.saveTo(dataFile)
 
-            val lazyStructureFile = outputDirectory.resolve("lazy-output.bin")
-            LazyClasspathEntryData(input, dataFile).saveToFile(lazyStructureFile)
-
-            return mutableListOf(lazyStructureFile)
+            return mutableListOf(dataFile)
         } catch (e: Throwable) {
             throw e
         }
@@ -40,7 +38,9 @@ private fun visitDirectory(directory: File): ClasspathEntryData {
     val entryData = ClasspathEntryData()
 
     directory.walk().filter {
-        it.extension == "class" && !it.relativeTo(directory).toString().toLowerCase().startsWith("meta-inf")
+        it.extension == "class"
+                && !it.relativeTo(directory).toString().toLowerCase().startsWith("meta-inf")
+                && it.name != MODULE_INFO
     }.forEach {
         val internalName = it.relativeTo(directory).invariantSeparatorsPath.dropLast(".class".length)
         BufferedInputStream(it.inputStream()).use { inputStream ->
@@ -59,7 +59,10 @@ private fun visitJar(jar: File): ClasspathEntryData {
         while (entries.hasMoreElements()) {
             val entry = entries.nextElement()
 
-            if (entry.name.endsWith("class") && !entry.name.toLowerCase().startsWith("meta-inf")) {
+            if (entry.name.endsWith("class")
+                && !entry.name.toLowerCase().startsWith("meta-inf")
+                && entry.name != MODULE_INFO
+            ) {
                 BufferedInputStream(zipFile.getInputStream(entry)).use { inputStream ->
                     analyzeInputStream(inputStream, entry.name.dropLast(".class".length), entryData)
                 }
@@ -84,25 +87,6 @@ private fun analyzeInputStream(input: InputStream, internalName: String, entryDa
     entryData.classAbiHash[internalName] = digest
     entryData.classDependencies[internalName] =
         ClassDependencies(typeDependenciesExtractor.getAbiTypes(), typeDependenciesExtractor.getPrivateTypes())
-}
-
-class LazyClasspathEntryData(val classpathEntry: File, private val dataFile: File) : Serializable {
-
-    object LazyClasspathEntrySerializer {
-        fun loadFromFile(file: File): LazyClasspathEntryData {
-            ObjectInputStream(BufferedInputStream(file.inputStream())).use {
-                return it.readObject() as LazyClasspathEntryData
-            }
-        }
-    }
-
-    fun saveToFile(file: File) {
-        ObjectOutputStream(BufferedOutputStream(file.outputStream())).use {
-            it.writeObject(this)
-        }
-    }
-
-    fun getClasspathEntryData(): ClasspathEntryData = ClasspathEntryData.ClasspathEntrySerializer.loadFrom(dataFile)
 }
 
 class ClasspathEntryData : Serializable {

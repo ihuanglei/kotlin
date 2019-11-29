@@ -9,7 +9,19 @@ plugins {
 }
 
 dependencies {
-    testCompileOnly(intellijDep()) { includeJars("openapi", "idea", "idea_rt", "util", "asm-all", rootProject = rootProject) }
+    testCompileOnly(intellijDep()) {
+        includeJars("openapi", "extensions", "idea", "idea_rt", "util", "asm-all", rootProject = rootProject)
+    }
+
+    Platform[191].orLower {
+        testCompileOnly(intellijDep()) { includeJars("java-api") }
+    }
+
+    Platform[192].orHigher {
+        testCompileOnly(intellijPluginDep("java")) { includeJars("java-api") }
+        testRuntimeOnly(intellijPluginDep("java"))
+    }
+
     testRuntime(intellijDep())
 
     testCompile(commonDep("junit:junit"))
@@ -30,9 +42,19 @@ sourceSets {
 }
 
 projectTest {
+    systemProperties(project.properties.filterKeys { it.startsWith("fir.") })
     workingDir = rootDir
     jvmArgs!!.removeIf { it.contains("-Xmx") }
-    maxHeapSize = "3g"
+    maxHeapSize = "8g"
+    dependsOn(":dist")
+
+    run {
+        val argsExt = project.findProperty("fir.modularized.jvm.args") as? String
+        if (argsExt != null) {
+            val paramRegex = "([^\"]\\S*|\".+?\")\\s*".toRegex()
+            jvmArgs(paramRegex.findAll(argsExt).map { it.groupValues[1] }.toList())
+        }
+    }
 }
 
 testsJar()

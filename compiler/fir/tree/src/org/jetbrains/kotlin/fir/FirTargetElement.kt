@@ -5,5 +5,15 @@
 
 package org.jetbrains.kotlin.fir
 
-// Any target of return / break / continue (some targets may have labels, some never have them)
-interface FirTargetElement : FirElement
+import org.jetbrains.kotlin.fir.visitors.*
+
+/*
+ * This file was generated automatically
+ * DO NOT MODIFY IT MANUALLY
+ */
+
+interface FirTargetElement : FirElement {
+    override val source: FirSourceElement?
+
+    override fun <R, D> accept(visitor: FirVisitor<R, D>, data: D): R = visitor.visitTargetElement(this, data)
+}

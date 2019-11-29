@@ -6,62 +6,42 @@
 package org.jetbrains.kotlin.fir.scopes
 
 import org.jetbrains.kotlin.fir.scopes.ProcessorAction.NEXT
-import org.jetbrains.kotlin.fir.scopes.ProcessorAction.STOP
-import org.jetbrains.kotlin.fir.symbols.ConeClassifierSymbol
-import org.jetbrains.kotlin.fir.symbols.ConeFunctionSymbol
-import org.jetbrains.kotlin.fir.symbols.ConeVariableSymbol
+import org.jetbrains.kotlin.fir.symbols.impl.FirCallableSymbol
+import org.jetbrains.kotlin.fir.symbols.impl.FirClassifierSymbol
+import org.jetbrains.kotlin.fir.symbols.impl.FirFunctionSymbol
 import org.jetbrains.kotlin.name.Name
 
-interface FirScope {
-    @Deprecated(
-        "obsolete",
-        replaceWith = ReplaceWith("processClassifiersByNameWithAction(name, position) { if (processor()) ProcessorAction.NEXT else ProcessorAction.STOP }.next()")
-    )
-    fun processClassifiersByName(
+abstract class FirScope {
+    open fun processClassifiersByName(
         name: Name,
-        position: FirPosition,
-        processor: (ConeClassifierSymbol) -> Boolean
-    ): Boolean = true
-
-    fun processFunctionsByName(
-        name: Name,
-        processor: (ConeFunctionSymbol) -> ProcessorAction
+        processor: (FirClassifierSymbol<*>) -> ProcessorAction
     ): ProcessorAction = NEXT
 
-    fun processPropertiesByName(
+    open fun processFunctionsByName(
         name: Name,
-        processor: (ConeVariableSymbol) -> ProcessorAction
+        processor: (FirFunctionSymbol<*>) -> ProcessorAction
     ): ProcessorAction = NEXT
-}
 
-
-inline fun FirScope.processClassifiersByNameWithAction(
-    name: Name,
-    position: FirPosition,
-    crossinline processor: (ConeClassifierSymbol) -> ProcessorAction
-): ProcessorAction {
-    val result = processClassifiersByName(name, position) {
-        processor(it).next()
-    }
-    return if (result) NEXT else STOP
-}
-
-enum class FirPosition(val allowTypeParameters: Boolean = true) {
-    SUPER_TYPE_OR_EXPANSION(allowTypeParameters = false),
-    OTHER
+    open fun processPropertiesByName(
+        name: Name,
+        // NB: it'd be great to write FirVariableSymbol<*> here, but there is FirAccessorSymbol :(
+        processor: (FirCallableSymbol<*>) -> ProcessorAction
+    ): ProcessorAction = NEXT
 }
 
 enum class ProcessorAction {
     STOP,
-    NEXT;
+    NEXT,
+    NONE;
 
     operator fun not(): Boolean {
         return when (this) {
             STOP -> true
             NEXT -> false
+            NONE -> false
         }
     }
 
     fun stop() = this == STOP
-    fun next() = this == NEXT
+    fun next() = this != STOP
 }

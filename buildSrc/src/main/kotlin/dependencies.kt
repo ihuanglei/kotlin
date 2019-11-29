@@ -8,6 +8,7 @@ import org.gradle.api.Project
 import org.gradle.api.artifacts.ProjectDependency
 import org.gradle.api.artifacts.dsl.DependencyHandler
 import org.gradle.api.file.ConfigurableFileCollection
+import org.gradle.api.file.FileCollection
 import org.gradle.api.tasks.AbstractCopyTask
 import org.gradle.kotlin.dsl.extra
 import org.gradle.kotlin.dsl.project
@@ -73,13 +74,14 @@ fun Project.ideaUltimatePreloadedDeps(vararg artifactBaseNames: String, subdir: 
     else files()
 }
 
-fun Project.kotlinDep(artifactBaseName: String, version: String): String = "org.jetbrains.kotlin:kotlin-$artifactBaseName:$version"
+fun Project.kotlinDep(artifactBaseName: String, version: String, classifier: String? = null): String =
+    listOfNotNull("org.jetbrains.kotlin:kotlin-$artifactBaseName:$version", classifier).joinToString(":")
 
-fun Project.kotlinStdlib(suffix: String? = null): Any {
+fun Project.kotlinStdlib(suffix: String? = null, classifier: String? = null): Any {
     return if (kotlinBuildProperties.useBootstrapStdlib)
-        kotlinDep(listOfNotNull("stdlib", suffix).joinToString("-"), bootstrapKotlinVersion)
+        kotlinDep(listOfNotNull("stdlib", suffix).joinToString("-"), bootstrapKotlinVersion, classifier)
     else
-        dependencies.project(listOfNotNull(":kotlin-stdlib", suffix).joinToString("-"))
+        dependencies.project(listOfNotNull(":kotlin-stdlib", suffix).joinToString("-"), classifier)
 }
 
 fun Project.kotlinBuiltins(): Any =
@@ -127,7 +129,9 @@ fun Project.firstFromJavaHomeThatExists(vararg paths: String, jdkHome: File = Fi
             logger.warn("Cannot find file by paths: ${paths.toList()} in $jdkHome")
     }
 
-fun Project.toolsJar(jdkHome: File = File(this.property("JDK_18") as String)): File? =
+fun Project.toolsJar(): FileCollection = files(toolsJarFile() ?: error("tools.jar is not found!"))
+
+fun Project.toolsJarFile(jdkHome: File = File(this.property("JDK_18") as String)): File? =
     firstFromJavaHomeThatExists("lib/tools.jar", jdkHome = jdkHome)
 
 val compilerManifestClassPath

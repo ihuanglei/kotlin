@@ -21,6 +21,7 @@ import com.intellij.codeInsight.CodeInsightSettings;
 import com.intellij.codeInsight.editorActions.TypedHandlerDelegate;
 import com.intellij.codeInsight.highlighting.BraceMatcher;
 import com.intellij.codeInsight.highlighting.BraceMatchingUtil;
+import com.intellij.ide.PowerSaveMode;
 import com.intellij.lang.ASTNode;
 import com.intellij.openapi.application.ApplicationManager;
 import com.intellij.openapi.editor.Document;
@@ -43,24 +44,30 @@ import com.intellij.psi.util.PsiTreeUtil;
 import com.intellij.util.text.CharArrayUtil;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.kotlin.KtNodeTypes;
+import org.jetbrains.kotlin.idea.statistics.AddValToDataClassParamCollector;
 import org.jetbrains.kotlin.kdoc.lexer.KDocTokens;
 import org.jetbrains.kotlin.lexer.KtTokens;
 import org.jetbrains.kotlin.psi.*;
 
-public class KotlinTypedHandler extends TypedHandlerDelegate {
-    private final static TokenSet CONTROL_FLOW_EXPRESSIONS = TokenSet.create(
+import static java.lang.System.currentTimeMillis;
+import static java.lang.System.runFinalization;
+
+class KotlinTypedHandlerInner {
+    final static TokenSet CONTROL_FLOW_EXPRESSIONS = TokenSet.create(
             KtNodeTypes.IF,
             KtNodeTypes.ELSE,
             KtNodeTypes.FOR,
             KtNodeTypes.WHILE,
             KtNodeTypes.TRY);
 
-    private final static TokenSet SUPPRESS_AUTO_INSERT_CLOSE_BRACE_AFTER = TokenSet.create(
+    final static TokenSet SUPPRESS_AUTO_INSERT_CLOSE_BRACE_AFTER = TokenSet.create(
             KtTokens.RPAR,
             KtTokens.ELSE_KEYWORD,
             KtTokens.TRY_KEYWORD
     );
+}
 
+public class KotlinTypedHandler extends TypedHandlerDelegate {
     private boolean kotlinLTTyped;
 
     private boolean isGlobalPreviousDollarInString; // Global flag for all editors
@@ -80,6 +87,9 @@ public class KotlinTypedHandler extends TypedHandlerDelegate {
         }
 
         switch (c) {
+            case ')':
+                dataClassValParameterInsert(project, editor, file, /*beforeType = */ true, c);
+                break;
             case '<':
                 kotlinLTTyped = CodeInsightSettings.getInstance().AUTOINSERT_PAIR_BRACKET &&
                                 LtGtTypingUtils.shouldAutoCloseAngleBracket(editor.getCaretModel().getOffset(), editor);
@@ -107,19 +117,20 @@ public class KotlinTypedHandler extends TypedHandlerDelegate {
                     iterator.retreat();
                 }
 
-                if (iterator.atEnd() || !(SUPPRESS_AUTO_INSERT_CLOSE_BRACE_AFTER.contains(iterator.getTokenType()))) {
+                if (iterator.atEnd() || !(KotlinTypedHandlerInner.SUPPRESS_AUTO_INSERT_CLOSE_BRACE_AFTER.contains(iterator.getTokenType()))) {
                     AutoPopupController.getInstance(project).autoPopupParameterInfo(editor, null);
                     return Result.CONTINUE;
                 }
 
                 int tokenBeforeBraceOffset = iterator.getStart();
 
-                PsiDocumentManager.getInstance(project).commitDocument(editor.getDocument());
+                Document document = editor.getDocument();
+                PsiDocumentManager.getInstance(project).commitDocument(document);
 
                 PsiElement leaf = file.findElementAt(offset);
                 if (leaf != null) {
                     PsiElement parent = leaf.getParent();
-                    if (parent != null && CONTROL_FLOW_EXPRESSIONS.contains(parent.getNode().getElementType())) {
+                    if (parent != null && KotlinTypedHandlerInner.CONTROL_FLOW_EXPRESSIONS.contains(parent.getNode().getElementType())) {
                         ASTNode nonWhitespaceSibling = FormatterUtil.getPreviousNonWhitespaceSibling(leaf.getNode());
                         if (nonWhitespaceSibling != null && nonWhitespaceSibling.getStartOffset() == tokenBeforeBraceOffset) {
                             EditorModificationUtil.insertStringAtCaret(editor, "{", false, true);
@@ -127,6 +138,14 @@ public class KotlinTypedHandler extends TypedHandlerDelegate {
 
                             return Result.STOP;
                         }
+                    }
+                    if (leaf.getText().equals("}")
+                        && parent instanceof KtFunctionLiteral
+                        && document.getLineNumber(offset) == document.getLineNumber(parent.getTextRange().getStartOffset())
+                    ) {
+                        EditorModificationUtil.insertStringAtCaret(editor, "{} ", false, false);
+                        editor.getCaretModel().moveToOffset(offset + 1);
+                        return Result.STOP;
                     }
                 }
 
@@ -252,6 +271,9 @@ public class KotlinTypedHandler extends TypedHandlerDelegate {
             LtGtTypingUtils.handleKotlinAutoCloseLT(editor);
             return Result.STOP;
         }
+        else if (c == ',' || c == ')') {
+            dataClassValParameterInsert(project, editor, file, /*beforeType = */ false, c);
+        }
         else if (c == '{' && CodeInsightSettings.getInstance().AUTOINSERT_PAIR_BRACKET) {
             PsiDocumentManager.getInstance(project).commitDocument(editor.getDocument());
 
@@ -315,6 +337,67 @@ public class KotlinTypedHandler extends TypedHandlerDelegate {
         }
 
         return Result.CONTINUE;
+    }
+
+    private static void dataClassValParameterInsert(@NotNull Project project, @NotNull Editor editor, @NotNull PsiFile file, boolean beforeType, char character) {
+
+        if (!KotlinEditorOptions.getInstance().isAutoAddValKeywordToDataClassParameters()) return;
+
+        long timeStarted = currentTimeMillis();
+        boolean isValAdded = false;
+        boolean needCallFUS = false;
+
+        try {
+
+            Document document = editor.getDocument();
+            PsiDocumentManager.getInstance(project).commitDocument(document);
+
+            int commaOffset = editor.getCaretModel().getOffset();
+            if (!beforeType) commaOffset--;
+            if (commaOffset < 1) return;
+
+            PsiElement elementOnCaret = file.findElementAt(commaOffset);
+            if (elementOnCaret == null) return;
+
+            boolean contextMatched = false;
+            PsiElement parentElement = elementOnCaret.getParent();
+            if (parentElement instanceof KtParameterList) {
+                parentElement = parentElement.getParent();
+                if (parentElement instanceof KtPrimaryConstructor) {
+                    parentElement = parentElement.getParent();
+                    if (parentElement instanceof KtClass) {
+                        KtClass klassElement = ((KtClass) parentElement);
+                        contextMatched = klassElement.isData() || klassElement.hasModifier(KtTokens.INLINE_KEYWORD);
+                    }
+                }
+            }
+            if (!contextMatched) return;
+
+            PsiElement leftElement = PsiTreeUtil.skipWhitespacesAndCommentsBackward(elementOnCaret);
+
+            if (!(leftElement instanceof KtParameter)) return;
+
+            KtParameter ktParameter = (KtParameter) leftElement;
+            KtTypeReference typeReference = ktParameter.getTypeReference();
+            if (typeReference == null) return;
+
+            if (ktParameter.hasValOrVar()) {
+                needCallFUS = true;
+                return;
+            }
+
+            if (typeReference.getTextLength() == 0) return;
+
+            document.insertString(leftElement.getTextOffset(), "val ");
+            isValAdded = true;
+            needCallFUS = true;
+
+        } finally {
+            if (needCallFUS) {
+                long timeFinished = currentTimeMillis();
+                AddValToDataClassParamCollector.INSTANCE.log(timeStarted, timeFinished, isValAdded, character, beforeType);
+            }
+        }
     }
 
     /**

@@ -10,6 +10,7 @@ dependencies {
     compileOnly(project(":idea:idea-jvm"))
     compileOnly(project(":idea:idea-native")) { isTransitive = false }
     compile(project(":idea:kotlin-gradle-tooling"))
+    compile(project(":idea:idea-gradle-tooling-api"))
 
     compile(project(":compiler:frontend"))
     compile(project(":compiler:frontend.java"))
@@ -18,14 +19,26 @@ dependencies {
 
     compileOnly(intellijDep())
     compileOnly(intellijPluginDep("gradle"))
+    Platform[193].orHigher {
+        compileOnly(intellijPluginDep("gradle-java"))
+    }
     compileOnly(intellijPluginDep("Groovy"))
     compileOnly(intellijPluginDep("junit"))
     compileOnly(intellijPluginDep("testng"))
+
+    Platform[192].orHigher {
+        compileOnly(intellijPluginDep("java"))
+        testCompileOnly(intellijPluginDep("java"))
+        testRuntimeOnly(intellijPluginDep("java"))
+    }
 
     testCompile(projectTests(":idea"))
     testCompile(projectTests(":idea:idea-test-framework"))
 
     testCompile(intellijPluginDep("gradle"))
+    Platform[193].orHigher {
+        testCompile(intellijPluginDep("gradle-java"))
+    }
     testCompileOnly(intellijPluginDep("Groovy"))
     testCompileOnly(intellijDep())
 
@@ -50,6 +63,9 @@ dependencies {
     testRuntime(intellijPluginDep("testng"))
     testRuntime(intellijPluginDep("properties"))
     testRuntime(intellijPluginDep("gradle"))
+    Platform[193].orHigher {
+        testRuntime(intellijPluginDep("gradle-java"))
+    }
     testRuntime(intellijPluginDep("Groovy"))
     testRuntime(intellijPluginDep("coverage"))
     if (Ide.IJ()) {
@@ -57,6 +73,11 @@ dependencies {
     }
     testRuntime(intellijPluginDep("android"))
     testRuntime(intellijPluginDep("smali"))
+
+    if (Ide.AS36.orHigher()) {
+        testRuntime(intellijPluginDep("android-layoutlib"))
+        testRuntime(intellijPluginDep("android-wizardTemplate-plugin"))
+    }
 }
 
 sourceSets {
@@ -72,6 +93,18 @@ testsJar()
 projectTest(parallel = true) {
     workingDir = rootDir
     useAndroidSdk()
+
+    doFirst {
+        val mainResourceDirPath = File(project.buildDir, "resources/main").absolutePath
+        sourceSets["test"].runtimeClasspath = sourceSets["test"].runtimeClasspath.filter { file ->
+            if (!file.absolutePath.contains(mainResourceDirPath)) {
+                true
+            } else {
+                println("Remove `${file.path}` from the test runtime classpath")
+                false
+            }
+        }
+    }
 }
 
 configureFormInstrumentation()

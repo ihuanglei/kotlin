@@ -1,5 +1,5 @@
 internal open class A {
-    internal open fun a() {}
+    open fun a() {}
 }
 
 internal class B : A() {

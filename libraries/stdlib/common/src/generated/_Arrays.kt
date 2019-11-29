@@ -18,7 +18,10 @@ import kotlin.ranges.contains
 import kotlin.ranges.reversed
 
 /**
- * Returns 1st *element* from the collection.
+ * Returns 1st *element* from the array.
+ * 
+ * If the size of this array is less than 1, throws an [IndexOutOfBoundsException] except in Kotlin/JS
+ * where the behavior is unspecified.
  */
 @kotlin.internal.InlineOnly
 public inline operator fun <T> Array<out T>.component1(): T {
@@ -26,7 +29,10 @@ public inline operator fun <T> Array<out T>.component1(): T {
 }
 
 /**
- * Returns 1st *element* from the collection.
+ * Returns 1st *element* from the array.
+ * 
+ * If the size of this array is less than 1, throws an [IndexOutOfBoundsException] except in Kotlin/JS
+ * where the behavior is unspecified.
  */
 @kotlin.internal.InlineOnly
 public inline operator fun ByteArray.component1(): Byte {
@@ -34,7 +40,10 @@ public inline operator fun ByteArray.component1(): Byte {
 }
 
 /**
- * Returns 1st *element* from the collection.
+ * Returns 1st *element* from the array.
+ * 
+ * If the size of this array is less than 1, throws an [IndexOutOfBoundsException] except in Kotlin/JS
+ * where the behavior is unspecified.
  */
 @kotlin.internal.InlineOnly
 public inline operator fun ShortArray.component1(): Short {
@@ -42,7 +51,10 @@ public inline operator fun ShortArray.component1(): Short {
 }
 
 /**
- * Returns 1st *element* from the collection.
+ * Returns 1st *element* from the array.
+ * 
+ * If the size of this array is less than 1, throws an [IndexOutOfBoundsException] except in Kotlin/JS
+ * where the behavior is unspecified.
  */
 @kotlin.internal.InlineOnly
 public inline operator fun IntArray.component1(): Int {
@@ -50,7 +62,10 @@ public inline operator fun IntArray.component1(): Int {
 }
 
 /**
- * Returns 1st *element* from the collection.
+ * Returns 1st *element* from the array.
+ * 
+ * If the size of this array is less than 1, throws an [IndexOutOfBoundsException] except in Kotlin/JS
+ * where the behavior is unspecified.
  */
 @kotlin.internal.InlineOnly
 public inline operator fun LongArray.component1(): Long {
@@ -58,7 +73,10 @@ public inline operator fun LongArray.component1(): Long {
 }
 
 /**
- * Returns 1st *element* from the collection.
+ * Returns 1st *element* from the array.
+ * 
+ * If the size of this array is less than 1, throws an [IndexOutOfBoundsException] except in Kotlin/JS
+ * where the behavior is unspecified.
  */
 @kotlin.internal.InlineOnly
 public inline operator fun FloatArray.component1(): Float {
@@ -66,7 +84,10 @@ public inline operator fun FloatArray.component1(): Float {
 }
 
 /**
- * Returns 1st *element* from the collection.
+ * Returns 1st *element* from the array.
+ * 
+ * If the size of this array is less than 1, throws an [IndexOutOfBoundsException] except in Kotlin/JS
+ * where the behavior is unspecified.
  */
 @kotlin.internal.InlineOnly
 public inline operator fun DoubleArray.component1(): Double {
@@ -74,7 +95,10 @@ public inline operator fun DoubleArray.component1(): Double {
 }
 
 /**
- * Returns 1st *element* from the collection.
+ * Returns 1st *element* from the array.
+ * 
+ * If the size of this array is less than 1, throws an [IndexOutOfBoundsException] except in Kotlin/JS
+ * where the behavior is unspecified.
  */
 @kotlin.internal.InlineOnly
 public inline operator fun BooleanArray.component1(): Boolean {
@@ -82,7 +106,10 @@ public inline operator fun BooleanArray.component1(): Boolean {
 }
 
 /**
- * Returns 1st *element* from the collection.
+ * Returns 1st *element* from the array.
+ * 
+ * If the size of this array is less than 1, throws an [IndexOutOfBoundsException] except in Kotlin/JS
+ * where the behavior is unspecified.
  */
 @kotlin.internal.InlineOnly
 public inline operator fun CharArray.component1(): Char {
@@ -90,7 +117,10 @@ public inline operator fun CharArray.component1(): Char {
 }
 
 /**
- * Returns 2nd *element* from the collection.
+ * Returns 2nd *element* from the array.
+ * 
+ * If the size of this array is less than 2, throws an [IndexOutOfBoundsException] except in Kotlin/JS
+ * where the behavior is unspecified.
  */
 @kotlin.internal.InlineOnly
 public inline operator fun <T> Array<out T>.component2(): T {
@@ -98,7 +128,10 @@ public inline operator fun <T> Array<out T>.component2(): T {
 }
 
 /**
- * Returns 2nd *element* from the collection.
+ * Returns 2nd *element* from the array.
+ * 
+ * If the size of this array is less than 2, throws an [IndexOutOfBoundsException] except in Kotlin/JS
+ * where the behavior is unspecified.
  */
 @kotlin.internal.InlineOnly
 public inline operator fun ByteArray.component2(): Byte {
@@ -106,7 +139,10 @@ public inline operator fun ByteArray.component2(): Byte {
 }
 
 /**
- * Returns 2nd *element* from the collection.
+ * Returns 2nd *element* from the array.
+ * 
+ * If the size of this array is less than 2, throws an [IndexOutOfBoundsException] except in Kotlin/JS
+ * where the behavior is unspecified.
  */
 @kotlin.internal.InlineOnly
 public inline operator fun ShortArray.component2(): Short {
@@ -114,7 +150,10 @@ public inline operator fun ShortArray.component2(): Short {
 }
 
 /**
- * Returns 2nd *element* from the collection.
+ * Returns 2nd *element* from the array.
+ * 
+ * If the size of this array is less than 2, throws an [IndexOutOfBoundsException] except in Kotlin/JS
+ * where the behavior is unspecified.
  */
 @kotlin.internal.InlineOnly
 public inline operator fun IntArray.component2(): Int {
@@ -122,7 +161,10 @@ public inline operator fun IntArray.component2(): Int {
 }
 
 /**
- * Returns 2nd *element* from the collection.
+ * Returns 2nd *element* from the array.
+ * 
+ * If the size of this array is less than 2, throws an [IndexOutOfBoundsException] except in Kotlin/JS
+ * where the behavior is unspecified.
  */
 @kotlin.internal.InlineOnly
 public inline operator fun LongArray.component2(): Long {
@@ -130,7 +172,10 @@ public inline operator fun LongArray.component2(): Long {
 }
 
 /**
- * Returns 2nd *element* from the collection.
+ * Returns 2nd *element* from the array.
+ * 
+ * If the size of this array is less than 2, throws an [IndexOutOfBoundsException] except in Kotlin/JS
+ * where the behavior is unspecified.
  */
 @kotlin.internal.InlineOnly
 public inline operator fun FloatArray.component2(): Float {
@@ -138,7 +183,10 @@ public inline operator fun FloatArray.component2(): Float {
 }
 
 /**
- * Returns 2nd *element* from the collection.
+ * Returns 2nd *element* from the array.
+ * 
+ * If the size of this array is less than 2, throws an [IndexOutOfBoundsException] except in Kotlin/JS
+ * where the behavior is unspecified.
  */
 @kotlin.internal.InlineOnly
 public inline operator fun DoubleArray.component2(): Double {
@@ -146,7 +194,10 @@ public inline operator fun DoubleArray.component2(): Double {
 }
 
 /**
- * Returns 2nd *element* from the collection.
+ * Returns 2nd *element* from the array.
+ * 
+ * If the size of this array is less than 2, throws an [IndexOutOfBoundsException] except in Kotlin/JS
+ * where the behavior is unspecified.
  */
 @kotlin.internal.InlineOnly
 public inline operator fun BooleanArray.component2(): Boolean {
@@ -154,7 +205,10 @@ public inline operator fun BooleanArray.component2(): Boolean {
 }
 
 /**
- * Returns 2nd *element* from the collection.
+ * Returns 2nd *element* from the array.
+ * 
+ * If the size of this array is less than 2, throws an [IndexOutOfBoundsException] except in Kotlin/JS
+ * where the behavior is unspecified.
  */
 @kotlin.internal.InlineOnly
 public inline operator fun CharArray.component2(): Char {
@@ -162,7 +216,10 @@ public inline operator fun CharArray.component2(): Char {
 }
 
 /**
- * Returns 3rd *element* from the collection.
+ * Returns 3rd *element* from the array.
+ * 
+ * If the size of this array is less than 3, throws an [IndexOutOfBoundsException] except in Kotlin/JS
+ * where the behavior is unspecified.
  */
 @kotlin.internal.InlineOnly
 public inline operator fun <T> Array<out T>.component3(): T {
@@ -170,7 +227,10 @@ public inline operator fun <T> Array<out T>.component3(): T {
 }
 
 /**
- * Returns 3rd *element* from the collection.
+ * Returns 3rd *element* from the array.
+ * 
+ * If the size of this array is less than 3, throws an [IndexOutOfBoundsException] except in Kotlin/JS
+ * where the behavior is unspecified.
  */
 @kotlin.internal.InlineOnly
 public inline operator fun ByteArray.component3(): Byte {
@@ -178,7 +238,10 @@ public inline operator fun ByteArray.component3(): Byte {
 }
 
 /**
- * Returns 3rd *element* from the collection.
+ * Returns 3rd *element* from the array.
+ * 
+ * If the size of this array is less than 3, throws an [IndexOutOfBoundsException] except in Kotlin/JS
+ * where the behavior is unspecified.
  */
 @kotlin.internal.InlineOnly
 public inline operator fun ShortArray.component3(): Short {
@@ -186,7 +249,10 @@ public inline operator fun ShortArray.component3(): Short {
 }
 
 /**
- * Returns 3rd *element* from the collection.
+ * Returns 3rd *element* from the array.
+ * 
+ * If the size of this array is less than 3, throws an [IndexOutOfBoundsException] except in Kotlin/JS
+ * where the behavior is unspecified.
  */
 @kotlin.internal.InlineOnly
 public inline operator fun IntArray.component3(): Int {
@@ -194,7 +260,10 @@ public inline operator fun IntArray.component3(): Int {
 }
 
 /**
- * Returns 3rd *element* from the collection.
+ * Returns 3rd *element* from the array.
+ * 
+ * If the size of this array is less than 3, throws an [IndexOutOfBoundsException] except in Kotlin/JS
+ * where the behavior is unspecified.
  */
 @kotlin.internal.InlineOnly
 public inline operator fun LongArray.component3(): Long {
@@ -202,7 +271,10 @@ public inline operator fun LongArray.component3(): Long {
 }
 
 /**
- * Returns 3rd *element* from the collection.
+ * Returns 3rd *element* from the array.
+ * 
+ * If the size of this array is less than 3, throws an [IndexOutOfBoundsException] except in Kotlin/JS
+ * where the behavior is unspecified.
  */
 @kotlin.internal.InlineOnly
 public inline operator fun FloatArray.component3(): Float {
@@ -210,7 +282,10 @@ public inline operator fun FloatArray.component3(): Float {
 }
 
 /**
- * Returns 3rd *element* from the collection.
+ * Returns 3rd *element* from the array.
+ * 
+ * If the size of this array is less than 3, throws an [IndexOutOfBoundsException] except in Kotlin/JS
+ * where the behavior is unspecified.
  */
 @kotlin.internal.InlineOnly
 public inline operator fun DoubleArray.component3(): Double {
@@ -218,7 +293,10 @@ public inline operator fun DoubleArray.component3(): Double {
 }
 
 /**
- * Returns 3rd *element* from the collection.
+ * Returns 3rd *element* from the array.
+ * 
+ * If the size of this array is less than 3, throws an [IndexOutOfBoundsException] except in Kotlin/JS
+ * where the behavior is unspecified.
  */
 @kotlin.internal.InlineOnly
 public inline operator fun BooleanArray.component3(): Boolean {
@@ -226,7 +304,10 @@ public inline operator fun BooleanArray.component3(): Boolean {
 }
 
 /**
- * Returns 3rd *element* from the collection.
+ * Returns 3rd *element* from the array.
+ * 
+ * If the size of this array is less than 3, throws an [IndexOutOfBoundsException] except in Kotlin/JS
+ * where the behavior is unspecified.
  */
 @kotlin.internal.InlineOnly
 public inline operator fun CharArray.component3(): Char {
@@ -234,7 +315,10 @@ public inline operator fun CharArray.component3(): Char {
 }
 
 /**
- * Returns 4th *element* from the collection.
+ * Returns 4th *element* from the array.
+ * 
+ * If the size of this array is less than 4, throws an [IndexOutOfBoundsException] except in Kotlin/JS
+ * where the behavior is unspecified.
  */
 @kotlin.internal.InlineOnly
 public inline operator fun <T> Array<out T>.component4(): T {
@@ -242,7 +326,10 @@ public inline operator fun <T> Array<out T>.component4(): T {
 }
 
 /**
- * Returns 4th *element* from the collection.
+ * Returns 4th *element* from the array.
+ * 
+ * If the size of this array is less than 4, throws an [IndexOutOfBoundsException] except in Kotlin/JS
+ * where the behavior is unspecified.
  */
 @kotlin.internal.InlineOnly
 public inline operator fun ByteArray.component4(): Byte {
@@ -250,7 +337,10 @@ public inline operator fun ByteArray.component4(): Byte {
 }
 
 /**
- * Returns 4th *element* from the collection.
+ * Returns 4th *element* from the array.
+ * 
+ * If the size of this array is less than 4, throws an [IndexOutOfBoundsException] except in Kotlin/JS
+ * where the behavior is unspecified.
  */
 @kotlin.internal.InlineOnly
 public inline operator fun ShortArray.component4(): Short {
@@ -258,7 +348,10 @@ public inline operator fun ShortArray.component4(): Short {
 }
 
 /**
- * Returns 4th *element* from the collection.
+ * Returns 4th *element* from the array.
+ * 
+ * If the size of this array is less than 4, throws an [IndexOutOfBoundsException] except in Kotlin/JS
+ * where the behavior is unspecified.
  */
 @kotlin.internal.InlineOnly
 public inline operator fun IntArray.component4(): Int {
@@ -266,7 +359,10 @@ public inline operator fun IntArray.component4(): Int {
 }
 
 /**
- * Returns 4th *element* from the collection.
+ * Returns 4th *element* from the array.
+ * 
+ * If the size of this array is less than 4, throws an [IndexOutOfBoundsException] except in Kotlin/JS
+ * where the behavior is unspecified.
  */
 @kotlin.internal.InlineOnly
 public inline operator fun LongArray.component4(): Long {
@@ -274,7 +370,10 @@ public inline operator fun LongArray.component4(): Long {
 }
 
 /**
- * Returns 4th *element* from the collection.
+ * Returns 4th *element* from the array.
+ * 
+ * If the size of this array is less than 4, throws an [IndexOutOfBoundsException] except in Kotlin/JS
+ * where the behavior is unspecified.
  */
 @kotlin.internal.InlineOnly
 public inline operator fun FloatArray.component4(): Float {
@@ -282,7 +381,10 @@ public inline operator fun FloatArray.component4(): Float {
 }
 
 /**
- * Returns 4th *element* from the collection.
+ * Returns 4th *element* from the array.
+ * 
+ * If the size of this array is less than 4, throws an [IndexOutOfBoundsException] except in Kotlin/JS
+ * where the behavior is unspecified.
  */
 @kotlin.internal.InlineOnly
 public inline operator fun DoubleArray.component4(): Double {
@@ -290,7 +392,10 @@ public inline operator fun DoubleArray.component4(): Double {
 }
 
 /**
- * Returns 4th *element* from the collection.
+ * Returns 4th *element* from the array.
+ * 
+ * If the size of this array is less than 4, throws an [IndexOutOfBoundsException] except in Kotlin/JS
+ * where the behavior is unspecified.
  */
 @kotlin.internal.InlineOnly
 public inline operator fun BooleanArray.component4(): Boolean {
@@ -298,7 +403,10 @@ public inline operator fun BooleanArray.component4(): Boolean {
 }
 
 /**
- * Returns 4th *element* from the collection.
+ * Returns 4th *element* from the array.
+ * 
+ * If the size of this array is less than 4, throws an [IndexOutOfBoundsException] except in Kotlin/JS
+ * where the behavior is unspecified.
  */
 @kotlin.internal.InlineOnly
 public inline operator fun CharArray.component4(): Char {
@@ -306,7 +414,10 @@ public inline operator fun CharArray.component4(): Char {
 }
 
 /**
- * Returns 5th *element* from the collection.
+ * Returns 5th *element* from the array.
+ * 
+ * If the size of this array is less than 5, throws an [IndexOutOfBoundsException] except in Kotlin/JS
+ * where the behavior is unspecified.
  */
 @kotlin.internal.InlineOnly
 public inline operator fun <T> Array<out T>.component5(): T {
@@ -314,7 +425,10 @@ public inline operator fun <T> Array<out T>.component5(): T {
 }
 
 /**
- * Returns 5th *element* from the collection.
+ * Returns 5th *element* from the array.
+ * 
+ * If the size of this array is less than 5, throws an [IndexOutOfBoundsException] except in Kotlin/JS
+ * where the behavior is unspecified.
  */
 @kotlin.internal.InlineOnly
 public inline operator fun ByteArray.component5(): Byte {
@@ -322,7 +436,10 @@ public inline operator fun ByteArray.component5(): Byte {
 }
 
 /**
- * Returns 5th *element* from the collection.
+ * Returns 5th *element* from the array.
+ * 
+ * If the size of this array is less than 5, throws an [IndexOutOfBoundsException] except in Kotlin/JS
+ * where the behavior is unspecified.
  */
 @kotlin.internal.InlineOnly
 public inline operator fun ShortArray.component5(): Short {
@@ -330,7 +447,10 @@ public inline operator fun ShortArray.component5(): Short {
 }
 
 /**
- * Returns 5th *element* from the collection.
+ * Returns 5th *element* from the array.
+ * 
+ * If the size of this array is less than 5, throws an [IndexOutOfBoundsException] except in Kotlin/JS
+ * where the behavior is unspecified.
  */
 @kotlin.internal.InlineOnly
 public inline operator fun IntArray.component5(): Int {
@@ -338,7 +458,10 @@ public inline operator fun IntArray.component5(): Int {
 }
 
 /**
- * Returns 5th *element* from the collection.
+ * Returns 5th *element* from the array.
+ * 
+ * If the size of this array is less than 5, throws an [IndexOutOfBoundsException] except in Kotlin/JS
+ * where the behavior is unspecified.
  */
 @kotlin.internal.InlineOnly
 public inline operator fun LongArray.component5(): Long {
@@ -346,7 +469,10 @@ public inline operator fun LongArray.component5(): Long {
 }
 
 /**
- * Returns 5th *element* from the collection.
+ * Returns 5th *element* from the array.
+ * 
+ * If the size of this array is less than 5, throws an [IndexOutOfBoundsException] except in Kotlin/JS
+ * where the behavior is unspecified.
  */
 @kotlin.internal.InlineOnly
 public inline operator fun FloatArray.component5(): Float {
@@ -354,7 +480,10 @@ public inline operator fun FloatArray.component5(): Float {
 }
 
 /**
- * Returns 5th *element* from the collection.
+ * Returns 5th *element* from the array.
+ * 
+ * If the size of this array is less than 5, throws an [IndexOutOfBoundsException] except in Kotlin/JS
+ * where the behavior is unspecified.
  */
 @kotlin.internal.InlineOnly
 public inline operator fun DoubleArray.component5(): Double {
@@ -362,7 +491,10 @@ public inline operator fun DoubleArray.component5(): Double {
 }
 
 /**
- * Returns 5th *element* from the collection.
+ * Returns 5th *element* from the array.
+ * 
+ * If the size of this array is less than 5, throws an [IndexOutOfBoundsException] except in Kotlin/JS
+ * where the behavior is unspecified.
  */
 @kotlin.internal.InlineOnly
 public inline operator fun BooleanArray.component5(): Boolean {
@@ -370,7 +502,10 @@ public inline operator fun BooleanArray.component5(): Boolean {
 }
 
 /**
- * Returns 5th *element* from the collection.
+ * Returns 5th *element* from the array.
+ * 
+ * If the size of this array is less than 5, throws an [IndexOutOfBoundsException] except in Kotlin/JS
+ * where the behavior is unspecified.
  */
 @kotlin.internal.InlineOnly
 public inline operator fun CharArray.component5(): Char {
@@ -4137,9 +4272,9 @@ public fun <T> Array<out T>.take(n: Int): List<T> {
     var count = 0
     val list = ArrayList<T>(n)
     for (item in this) {
-        if (count++ == n)
-            break
         list.add(item)
+        if (++count == n)
+            break
     }
     return list
 }
@@ -4159,9 +4294,9 @@ public fun ByteArray.take(n: Int): List<Byte> {
     var count = 0
     val list = ArrayList<Byte>(n)
     for (item in this) {
-        if (count++ == n)
-            break
         list.add(item)
+        if (++count == n)
+            break
     }
     return list
 }
@@ -4181,9 +4316,9 @@ public fun ShortArray.take(n: Int): List<Short> {
     var count = 0
     val list = ArrayList<Short>(n)
     for (item in this) {
-        if (count++ == n)
-            break
         list.add(item)
+        if (++count == n)
+            break
     }
     return list
 }
@@ -4203,9 +4338,9 @@ public fun IntArray.take(n: Int): List<Int> {
     var count = 0
     val list = ArrayList<Int>(n)
     for (item in this) {
-        if (count++ == n)
-            break
         list.add(item)
+        if (++count == n)
+            break
     }
     return list
 }
@@ -4225,9 +4360,9 @@ public fun LongArray.take(n: Int): List<Long> {
     var count = 0
     val list = ArrayList<Long>(n)
     for (item in this) {
-        if (count++ == n)
-            break
         list.add(item)
+        if (++count == n)
+            break
     }
     return list
 }
@@ -4247,9 +4382,9 @@ public fun FloatArray.take(n: Int): List<Float> {
     var count = 0
     val list = ArrayList<Float>(n)
     for (item in this) {
-        if (count++ == n)
-            break
         list.add(item)
+        if (++count == n)
+            break
     }
     return list
 }
@@ -4269,9 +4404,9 @@ public fun DoubleArray.take(n: Int): List<Double> {
     var count = 0
     val list = ArrayList<Double>(n)
     for (item in this) {
-        if (count++ == n)
-            break
         list.add(item)
+        if (++count == n)
+            break
     }
     return list
 }
@@ -4291,9 +4426,9 @@ public fun BooleanArray.take(n: Int): List<Boolean> {
     var count = 0
     val list = ArrayList<Boolean>(n)
     for (item in this) {
-        if (count++ == n)
-            break
         list.add(item)
+        if (++count == n)
+            break
     }
     return list
 }
@@ -4313,9 +4448,9 @@ public fun CharArray.take(n: Int): List<Char> {
     var count = 0
     val list = ArrayList<Char>(n)
     for (item in this) {
-        if (count++ == n)
-            break
         list.add(item)
+        if (++count == n)
+            break
     }
     return list
 }
@@ -6339,6 +6474,114 @@ public expect fun BooleanArray.copyOfRange(fromIndex: Int, toIndex: Int): Boolea
 public expect fun CharArray.copyOfRange(fromIndex: Int, toIndex: Int): CharArray
 
 /**
+ * Fills this array or its subrange with the specified [element] value.
+ * 
+ * @param fromIndex the start of the range (inclusive), 0 by default.
+ * @param toIndex the end of the range (exclusive), size of this array by default.
+ * 
+ * @throws IndexOutOfBoundsException if [fromIndex] is less than zero or [toIndex] is greater than the size of this array.
+ * @throws IllegalArgumentException if [fromIndex] is greater than [toIndex].
+ */
+@SinceKotlin("1.3")
+public expect fun <T> Array<T>.fill(element: T, fromIndex: Int = 0, toIndex: Int = size): Unit
+
+/**
+ * Fills this array or its subrange with the specified [element] value.
+ * 
+ * @param fromIndex the start of the range (inclusive), 0 by default.
+ * @param toIndex the end of the range (exclusive), size of this array by default.
+ * 
+ * @throws IndexOutOfBoundsException if [fromIndex] is less than zero or [toIndex] is greater than the size of this array.
+ * @throws IllegalArgumentException if [fromIndex] is greater than [toIndex].
+ */
+@SinceKotlin("1.3")
+public expect fun ByteArray.fill(element: Byte, fromIndex: Int = 0, toIndex: Int = size): Unit
+
+/**
+ * Fills this array or its subrange with the specified [element] value.
+ * 
+ * @param fromIndex the start of the range (inclusive), 0 by default.
+ * @param toIndex the end of the range (exclusive), size of this array by default.
+ * 
+ * @throws IndexOutOfBoundsException if [fromIndex] is less than zero or [toIndex] is greater than the size of this array.
+ * @throws IllegalArgumentException if [fromIndex] is greater than [toIndex].
+ */
+@SinceKotlin("1.3")
+public expect fun ShortArray.fill(element: Short, fromIndex: Int = 0, toIndex: Int = size): Unit
+
+/**
+ * Fills this array or its subrange with the specified [element] value.
+ * 
+ * @param fromIndex the start of the range (inclusive), 0 by default.
+ * @param toIndex the end of the range (exclusive), size of this array by default.
+ * 
+ * @throws IndexOutOfBoundsException if [fromIndex] is less than zero or [toIndex] is greater than the size of this array.
+ * @throws IllegalArgumentException if [fromIndex] is greater than [toIndex].
+ */
+@SinceKotlin("1.3")
+public expect fun IntArray.fill(element: Int, fromIndex: Int = 0, toIndex: Int = size): Unit
+
+/**
+ * Fills this array or its subrange with the specified [element] value.
+ * 
+ * @param fromIndex the start of the range (inclusive), 0 by default.
+ * @param toIndex the end of the range (exclusive), size of this array by default.
+ * 
+ * @throws IndexOutOfBoundsException if [fromIndex] is less than zero or [toIndex] is greater than the size of this array.
+ * @throws IllegalArgumentException if [fromIndex] is greater than [toIndex].
+ */
+@SinceKotlin("1.3")
+public expect fun LongArray.fill(element: Long, fromIndex: Int = 0, toIndex: Int = size): Unit
+
+/**
+ * Fills this array or its subrange with the specified [element] value.
+ * 
+ * @param fromIndex the start of the range (inclusive), 0 by default.
+ * @param toIndex the end of the range (exclusive), size of this array by default.
+ * 
+ * @throws IndexOutOfBoundsException if [fromIndex] is less than zero or [toIndex] is greater than the size of this array.
+ * @throws IllegalArgumentException if [fromIndex] is greater than [toIndex].
+ */
+@SinceKotlin("1.3")
+public expect fun FloatArray.fill(element: Float, fromIndex: Int = 0, toIndex: Int = size): Unit
+
+/**
+ * Fills this array or its subrange with the specified [element] value.
+ * 
+ * @param fromIndex the start of the range (inclusive), 0 by default.
+ * @param toIndex the end of the range (exclusive), size of this array by default.
+ * 
+ * @throws IndexOutOfBoundsException if [fromIndex] is less than zero or [toIndex] is greater than the size of this array.
+ * @throws IllegalArgumentException if [fromIndex] is greater than [toIndex].
+ */
+@SinceKotlin("1.3")
+public expect fun DoubleArray.fill(element: Double, fromIndex: Int = 0, toIndex: Int = size): Unit
+
+/**
+ * Fills this array or its subrange with the specified [element] value.
+ * 
+ * @param fromIndex the start of the range (inclusive), 0 by default.
+ * @param toIndex the end of the range (exclusive), size of this array by default.
+ * 
+ * @throws IndexOutOfBoundsException if [fromIndex] is less than zero or [toIndex] is greater than the size of this array.
+ * @throws IllegalArgumentException if [fromIndex] is greater than [toIndex].
+ */
+@SinceKotlin("1.3")
+public expect fun BooleanArray.fill(element: Boolean, fromIndex: Int = 0, toIndex: Int = size): Unit
+
+/**
+ * Fills this array or its subrange with the specified [element] value.
+ * 
+ * @param fromIndex the start of the range (inclusive), 0 by default.
+ * @param toIndex the end of the range (exclusive), size of this array by default.
+ * 
+ * @throws IndexOutOfBoundsException if [fromIndex] is less than zero or [toIndex] is greater than the size of this array.
+ * @throws IllegalArgumentException if [fromIndex] is greater than [toIndex].
+ */
+@SinceKotlin("1.3")
+public expect fun CharArray.fill(element: Char, fromIndex: Int = 0, toIndex: Int = size): Unit
+
+/**
  * Returns the range of valid indices for the array.
  */
 public val <T> Array<out T>.indices: IntRange
@@ -6736,36 +6979,50 @@ public expect fun <T> Array<T>.plusElement(element: T): Array<T>
 
 /**
  * Sorts the array in-place.
+ * 
+ * @sample samples.collections.Arrays.Sorting.sortArray
  */
 public expect fun IntArray.sort(): Unit
 
 /**
  * Sorts the array in-place.
+ * 
+ * @sample samples.collections.Arrays.Sorting.sortArray
  */
 public expect fun LongArray.sort(): Unit
 
 /**
  * Sorts the array in-place.
+ * 
+ * @sample samples.collections.Arrays.Sorting.sortArray
  */
 public expect fun ByteArray.sort(): Unit
 
 /**
  * Sorts the array in-place.
+ * 
+ * @sample samples.collections.Arrays.Sorting.sortArray
  */
 public expect fun ShortArray.sort(): Unit
 
 /**
  * Sorts the array in-place.
+ * 
+ * @sample samples.collections.Arrays.Sorting.sortArray
  */
 public expect fun DoubleArray.sort(): Unit
 
 /**
  * Sorts the array in-place.
+ * 
+ * @sample samples.collections.Arrays.Sorting.sortArray
  */
 public expect fun FloatArray.sort(): Unit
 
 /**
  * Sorts the array in-place.
+ * 
+ * @sample samples.collections.Arrays.Sorting.sortArray
  */
 public expect fun CharArray.sort(): Unit
 
@@ -6773,6 +7030,8 @@ public expect fun CharArray.sort(): Unit
  * Sorts the array in-place according to the natural order of its elements.
  * 
  * The sort is _stable_. It means that equal elements preserve their order relative to each other after sorting.
+ * 
+ * @sample samples.collections.Arrays.Sorting.sortArrayOfComparable
  */
 public expect fun <T : Comparable<T>> Array<out T>.sort(): Unit
 
@@ -9180,63 +9439,72 @@ public inline fun <R, C : MutableCollection<in R>> CharArray.mapTo(destination: 
 }
 
 /**
- * Returns a lazy [Iterable] of [IndexedValue] for each element of the original array.
+ * Returns a lazy [Iterable] that wraps each element of the original array
+ * into an [IndexedValue] containing the index of that element and the element itself.
  */
 public fun <T> Array<out T>.withIndex(): Iterable<IndexedValue<T>> {
     return IndexingIterable { iterator() }
 }
 
 /**
- * Returns a lazy [Iterable] of [IndexedValue] for each element of the original array.
+ * Returns a lazy [Iterable] that wraps each element of the original array
+ * into an [IndexedValue] containing the index of that element and the element itself.
  */
 public fun ByteArray.withIndex(): Iterable<IndexedValue<Byte>> {
     return IndexingIterable { iterator() }
 }
 
 /**
- * Returns a lazy [Iterable] of [IndexedValue] for each element of the original array.
+ * Returns a lazy [Iterable] that wraps each element of the original array
+ * into an [IndexedValue] containing the index of that element and the element itself.
  */
 public fun ShortArray.withIndex(): Iterable<IndexedValue<Short>> {
     return IndexingIterable { iterator() }
 }
 
 /**
- * Returns a lazy [Iterable] of [IndexedValue] for each element of the original array.
+ * Returns a lazy [Iterable] that wraps each element of the original array
+ * into an [IndexedValue] containing the index of that element and the element itself.
  */
 public fun IntArray.withIndex(): Iterable<IndexedValue<Int>> {
     return IndexingIterable { iterator() }
 }
 
 /**
- * Returns a lazy [Iterable] of [IndexedValue] for each element of the original array.
+ * Returns a lazy [Iterable] that wraps each element of the original array
+ * into an [IndexedValue] containing the index of that element and the element itself.
  */
 public fun LongArray.withIndex(): Iterable<IndexedValue<Long>> {
     return IndexingIterable { iterator() }
 }
 
 /**
- * Returns a lazy [Iterable] of [IndexedValue] for each element of the original array.
+ * Returns a lazy [Iterable] that wraps each element of the original array
+ * into an [IndexedValue] containing the index of that element and the element itself.
  */
 public fun FloatArray.withIndex(): Iterable<IndexedValue<Float>> {
     return IndexingIterable { iterator() }
 }
 
 /**
- * Returns a lazy [Iterable] of [IndexedValue] for each element of the original array.
+ * Returns a lazy [Iterable] that wraps each element of the original array
+ * into an [IndexedValue] containing the index of that element and the element itself.
  */
 public fun DoubleArray.withIndex(): Iterable<IndexedValue<Double>> {
     return IndexingIterable { iterator() }
 }
 
 /**
- * Returns a lazy [Iterable] of [IndexedValue] for each element of the original array.
+ * Returns a lazy [Iterable] that wraps each element of the original array
+ * into an [IndexedValue] containing the index of that element and the element itself.
  */
 public fun BooleanArray.withIndex(): Iterable<IndexedValue<Boolean>> {
     return IndexingIterable { iterator() }
 }
 
 /**
- * Returns a lazy [Iterable] of [IndexedValue] for each element of the original array.
+ * Returns a lazy [Iterable] that wraps each element of the original array
+ * into an [IndexedValue] containing the index of that element and the element itself.
  */
 public fun CharArray.withIndex(): Iterable<IndexedValue<Char>> {
     return IndexingIterable { iterator() }
@@ -9477,9 +9745,11 @@ public inline fun <K> CharArray.distinctBy(selector: (Char) -> K): List<Char> {
 }
 
 /**
- * Returns a set containing all elements that are contained by both this set and the specified collection.
+ * Returns a set containing all elements that are contained by both this array and the specified collection.
  * 
  * The returned set preserves the element iteration order of the original array.
+ * 
+ * To get a set containing all elements that are contained at least in one of these collections use [union].
  */
 public infix fun <T> Array<out T>.intersect(other: Iterable<T>): Set<T> {
     val set = this.toMutableSet()
@@ -9488,9 +9758,11 @@ public infix fun <T> Array<out T>.intersect(other: Iterable<T>): Set<T> {
 }
 
 /**
- * Returns a set containing all elements that are contained by both this set and the specified collection.
+ * Returns a set containing all elements that are contained by both this array and the specified collection.
  * 
  * The returned set preserves the element iteration order of the original array.
+ * 
+ * To get a set containing all elements that are contained at least in one of these collections use [union].
  */
 public infix fun ByteArray.intersect(other: Iterable<Byte>): Set<Byte> {
     val set = this.toMutableSet()
@@ -9499,9 +9771,11 @@ public infix fun ByteArray.intersect(other: Iterable<Byte>): Set<Byte> {
 }
 
 /**
- * Returns a set containing all elements that are contained by both this set and the specified collection.
+ * Returns a set containing all elements that are contained by both this array and the specified collection.
  * 
  * The returned set preserves the element iteration order of the original array.
+ * 
+ * To get a set containing all elements that are contained at least in one of these collections use [union].
  */
 public infix fun ShortArray.intersect(other: Iterable<Short>): Set<Short> {
     val set = this.toMutableSet()
@@ -9510,9 +9784,11 @@ public infix fun ShortArray.intersect(other: Iterable<Short>): Set<Short> {
 }
 
 /**
- * Returns a set containing all elements that are contained by both this set and the specified collection.
+ * Returns a set containing all elements that are contained by both this array and the specified collection.
  * 
  * The returned set preserves the element iteration order of the original array.
+ * 
+ * To get a set containing all elements that are contained at least in one of these collections use [union].
  */
 public infix fun IntArray.intersect(other: Iterable<Int>): Set<Int> {
     val set = this.toMutableSet()
@@ -9521,9 +9797,11 @@ public infix fun IntArray.intersect(other: Iterable<Int>): Set<Int> {
 }
 
 /**
- * Returns a set containing all elements that are contained by both this set and the specified collection.
+ * Returns a set containing all elements that are contained by both this array and the specified collection.
  * 
  * The returned set preserves the element iteration order of the original array.
+ * 
+ * To get a set containing all elements that are contained at least in one of these collections use [union].
  */
 public infix fun LongArray.intersect(other: Iterable<Long>): Set<Long> {
     val set = this.toMutableSet()
@@ -9532,9 +9810,11 @@ public infix fun LongArray.intersect(other: Iterable<Long>): Set<Long> {
 }
 
 /**
- * Returns a set containing all elements that are contained by both this set and the specified collection.
+ * Returns a set containing all elements that are contained by both this array and the specified collection.
  * 
  * The returned set preserves the element iteration order of the original array.
+ * 
+ * To get a set containing all elements that are contained at least in one of these collections use [union].
  */
 public infix fun FloatArray.intersect(other: Iterable<Float>): Set<Float> {
     val set = this.toMutableSet()
@@ -9543,9 +9823,11 @@ public infix fun FloatArray.intersect(other: Iterable<Float>): Set<Float> {
 }
 
 /**
- * Returns a set containing all elements that are contained by both this set and the specified collection.
+ * Returns a set containing all elements that are contained by both this array and the specified collection.
  * 
  * The returned set preserves the element iteration order of the original array.
+ * 
+ * To get a set containing all elements that are contained at least in one of these collections use [union].
  */
 public infix fun DoubleArray.intersect(other: Iterable<Double>): Set<Double> {
     val set = this.toMutableSet()
@@ -9554,9 +9836,11 @@ public infix fun DoubleArray.intersect(other: Iterable<Double>): Set<Double> {
 }
 
 /**
- * Returns a set containing all elements that are contained by both this set and the specified collection.
+ * Returns a set containing all elements that are contained by both this array and the specified collection.
  * 
  * The returned set preserves the element iteration order of the original array.
+ * 
+ * To get a set containing all elements that are contained at least in one of these collections use [union].
  */
 public infix fun BooleanArray.intersect(other: Iterable<Boolean>): Set<Boolean> {
     val set = this.toMutableSet()
@@ -9565,9 +9849,11 @@ public infix fun BooleanArray.intersect(other: Iterable<Boolean>): Set<Boolean> 
 }
 
 /**
- * Returns a set containing all elements that are contained by both this set and the specified collection.
+ * Returns a set containing all elements that are contained by both this array and the specified collection.
  * 
  * The returned set preserves the element iteration order of the original array.
+ * 
+ * To get a set containing all elements that are contained at least in one of these collections use [union].
  */
 public infix fun CharArray.intersect(other: Iterable<Char>): Set<Char> {
     val set = this.toMutableSet()
@@ -9779,6 +10065,8 @@ public fun CharArray.toMutableSet(): MutableSet<Char> {
  * The returned set preserves the element iteration order of the original array.
  * Those elements of the [other] collection that are unique are iterated in the end
  * in the order of the [other] collection.
+ * 
+ * To get a set containing all elements that are contained in both collections use [intersect].
  */
 public infix fun <T> Array<out T>.union(other: Iterable<T>): Set<T> {
     val set = this.toMutableSet()
@@ -9792,6 +10080,8 @@ public infix fun <T> Array<out T>.union(other: Iterable<T>): Set<T> {
  * The returned set preserves the element iteration order of the original array.
  * Those elements of the [other] collection that are unique are iterated in the end
  * in the order of the [other] collection.
+ * 
+ * To get a set containing all elements that are contained in both collections use [intersect].
  */
 public infix fun ByteArray.union(other: Iterable<Byte>): Set<Byte> {
     val set = this.toMutableSet()
@@ -9805,6 +10095,8 @@ public infix fun ByteArray.union(other: Iterable<Byte>): Set<Byte> {
  * The returned set preserves the element iteration order of the original array.
  * Those elements of the [other] collection that are unique are iterated in the end
  * in the order of the [other] collection.
+ * 
+ * To get a set containing all elements that are contained in both collections use [intersect].
  */
 public infix fun ShortArray.union(other: Iterable<Short>): Set<Short> {
     val set = this.toMutableSet()
@@ -9818,6 +10110,8 @@ public infix fun ShortArray.union(other: Iterable<Short>): Set<Short> {
  * The returned set preserves the element iteration order of the original array.
  * Those elements of the [other] collection that are unique are iterated in the end
  * in the order of the [other] collection.
+ * 
+ * To get a set containing all elements that are contained in both collections use [intersect].
  */
 public infix fun IntArray.union(other: Iterable<Int>): Set<Int> {
     val set = this.toMutableSet()
@@ -9831,6 +10125,8 @@ public infix fun IntArray.union(other: Iterable<Int>): Set<Int> {
  * The returned set preserves the element iteration order of the original array.
  * Those elements of the [other] collection that are unique are iterated in the end
  * in the order of the [other] collection.
+ * 
+ * To get a set containing all elements that are contained in both collections use [intersect].
  */
 public infix fun LongArray.union(other: Iterable<Long>): Set<Long> {
     val set = this.toMutableSet()
@@ -9844,6 +10140,8 @@ public infix fun LongArray.union(other: Iterable<Long>): Set<Long> {
  * The returned set preserves the element iteration order of the original array.
  * Those elements of the [other] collection that are unique are iterated in the end
  * in the order of the [other] collection.
+ * 
+ * To get a set containing all elements that are contained in both collections use [intersect].
  */
 public infix fun FloatArray.union(other: Iterable<Float>): Set<Float> {
     val set = this.toMutableSet()
@@ -9857,6 +10155,8 @@ public infix fun FloatArray.union(other: Iterable<Float>): Set<Float> {
  * The returned set preserves the element iteration order of the original array.
  * Those elements of the [other] collection that are unique are iterated in the end
  * in the order of the [other] collection.
+ * 
+ * To get a set containing all elements that are contained in both collections use [intersect].
  */
 public infix fun DoubleArray.union(other: Iterable<Double>): Set<Double> {
     val set = this.toMutableSet()
@@ -9870,6 +10170,8 @@ public infix fun DoubleArray.union(other: Iterable<Double>): Set<Double> {
  * The returned set preserves the element iteration order of the original array.
  * Those elements of the [other] collection that are unique are iterated in the end
  * in the order of the [other] collection.
+ * 
+ * To get a set containing all elements that are contained in both collections use [intersect].
  */
 public infix fun BooleanArray.union(other: Iterable<Boolean>): Set<Boolean> {
     val set = this.toMutableSet()
@@ -9883,6 +10185,8 @@ public infix fun BooleanArray.union(other: Iterable<Boolean>): Set<Boolean> {
  * The returned set preserves the element iteration order of the original array.
  * Those elements of the [other] collection that are unique are iterated in the end
  * in the order of the [other] collection.
+ * 
+ * To get a set containing all elements that are contained in both collections use [intersect].
  */
 public infix fun CharArray.union(other: Iterable<Char>): Set<Char> {
     val set = this.toMutableSet()

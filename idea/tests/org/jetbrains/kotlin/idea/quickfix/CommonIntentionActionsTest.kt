@@ -284,7 +284,7 @@ class CommonIntentionActionsTest : LightPlatformCodeInsightFixtureTestCase() {
 
         TestCase.assertEquals(
             "KtUltraLightMethodForSourceDeclaration -> org.jetbrains.annotations.NotNull," +
-                    " KtUltraLightField -> pkg.myannotation.JavaAnnotation, org.jetbrains.annotations.NotNull",
+                    " KtUltraLightFieldForSourceDeclaration -> pkg.myannotation.JavaAnnotation, org.jetbrains.annotations.NotNull",
             annotationsString(myFixture.findElementByText("bar", KtModifierListOwner::class.java))
         )
     }
@@ -336,7 +336,7 @@ class CommonIntentionActionsTest : LightPlatformCodeInsightFixtureTestCase() {
 
         TestCase.assertEquals(
             "KtUltraLightMethodForSourceDeclaration -> org.jetbrains.annotations.NotNull," +
-                    " KtUltraLightField -> pkg.myannotation.JavaAnnotation, org.jetbrains.annotations.NotNull",
+                    " KtUltraLightFieldForSourceDeclaration -> pkg.myannotation.JavaAnnotation, org.jetbrains.annotations.NotNull",
             annotationsString(myFixture.findElementByText("bar", KtModifierListOwner::class.java))
         )
     }
@@ -407,7 +407,7 @@ class CommonIntentionActionsTest : LightPlatformCodeInsightFixtureTestCase() {
         |class Foo {
         |    fun bar() {}
         |    fun baz(param0: Int): Int {
-        |        TODO("not implemented") //To change body of created functions use File | Settings | File Templates.
+        |        TODO("Not yet implemented")
         |    }
         |}
         """.trim().trimMargin(), true)

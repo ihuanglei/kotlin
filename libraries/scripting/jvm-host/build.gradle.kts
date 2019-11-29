@@ -1,9 +1,12 @@
 
 plugins {
     kotlin("jvm")
+    id("jps-compatible")
 }
 
 jvmTarget = "1.6"
+
+publish()
 
 dependencies {
     compile(project(":kotlin-script-runtime"))
@@ -13,7 +16,11 @@ dependencies {
     compileOnly(project(":kotlin-scripting-compiler"))
     compileOnly(project(":compiler:cli"))
     compileOnly(project(":kotlin-reflect-api"))
-    compileOnly(intellijCoreDep())
+    compileOnly(intellijCoreDep()) { includeJars("intellij-core") }
+    publishedRuntime(project(":kotlin-compiler"))
+    publishedRuntime(project(":kotlin-scripting-compiler"))
+    publishedRuntime(project(":kotlin-reflect"))
+    publishedRuntime(commonDep("org.jetbrains.intellij.deps", "trove4j"))
 }
 
 sourceSets {
@@ -21,7 +28,9 @@ sourceSets {
     "test" {}
 }
 
-publish()
+tasks.withType<org.jetbrains.kotlin.gradle.dsl.KotlinCompile<*>> {
+    kotlinOptions.freeCompilerArgs += "-Xallow-kotlin-package"
+}
 
 standardPublicJars()
 

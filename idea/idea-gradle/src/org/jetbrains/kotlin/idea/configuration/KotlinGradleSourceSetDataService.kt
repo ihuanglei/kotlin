@@ -54,7 +54,7 @@ import org.jetbrains.kotlin.idea.inspections.gradle.findKotlinPluginVersion
 import org.jetbrains.kotlin.idea.inspections.gradle.getResolvedVersionByModuleData
 import org.jetbrains.kotlin.idea.platform.tooling
 import org.jetbrains.kotlin.idea.roots.migrateNonJvmSourceFolders
-import org.jetbrains.kotlin.konan.library.KLIB_FILE_EXTENSION
+import org.jetbrains.kotlin.library.KLIB_FILE_EXTENSION
 import org.jetbrains.kotlin.platform.IdePlatformKind
 import org.jetbrains.kotlin.platform.impl.isCommon
 import org.jetbrains.kotlin.platform.impl.isJavaScript
@@ -288,7 +288,12 @@ fun configureFacetByGradleModule(
     )
 
     val kotlinFacet = ideModule.getOrCreateFacet(modelsProvider, false, GradleConstants.SYSTEM_ID.id)
-    kotlinFacet.configureFacet(compilerVersion, coroutinesProperty, platform, modelsProvider)
+    kotlinFacet.configureFacet(
+        compilerVersion,
+        coroutinesProperty,
+        platform,
+        modelsProvider
+    )
 
     if (sourceSetNode == null) {
         ideModule.compilerArgumentsBySourceSet = moduleNode.compilerArgumentsBySourceSet

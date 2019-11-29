@@ -27,12 +27,15 @@ import org.jetbrains.kotlin.types.KotlinType
 import org.jetbrains.kotlin.types.KotlinTypeFactory
 import org.jetbrains.kotlin.types.SimpleType
 import org.jetbrains.kotlin.types.TypeConstructor
+import org.jetbrains.kotlin.types.checker.KotlinTypeRefiner
 import org.jetbrains.kotlin.types.checker.NewTypeVariableConstructor
 import org.jetbrains.kotlin.types.model.TypeVariableMarker
+import org.jetbrains.kotlin.types.model.TypeVariableTypeConstructorMarker
+import org.jetbrains.kotlin.types.refinement.TypeRefinement
 
 
 class TypeVariableTypeConstructor(private val builtIns: KotlinBuiltIns, val debugName: String) : TypeConstructor,
-    NewTypeVariableConstructor {
+    NewTypeVariableConstructor, TypeVariableTypeConstructorMarker {
     override fun getParameters(): List<TypeParameterDescriptor> = emptyList()
     override fun getSupertypes(): Collection<KotlinType> = emptyList()
     override fun isFinal(): Boolean = false
@@ -40,6 +43,9 @@ class TypeVariableTypeConstructor(private val builtIns: KotlinBuiltIns, val debu
     override fun getDeclarationDescriptor(): ClassifierDescriptor? = null
 
     override fun getBuiltIns() = builtIns
+
+    @TypeRefinement
+    override fun refine(kotlinTypeRefiner: KotlinTypeRefiner): TypeConstructor = this
 
     override fun toString() = "TypeVariable($debugName)"
 }

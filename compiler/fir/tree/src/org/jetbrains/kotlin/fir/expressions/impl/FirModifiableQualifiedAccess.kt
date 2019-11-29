@@ -5,15 +5,34 @@
 
 package org.jetbrains.kotlin.fir.expressions.impl
 
+import org.jetbrains.kotlin.fir.FirSourceElement
+import org.jetbrains.kotlin.fir.expressions.FirAnnotationCall
 import org.jetbrains.kotlin.fir.expressions.FirExpression
-import org.jetbrains.kotlin.fir.expressions.FirQualifiedAccess
+import org.jetbrains.kotlin.fir.expressions.FirQualifiedAccessWithoutCallee
+import org.jetbrains.kotlin.fir.impl.FirAbstractAnnotatedElement
+import org.jetbrains.kotlin.fir.types.FirTypeProjection
+import org.jetbrains.kotlin.fir.visitors.*
 
-interface FirModifiableQualifiedAccess : FirQualifiedAccess {
+/*
+ * This file was generated automatically
+ * DO NOT MODIFY IT MANUALLY
+ */
+
+interface FirModifiableQualifiedAccess : FirQualifiedAccessWithoutCallee, FirAbstractAnnotatedElement {
+    override val source: FirSourceElement?
+    override val annotations: MutableList<FirAnnotationCall>
     override var safe: Boolean
-        get() = super.safe
-        set(_) {}
-
+    override val typeArguments: MutableList<FirTypeProjection>
     override var explicitReceiver: FirExpression?
-        get() = super.explicitReceiver
-        set(_) {}
+    override var dispatchReceiver: FirExpression
+    override var extensionReceiver: FirExpression
+    override fun <D> transformChildren(transformer: FirTransformer<D>, data: D): FirModifiableQualifiedAccess
+
+    override fun <D> transformTypeArguments(transformer: FirTransformer<D>, data: D): FirModifiableQualifiedAccess
+
+    override fun <D> transformExplicitReceiver(transformer: FirTransformer<D>, data: D): FirModifiableQualifiedAccess
+
+    override fun <D> transformDispatchReceiver(transformer: FirTransformer<D>, data: D): FirModifiableQualifiedAccess
+
+    override fun <D> transformExtensionReceiver(transformer: FirTransformer<D>, data: D): FirModifiableQualifiedAccess
 }

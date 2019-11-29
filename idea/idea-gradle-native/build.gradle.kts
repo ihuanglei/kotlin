@@ -25,12 +25,22 @@ dependencies {
     testCompile(projectTests(":idea:idea-gradle"))
 
     compileOnly(intellijPluginDep("gradle"))
+    Platform[193].orHigher {
+        compileOnly(intellijPluginDep("gradle-java"))
+    }
     compileOnly(intellijPluginDep("Groovy"))
     compileOnly(intellijDep())
 
     testCompile(intellijPluginDep("gradle"))
+    Platform[193].orHigher {
+        testCompile(intellijPluginDep("gradle-java"))
+    }
     testCompileOnly(intellijPluginDep("Groovy"))
     testCompileOnly(intellijDep())
+
+    Platform[192].orHigher {
+        compileOnly(intellijPluginDep("java"))
+    }
 
     testRuntime(project(":kotlin-reflect"))
     testRuntime(project(":idea:idea-jvm"))
@@ -44,10 +54,16 @@ dependencies {
     testRuntime(project(":kotlin-scripting-idea"))
     testRuntime(project(":kotlinx-serialization-ide-plugin"))
     // TODO: the order of the plugins matters here, consider avoiding order-dependency
+    Platform[192].orHigher {
+        testRuntime(intellijPluginDep("java"))
+    }
     testRuntime(intellijPluginDep("junit"))
     testRuntime(intellijPluginDep("testng"))
     testRuntime(intellijPluginDep("properties"))
     testRuntime(intellijPluginDep("gradle"))
+    Platform[193].orHigher {
+        testRuntime(intellijPluginDep("gradle-java"))
+    }
     testRuntime(intellijPluginDep("Groovy"))
     testRuntime(intellijPluginDep("coverage"))
     if (Ide.IJ()) {
@@ -55,6 +71,11 @@ dependencies {
     }
     testRuntime(intellijPluginDep("android"))
     testRuntime(intellijPluginDep("smali"))
+
+    if (Ide.AS36.orHigher()) {
+        testRuntime(intellijPluginDep("android-layoutlib"))
+        testRuntime(intellijPluginDep("android-wizardTemplate-plugin"))
+    }
 }
 
 sourceSets {

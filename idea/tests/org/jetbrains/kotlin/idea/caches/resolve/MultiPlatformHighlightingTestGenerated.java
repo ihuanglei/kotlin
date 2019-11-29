@@ -8,7 +8,6 @@ package org.jetbrains.kotlin.idea.caches.resolve;
 import com.intellij.testFramework.TestDataPath;
 import org.jetbrains.kotlin.test.JUnit3RunnerWithInners;
 import org.jetbrains.kotlin.test.KotlinTestUtils;
-import org.jetbrains.kotlin.test.TargetBackend;
 import org.jetbrains.kotlin.test.TestMetadata;
 import org.junit.runner.RunWith;
 
@@ -22,7 +21,7 @@ import java.util.regex.Pattern;
 @RunWith(JUnit3RunnerWithInners.class)
 public class MultiPlatformHighlightingTestGenerated extends AbstractMultiPlatformHighlightingTest {
     private void runTest(String testDataFilePath) throws Exception {
-        KotlinTestUtils.runTest(this::doTest, TargetBackend.ANY, testDataFilePath);
+        KotlinTestUtils.runTest(this::doTest, this, testDataFilePath);
     }
 
     @TestMetadata("additionalMembersInPlatformInterface")
@@ -31,7 +30,7 @@ public class MultiPlatformHighlightingTestGenerated extends AbstractMultiPlatfor
     }
 
     public void testAllFilesPresentInMultiplatform() throws Exception {
-        KotlinTestUtils.assertAllTestsPresentByMetadata(this.getClass(), new File("idea/testData/multiModuleHighlighting/multiplatform"), Pattern.compile("^([^\\.]+)$"), TargetBackend.ANY, false);
+        KotlinTestUtils.assertAllTestsPresentByMetadata(this.getClass(), new File("idea/testData/multiModuleHighlighting/multiplatform"), Pattern.compile("^([^\\.]+)$"), false);
     }
 
     @TestMetadata("basic")
@@ -42,6 +41,11 @@ public class MultiPlatformHighlightingTestGenerated extends AbstractMultiPlatfor
     @TestMetadata("catchHeaderExceptionInPlatformModule")
     public void testCatchHeaderExceptionInPlatformModule() throws Exception {
         runTest("idea/testData/multiModuleHighlighting/multiplatform/catchHeaderExceptionInPlatformModule/");
+    }
+
+    @TestMetadata("completionHandlexCoroutines")
+    public void testCompletionHandlexCoroutines() throws Exception {
+        runTest("idea/testData/multiModuleHighlighting/multiplatform/completionHandlexCoroutines/");
     }
 
     @TestMetadata("contracts")
@@ -97,6 +101,11 @@ public class MultiPlatformHighlightingTestGenerated extends AbstractMultiPlatfor
     @TestMetadata("internalDependencyFromTests")
     public void testInternalDependencyFromTests() throws Exception {
         runTest("idea/testData/multiModuleHighlighting/multiplatform/internalDependencyFromTests/");
+    }
+
+    @TestMetadata("internalInheritanceToCommon")
+    public void testInternalInheritanceToCommon() throws Exception {
+        runTest("idea/testData/multiModuleHighlighting/multiplatform/internalInheritanceToCommon/");
     }
 
     @TestMetadata("javaUsesPlatformFacade")
@@ -167,6 +176,11 @@ public class MultiPlatformHighlightingTestGenerated extends AbstractMultiPlatfor
     @TestMetadata("typeAliasedParameter")
     public void testTypeAliasedParameter() throws Exception {
         runTest("idea/testData/multiModuleHighlighting/multiplatform/typeAliasedParameter/");
+    }
+
+    @TestMetadata("typeAliasedSam")
+    public void testTypeAliasedSam() throws Exception {
+        runTest("idea/testData/multiModuleHighlighting/multiplatform/typeAliasedSam/");
     }
 
     @TestMetadata("useAppendable")

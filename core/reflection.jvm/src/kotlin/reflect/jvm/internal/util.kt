@@ -39,13 +39,13 @@ import kotlin.jvm.internal.PropertyReference
 import kotlin.reflect.KVisibility
 import kotlin.reflect.full.IllegalCallableAccessException
 import kotlin.reflect.jvm.internal.calls.createAnnotationInstance
-import kotlin.reflect.jvm.internal.components.ReflectAnnotationSource
-import kotlin.reflect.jvm.internal.components.ReflectKotlinClass
-import kotlin.reflect.jvm.internal.components.RuntimeSourceElementFactory
-import kotlin.reflect.jvm.internal.components.tryLoadClass
-import kotlin.reflect.jvm.internal.structure.ReflectJavaAnnotation
-import kotlin.reflect.jvm.internal.structure.ReflectJavaClass
-import kotlin.reflect.jvm.internal.structure.safeClassLoader
+import org.jetbrains.kotlin.descriptors.runtime.components.ReflectAnnotationSource
+import org.jetbrains.kotlin.descriptors.runtime.components.ReflectKotlinClass
+import org.jetbrains.kotlin.descriptors.runtime.components.RuntimeSourceElementFactory
+import org.jetbrains.kotlin.descriptors.runtime.components.tryLoadClass
+import org.jetbrains.kotlin.descriptors.runtime.structure.ReflectJavaAnnotation
+import org.jetbrains.kotlin.descriptors.runtime.structure.ReflectJavaClass
+import org.jetbrains.kotlin.descriptors.runtime.structure.safeClassLoader
 
 internal val JVM_STATIC = FqName("kotlin.jvm.JvmStatic")
 
@@ -90,8 +90,8 @@ private fun loadClass(classLoader: ClassLoader, packageName: String, className: 
     }
 
     var fqName = "$packageName.${className.replace('.', '$')}"
-    repeat(arrayDimensions) {
-        fqName = "[$fqName"
+    if (arrayDimensions > 0) {
+        fqName = "[".repeat(arrayDimensions) + "L$fqName;"
     }
 
     return classLoader.tryLoadClass(fqName)

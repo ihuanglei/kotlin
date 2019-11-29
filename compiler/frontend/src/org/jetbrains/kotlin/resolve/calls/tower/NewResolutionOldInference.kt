@@ -27,7 +27,9 @@ import org.jetbrains.kotlin.psi.Call
 import org.jetbrains.kotlin.psi.KtReferenceExpression
 import org.jetbrains.kotlin.resolve.BindingContext
 import org.jetbrains.kotlin.resolve.BindingTrace
+import org.jetbrains.kotlin.extensions.internal.CandidateInterceptor
 import org.jetbrains.kotlin.resolve.TemporaryBindingTrace
+import org.jetbrains.kotlin.resolve.calls.CallResolver
 import org.jetbrains.kotlin.resolve.calls.CallTransformer
 import org.jetbrains.kotlin.resolve.calls.CandidateResolver
 import org.jetbrains.kotlin.resolve.calls.callResolverUtil.isBinaryRemOperator
@@ -49,14 +51,12 @@ import org.jetbrains.kotlin.resolve.calls.tasks.*
 import org.jetbrains.kotlin.resolve.calls.util.FakeCallableDescriptorForObject
 import org.jetbrains.kotlin.resolve.deprecation.DeprecationResolver
 import org.jetbrains.kotlin.resolve.descriptorUtil.hasDynamicExtensionAnnotation
-import org.jetbrains.kotlin.resolve.scopes.HierarchicalScope
-import org.jetbrains.kotlin.resolve.scopes.LexicalScope
-import org.jetbrains.kotlin.resolve.scopes.MemberScope
-import org.jetbrains.kotlin.resolve.scopes.SyntheticScopes
+import org.jetbrains.kotlin.resolve.scopes.*
 import org.jetbrains.kotlin.resolve.scopes.receivers.*
 import org.jetbrains.kotlin.resolve.scopes.utils.canBeResolvedWithoutDeprecation
 import org.jetbrains.kotlin.types.DeferredType
 import org.jetbrains.kotlin.types.ErrorUtils
+import org.jetbrains.kotlin.types.TypeApproximator
 import org.jetbrains.kotlin.types.expressions.OperatorConventions
 import org.jetbrains.kotlin.types.isDynamic
 import org.jetbrains.kotlin.util.OperatorNameConventions
@@ -72,7 +72,10 @@ class NewResolutionOldInference(
     private val syntheticScopes: SyntheticScopes,
     private val languageVersionSettings: LanguageVersionSettings,
     private val coroutineInferenceSupport: CoroutineInferenceSupport,
-    private val deprecationResolver: DeprecationResolver
+    private val deprecationResolver: DeprecationResolver,
+    private val typeApproximator: TypeApproximator,
+    private val callResolver: CallResolver,
+    private val candidateInterceptor: CandidateInterceptor
 ) {
     sealed class ResolutionKind {
         abstract internal fun createTowerProcessor(
@@ -170,7 +173,9 @@ class NewResolutionOldInference(
         }
 
         val dynamicScope = dynamicCallableDescriptors.createDynamicDescriptorScope(context.call, context.scope.ownerDescriptor)
-        val scopeTower = ImplicitScopeTowerImpl(context, dynamicScope, syntheticScopes, context.call.createLookupLocation())
+        val scopeTower = ImplicitScopeTowerImpl(
+            context, dynamicScope, syntheticScopes, context.call.createLookupLocation(), typeApproximator, callResolver, candidateInterceptor
+        )
 
         val shouldUseOperatorRem = languageVersionSettings.supportsFeature(LanguageFeature.OperatorRem)
         val isBinaryRemOperator = isBinaryRemOperator(context.call)
@@ -202,6 +207,8 @@ class NewResolutionOldInference(
                 name = deprecatedName
             )
         }
+
+        candidates = candidateInterceptor.interceptResolvedCandidates(candidates, context, candidateResolver, callResolver, name, kind, tracing)
 
         if (candidates.isEmpty()) {
             if (reportAdditionalDiagnosticIfNoCandidates(context, nameToResolve, kind, scopeTower, detailedReceiver)) {
@@ -349,11 +356,14 @@ class NewResolutionOldInference(
         return true
     }
 
-    private class ImplicitScopeTowerImpl(
-        val resolutionContext: ResolutionContext<*>,
+    public class ImplicitScopeTowerImpl(
+        val resolutionContext: BasicCallResolutionContext,
         override val dynamicScope: MemberScope,
         override val syntheticScopes: SyntheticScopes,
-        override val location: LookupLocation
+        override val location: LookupLocation,
+        override val typeApproximator: TypeApproximator,
+        val callResolver: CallResolver,
+        val candidateInterceptor: CandidateInterceptor
     ) : ImplicitScopeTower {
         private val cache = HashMap<ReceiverValue, ReceiverValueWithSmartCastInfo>()
 
@@ -368,9 +378,18 @@ class NewResolutionOldInference(
 
         override val isNewInferenceEnabled: Boolean
             get() = resolutionContext.languageVersionSettings.supportsFeature(LanguageFeature.NewInference)
+
+        override fun interceptCandidates(
+            resolutionScope: ResolutionScope,
+            name: Name,
+            initialResults: Collection<FunctionDescriptor>,
+            location: LookupLocation
+        ): Collection<FunctionDescriptor> {
+            return candidateInterceptor.interceptCandidates(initialResults, this, resolutionContext, resolutionScope, callResolver, name, location)
+        }
     }
 
-    internal class MyCandidate(
+    class MyCandidate(
         // Diagnostics that are already computed
         // if resultingApplicability is successful they must be the same as `diagnostics`,
         // otherwise they might be a bit different but result remains unsuccessful

@@ -18,6 +18,7 @@ import org.jetbrains.kotlin.resolve.DescriptorUtils.COROUTINES_PACKAGE_FQ_NAME_R
 import org.jetbrains.kotlin.resolve.scopes.MemberScope
 import org.jetbrains.kotlin.storage.StorageManager
 import org.jetbrains.kotlin.types.*
+import org.jetbrains.kotlin.types.checker.KotlinTypeRefiner
 import java.util.*
 
 /**
@@ -59,7 +60,7 @@ class FunctionClassDescriptor(
 
         fun typeParameter(variance: Variance, name: String) {
             result.add(TypeParameterDescriptorImpl.createWithDefaultBound(
-                    this@FunctionClassDescriptor, Annotations.EMPTY, false, variance, Name.identifier(name), result.size
+                    this@FunctionClassDescriptor, Annotations.EMPTY, false, variance, Name.identifier(name), result.size, storageManager
             ))
         }
 
@@ -82,7 +83,7 @@ class FunctionClassDescriptor(
 
     override fun getTypeConstructor(): TypeConstructor = typeConstructor
 
-    override fun getUnsubstitutedMemberScope() = memberScope
+    override fun getUnsubstitutedMemberScope(kotlinTypeRefiner: KotlinTypeRefiner) = memberScope
 
     override fun getCompanionObjectDescriptor() = null
     override fun getConstructors() = emptyList<ClassConstructorDescriptor>()

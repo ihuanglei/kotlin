@@ -24,10 +24,10 @@ import com.intellij.psi.stubs.StubElement
 import com.intellij.psi.util.CachedValue
 import com.intellij.psi.util.CachedValueProvider
 import com.intellij.psi.util.CachedValuesManager
-import com.intellij.psi.util.PsiModificationTracker.OUT_OF_CODE_BLOCK_MODIFICATION_COUNT
 import com.intellij.psi.util.PsiUtilCore
 import com.intellij.util.IncorrectOperationException
 import org.jetbrains.annotations.NonNls
+import org.jetbrains.kotlin.analyzer.KotlinModificationTrackerService
 import org.jetbrains.kotlin.asJava.ImpreciseResolveResult
 import org.jetbrains.kotlin.asJava.ImpreciseResolveResult.UNSURE
 import org.jetbrains.kotlin.asJava.LightClassGenerationSupport
@@ -56,11 +56,27 @@ import org.jetbrains.kotlin.resolve.DescriptorUtils
 import java.util.*
 import javax.swing.Icon
 
+private class KtLightClassModifierList(containingClass: KtLightClassForSourceDeclaration, computeModifiers: () -> Set<String>) :
+    KtLightModifierList<KtLightClassForSourceDeclaration>(containingClass) {
+
+    private val modifiers by lazyPub { computeModifiers() }
+
+    override fun hasModifierProperty(name: String): Boolean =
+        if (name != PsiModifier.FINAL) name in modifiers else owner.isFinal(PsiModifier.FINAL in modifiers)
+
+}
+
 abstract class KtLightClassForSourceDeclaration(
     protected val classOrObject: KtClassOrObject,
     private val forceUsingOldLightClasses: Boolean = false
 ) : KtLazyLightClass(classOrObject.manager),
     StubBasedPsiElement<KotlinClassOrObjectStub<out KtClassOrObject>> {
+
+    override val myInnersCache: KotlinClassInnerStuffCache = KotlinClassInnerStuffCache(
+        this,
+        classOrObject.getExternalDependencies()
+    )
+
     private val lightIdentifier = KtLightIdentifier(this, classOrObject)
 
     override fun getText() = kotlinOrigin.text ?: ""
@@ -93,9 +109,8 @@ abstract class KtLightClassForSourceDeclaration(
 
     private fun getJavaFileStub(): PsiJavaFileStub = getLightClassDataHolder().javaFileStub
 
-    fun getDescriptor(): ClassDescriptor? {
-        return LightClassGenerationSupport.getInstance(project).resolveToDescriptor(classOrObject) as? ClassDescriptor
-    }
+    fun getDescriptor() =
+        LightClassGenerationSupport.getInstance(project).resolveToDescriptor(classOrObject) as? ClassDescriptor
 
     protected fun getLightClassDataHolder(): LightClassDataHolder.ForClass {
         val lightClassData = getLightClassDataHolder(classOrObject)
@@ -182,7 +197,7 @@ abstract class KtLightClassForSourceDeclaration(
 
     override fun getName(): String? = classOrObject.nameAsName?.asString()
 
-    private val _modifierList: PsiModifierList by lazyPub { KtLightClassModifierList(this) }
+    private val _modifierList: PsiModifierList by lazyPub { KtLightClassModifierList(this) { computeModifiers() } }
 
     override fun getModifierList(): PsiModifierList? = _modifierList
 
@@ -211,7 +226,14 @@ abstract class KtLightClassForSourceDeclaration(
         if (isAbstract() || isSealed()) {
             psiModifiers.add(PsiModifier.ABSTRACT)
         } else if (!(classOrObject.hasModifier(OPEN_KEYWORD) || (classOrObject is KtClass && classOrObject.isEnum()))) {
-            psiModifiers.add(PsiModifier.FINAL)
+            val descriptor = lazy { getDescriptor() }
+            var modifier = PsiModifier.FINAL
+            project.applyCompilerPlugins {
+                modifier = it.interceptModalityBuilding(kotlinOrigin, descriptor, modifier)
+            }
+            if (modifier == PsiModifier.FINAL) {
+                psiModifiers.add(PsiModifier.FINAL)
+            }
         }
 
         if (!classOrObject.isTopLevel() && !classOrObject.hasModifier(INNER_KEYWORD)) {
@@ -296,6 +318,10 @@ abstract class KtLightClassForSourceDeclaration(
 
     companion object {
         private val JAVA_API_STUB = Key.create<CachedValue<LightClassDataHolder.ForClass>>("JAVA_API_STUB")
+        private val JAVA_API_STUB_LOCK = Key.create<Any>("JAVA_API_STUB_LOCK")
+
+        @JvmStatic
+        private val javaApiStubInitIsRunning: ThreadLocal<Boolean> = ThreadLocal.withInitial { false }
 
         private val jetTokenToPsiModifier = listOf(
             PUBLIC_KEYWORD to PsiModifier.PUBLIC,
@@ -309,7 +335,7 @@ abstract class KtLightClassForSourceDeclaration(
                 CachedValueProvider.Result
                     .create(
                         createNoCache(classOrObject, KtUltraLightSupport.forceUsingOldLightClasses),
-                        OUT_OF_CODE_BLOCK_MODIFICATION_COUNT
+                        KotlinModificationTrackerService.getInstance(classOrObject.project).outOfBlockModificationTracker
                     )
             }
 
@@ -332,7 +358,7 @@ abstract class KtLightClassForSourceDeclaration(
                 classOrObject is KtObjectDeclaration && classOrObject.isObjectLiteral() ->
                     KtLightClassForAnonymousDeclaration(classOrObject)
 
-                classOrObject.isLocal ->
+                classOrObject.safeIsLocal() ->
                     KtLightClassForLocalDeclaration(classOrObject)
 
                 else ->
@@ -345,9 +371,9 @@ abstract class KtLightClassForSourceDeclaration(
                 return InvalidLightClassDataHolder
             }
 
-            val containingScript = classOrObject.containingKtFile.script
+            val containingScript = classOrObject.containingKtFile.safeScript()
             return when {
-                !classOrObject.isLocal && containingScript != null ->
+                !classOrObject.safeIsLocal() && containingScript != null ->
                     KtLightClassForScript.getLightClassCachedValue(containingScript).value
                 else ->
                     getLightClassCachedValue(classOrObject).value
@@ -355,14 +381,47 @@ abstract class KtLightClassForSourceDeclaration(
         }
 
         private fun getLightClassCachedValue(classOrObject: KtClassOrObject): CachedValue<LightClassDataHolder.ForClass> {
-            var value =
-                getOutermostClassOrObject(classOrObject).getUserData(JAVA_API_STUB) // stub computed for outer class can be used for inner/nested
-                    ?: classOrObject.getUserData(JAVA_API_STUB)
-            if (value == null) {
-                value = CachedValuesManager.getManager(classOrObject.project).createCachedValue(
+            val outerClassValue = getOutermostClassOrObject(classOrObject).getUserData(JAVA_API_STUB)
+            outerClassValue?.let {
+                // stub computed for outer class can be used for inner/nested
+                return it
+            }
+            // the idea behind this locking approach:
+            // Thread T1 starts to calculate value for A it acquires lock for A
+            //
+            // Assumption 1: Lets say A calculation requires another value e.g. B to be calculated
+            // Assumption 2: Thread T2 wants to calculate value for B
+
+            // to avoid dead-lock case we mark thread as doing calculation and acquire lock only once per thread
+            // as a trade-off to prevent dependent value could be calculated several time
+            // due to CAS (within putUserDataIfAbsent etc) the same instance of calculated value will be used
+            val value: CachedValue<LightClassDataHolder.ForClass> = if (!javaApiStubInitIsRunning.get()) {
+                classOrObject.getUserData(JAVA_API_STUB) ?: run {
+                    val lock = classOrObject.putUserDataIfAbsent(JAVA_API_STUB_LOCK, Object())
+                    synchronized(lock) {
+                        try {
+                            javaApiStubInitIsRunning.set(true)
+                            computeLightClassCachedValue(classOrObject)
+                        } finally {
+                            javaApiStubInitIsRunning.set(false)
+                        }
+                    }
+                }
+            } else {
+                computeLightClassCachedValue(classOrObject)
+            }
+            return value
+        }
+
+        private fun computeLightClassCachedValue(
+            classOrObject: KtClassOrObject
+        ): CachedValue<LightClassDataHolder.ForClass> {
+            val value = classOrObject.getUserData(JAVA_API_STUB) ?: run {
+                val manager = CachedValuesManager.getManager(classOrObject.project)
+                val cachedValue = manager.createCachedValue(
                     LightClassDataProviderForClassOrObject(classOrObject), false
                 )
-                value = classOrObject.putUserDataIfAbsent(JAVA_API_STUB, value)
+                classOrObject.putUserDataIfAbsent(JAVA_API_STUB, cachedValue)
             }
             return value
         }
@@ -437,16 +496,6 @@ abstract class KtLightClassForSourceDeclaration(
     override val originKind: LightClassOriginKind
         get() = LightClassOriginKind.SOURCE
 
-    private class KtLightClassModifierList(containingClass: KtLightClassForSourceDeclaration) :
-        KtLightModifierList<KtLightClassForSourceDeclaration>(containingClass) {
-
-        private val modifiers by lazyPub { containingClass.computeModifiers() }
-
-        override fun hasModifierProperty(name: String): Boolean =
-            if (name != PsiModifier.FINAL) name in modifiers else owner.isFinal(PsiModifier.FINAL in modifiers)
-
-    }
-
     open fun isFinal(isFinalByPsi: Boolean): Boolean {
         // annotations can make class open via 'allopen' plugin
         if (!isPossiblyAffectedByAllOpen() || !isFinalByPsi) return isFinalByPsi
@@ -496,7 +545,7 @@ fun KtClassOrObject.shouldNotBeVisibleAsLightClass(): Boolean {
         return true
     }
 
-    if (isLocal) {
+    if (safeIsLocal()) {
         if (containingFile.virtualFile == null) return true
         if (hasParseErrorsAround(this) || PsiUtilCore.hasErrorElementChild(this)) return true
     }

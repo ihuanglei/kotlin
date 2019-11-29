@@ -1,67 +1,77 @@
 /*
- * Copyright 2010-2018 JetBrains s.r.o. and Kotlin Programming Language contributors.
+ * Copyright 2010-2019 JetBrains s.r.o. and Kotlin Programming Language contributors.
  * Use of this source code is governed by the Apache 2.0 license that can be found in the license/LICENSE.txt file.
  */
 
 package org.jetbrains.kotlin.fir.types.impl
 
-import com.intellij.psi.PsiElement
-import org.jetbrains.kotlin.fir.FirSession
+import org.jetbrains.kotlin.fir.FirElement
+import org.jetbrains.kotlin.fir.FirSourceElement
 import org.jetbrains.kotlin.fir.expressions.FirAnnotationCall
-import org.jetbrains.kotlin.fir.symbols.ConeClassLikeLookupTagImpl
 import org.jetbrains.kotlin.fir.symbols.StandardClassIds
-import org.jetbrains.kotlin.fir.types.ConeKotlinType
-import org.jetbrains.kotlin.fir.types.FirImplicitTypeRef
+import org.jetbrains.kotlin.fir.symbols.impl.ConeClassLikeLookupTagImpl
+import org.jetbrains.kotlin.fir.types.ConeClassLikeType
+import org.jetbrains.kotlin.fir.types.ConeKotlinTypeProjection
 import org.jetbrains.kotlin.fir.types.FirResolvedTypeRef
+import org.jetbrains.kotlin.fir.visitors.FirTransformer
 import org.jetbrains.kotlin.fir.visitors.FirVisitor
 import org.jetbrains.kotlin.name.ClassId
 
 sealed class FirImplicitBuiltinTypeRef(
-    override val session: FirSession,
-    override val psi: PsiElement?,
-    val id: ClassId
-) : FirImplicitTypeRef, FirResolvedTypeRef {
+    override val source: FirSourceElement?,
+    val id: ClassId,
+    typeArguments: Array<out ConeKotlinTypeProjection> = emptyArray(),
+    isNullable: Boolean = false
+) : FirResolvedTypeRef() {
     override val annotations: List<FirAnnotationCall>
         get() = emptyList()
 
-    override val type: ConeKotlinType = ConeClassTypeImpl(ConeClassLikeLookupTagImpl(id), emptyArray(), false)
+    override val type: ConeClassLikeType = ConeClassLikeTypeImpl(ConeClassLikeLookupTagImpl(id), typeArguments, isNullable)
 
-    override fun <R, D> accept(visitor: FirVisitor<R, D>, data: D): R =
-        visitor.visitImplicitTypeRef(this, data)
+    override fun <R, D> acceptChildren(visitor: FirVisitor<R, D>, data: D) {}
+
+    override fun <D> transformChildren(transformer: FirTransformer<D>, data: D): FirElement {
+        return this
+    }
 }
 
 class FirImplicitUnitTypeRef(
-    session: FirSession,
-    psi: PsiElement?
-) : FirImplicitBuiltinTypeRef(session, psi, StandardClassIds.Unit)
+    source: FirSourceElement?
+) : FirImplicitBuiltinTypeRef(source, StandardClassIds.Unit)
 
 class FirImplicitAnyTypeRef(
-    session: FirSession,
-    psi: PsiElement?
-) : FirImplicitBuiltinTypeRef(session, psi, StandardClassIds.Any)
+    source: FirSourceElement?
+) : FirImplicitBuiltinTypeRef(source, StandardClassIds.Any)
+
+class FirImplicitNullableAnyTypeRef(
+    source: FirSourceElement?
+) : FirImplicitBuiltinTypeRef(source, StandardClassIds.Any, isNullable = true)
 
 class FirImplicitEnumTypeRef(
-    session: FirSession,
-    psi: PsiElement?
-) : FirImplicitBuiltinTypeRef(session, psi, StandardClassIds.Enum)
+    source: FirSourceElement?
+) : FirImplicitBuiltinTypeRef(source, StandardClassIds.Enum)
 
 class FirImplicitAnnotationTypeRef(
-    session: FirSession,
-    psi: PsiElement?
-) : FirImplicitBuiltinTypeRef(session, psi, StandardClassIds.Annotation)
+    source: FirSourceElement?
+) : FirImplicitBuiltinTypeRef(source, StandardClassIds.Annotation)
 
 class FirImplicitBooleanTypeRef(
-    session: FirSession,
-    psi: PsiElement?
-) : FirImplicitBuiltinTypeRef(session, psi, StandardClassIds.Boolean)
+    source: FirSourceElement?
+) : FirImplicitBuiltinTypeRef(source, StandardClassIds.Boolean)
 
 class FirImplicitNothingTypeRef(
-    session: FirSession,
-    psi: PsiElement?
-) : FirImplicitBuiltinTypeRef(session, psi, StandardClassIds.Nothing)
+    source: FirSourceElement?
+) : FirImplicitBuiltinTypeRef(source, StandardClassIds.Nothing)
+
+class FirImplicitNullableNothingTypeRef(
+    source: FirSourceElement?
+) : FirImplicitBuiltinTypeRef(source, StandardClassIds.Nothing, isNullable = true)
 
 class FirImplicitStringTypeRef(
-    session: FirSession,
-    psi: PsiElement?
-) : FirImplicitBuiltinTypeRef(session, psi, StandardClassIds.String)
+    source: FirSourceElement?
+) : FirImplicitBuiltinTypeRef(source, StandardClassIds.String)
 
+class FirImplicitKPropertyTypeRef(
+    source: FirSourceElement?,
+    typeArgument: ConeKotlinTypeProjection
+) : FirImplicitBuiltinTypeRef(source, StandardClassIds.KProperty, arrayOf(typeArgument))

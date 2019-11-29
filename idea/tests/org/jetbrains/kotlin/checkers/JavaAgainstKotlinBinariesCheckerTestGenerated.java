@@ -8,7 +8,6 @@ package org.jetbrains.kotlin.checkers;
 import com.intellij.testFramework.TestDataPath;
 import org.jetbrains.kotlin.test.JUnit3RunnerWithInners;
 import org.jetbrains.kotlin.test.KotlinTestUtils;
-import org.jetbrains.kotlin.test.TargetBackend;
 import org.jetbrains.kotlin.test.TestMetadata;
 import org.junit.runner.RunWith;
 
@@ -22,11 +21,11 @@ import java.util.regex.Pattern;
 @RunWith(JUnit3RunnerWithInners.class)
 public class JavaAgainstKotlinBinariesCheckerTestGenerated extends AbstractJavaAgainstKotlinBinariesCheckerTest {
     private void runTest(String testDataFilePath) throws Exception {
-        KotlinTestUtils.runTest(this::doTest, TargetBackend.ANY, testDataFilePath);
+        KotlinTestUtils.runTest(this::doTest, this, testDataFilePath);
     }
 
     public void testAllFilesPresentInJavaAgainstKotlin() throws Exception {
-        KotlinTestUtils.assertAllTestsPresentByMetadata(this.getClass(), new File("idea/testData/kotlinAndJavaChecker/javaAgainstKotlin"), Pattern.compile("^(.+)\\.kt$"), TargetBackend.ANY, true);
+        KotlinTestUtils.assertAllTestsPresentByMetadata(this.getClass(), new File("idea/testData/kotlinAndJavaChecker/javaAgainstKotlin"), Pattern.compile("^(.+)\\.kt$"), true);
     }
 
     @TestMetadata("AssignKotlinClassToObjectInJava.kt")
@@ -109,9 +108,19 @@ public class JavaAgainstKotlinBinariesCheckerTestGenerated extends AbstractJavaA
         runTest("idea/testData/kotlinAndJavaChecker/javaAgainstKotlin/InferenceReturnType_1_8.kt");
     }
 
+    @TestMetadata("Interface.kt")
+    public void testInterface() throws Exception {
+        runTest("idea/testData/kotlinAndJavaChecker/javaAgainstKotlin/Interface.kt");
+    }
+
     @TestMetadata("InterfaceDefaultImpls.kt")
     public void testInterfaceDefaultImpls() throws Exception {
         runTest("idea/testData/kotlinAndJavaChecker/javaAgainstKotlin/InterfaceDefaultImpls.kt");
+    }
+
+    @TestMetadata("InterfaceWithJvmStatic.kt")
+    public void testInterfaceWithJvmStatic() throws Exception {
+        runTest("idea/testData/kotlinAndJavaChecker/javaAgainstKotlin/InterfaceWithJvmStatic.kt");
     }
 
     @TestMetadata("JvmOverloadsFunctions.kt")

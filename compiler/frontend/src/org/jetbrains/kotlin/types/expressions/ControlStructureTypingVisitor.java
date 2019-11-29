@@ -28,6 +28,7 @@ import org.jetbrains.kotlin.resolve.calls.smartcasts.DataFlowInfo;
 import org.jetbrains.kotlin.resolve.calls.smartcasts.DataFlowValue;
 import org.jetbrains.kotlin.resolve.calls.tower.KotlinResolutionCallbacksImpl;
 import org.jetbrains.kotlin.resolve.calls.tower.LambdaContextInfo;
+import org.jetbrains.kotlin.resolve.checkers.TrailingCommaChecker;
 import org.jetbrains.kotlin.resolve.descriptorUtil.DescriptorUtilsKt;
 import org.jetbrains.kotlin.resolve.inline.InlineUtil;
 import org.jetbrains.kotlin.resolve.scopes.LexicalScope;
@@ -490,6 +491,13 @@ public class ControlStructureTypingVisitor extends ExpressionTypingVisitor {
 
     @Override
     public KotlinTypeInfo visitTryExpression(@NotNull KtTryExpression expression, ExpressionTypingContext typingContext) {
+        expression.getCatchClauses().forEach((catchClause) -> {
+            KtParameterList parameters = catchClause.getParameterList();
+            if (parameters != null && parameters.getStub() == null) {
+                TrailingCommaChecker.INSTANCE.check(parameters.getTrailingComma(), typingContext.trace, typingContext.languageVersionSettings);
+            }
+        });
+
         if (typingContext.languageVersionSettings.supportsFeature(LanguageFeature.NewInference)) {
             return resolveTryExpressionWithNewInference(expression, typingContext);
         }
@@ -611,7 +619,7 @@ public class ControlStructureTypingVisitor extends ExpressionTypingVisitor {
             dataFlowInfoForArguments = createDataFlowInfoForArgumentsOfTryCall(callForTry, dataFlowInfoBeforeTry, dataFlowInfoBeforeTry);
         }
         ResolvedCall<FunctionDescriptor> resolvedCall = components.controlStructureTypingUtils
-                .resolveTryAsCall(callForTry, tryExpression, catchClausesBlocksAndParameters, tryInputContext, dataFlowInfoForArguments);
+                .resolveTryAsCall(callForTry, catchClausesBlocksAndParameters, tryInputContext, dataFlowInfoForArguments);
         KotlinType resultType = resolvedCall.getResultingDescriptor().getReturnType();
 
         BindingContext bindingContext = tryInputContext.trace.getBindingContext();

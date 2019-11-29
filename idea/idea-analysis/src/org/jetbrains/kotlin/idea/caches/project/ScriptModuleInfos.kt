@@ -9,15 +9,16 @@ import com.intellij.openapi.project.Project
 import com.intellij.openapi.projectRoots.Sdk
 import com.intellij.openapi.vfs.VirtualFile
 import com.intellij.psi.search.GlobalSearchScope
-import org.jetbrains.kotlin.idea.core.script.ScriptDependenciesManager
+import org.jetbrains.kotlin.idea.core.script.ScriptConfigurationManager
 import org.jetbrains.kotlin.idea.core.script.dependencies.ScriptAdditionalIdeaDependenciesProvider
+import org.jetbrains.kotlin.idea.project.TargetPlatformDetector
 import org.jetbrains.kotlin.idea.stubindex.KotlinSourceFilterScope
 import org.jetbrains.kotlin.name.Name
-import org.jetbrains.kotlin.scripting.definitions.ScriptDefinition
-import org.jetbrains.kotlin.resolve.PlatformDependentAnalyzerServices
 import org.jetbrains.kotlin.platform.TargetPlatform
 import org.jetbrains.kotlin.platform.jvm.JvmPlatforms
+import org.jetbrains.kotlin.resolve.PlatformDependentAnalyzerServices
 import org.jetbrains.kotlin.resolve.jvm.platform.JvmPlatformAnalyzerServices
+import org.jetbrains.kotlin.scripting.definitions.ScriptDefinition
 
 data class ScriptModuleInfo(
     val project: Project,
@@ -51,7 +52,7 @@ data class ScriptModuleInfo(
     }
 
     override val platform: TargetPlatform
-        get() = JvmPlatforms.unspecifiedJvmPlatform // TODO(dsavvinov): choose proper target version
+        get() = TargetPlatformDetector.getPlatform(project, scriptDefinition)
 
     override val analyzerServices: PlatformDependentAnalyzerServices
         get() = JvmPlatformAnalyzerServices
@@ -89,14 +90,13 @@ sealed class ScriptDependenciesInfo(val project: Project) : IdeaModuleInfo, Bina
     ) : ScriptDependenciesInfo(project) {
         override val sdk: Sdk?
             get() {
-                return ScriptDependenciesManager.getInstance(project).getScriptSdk(scriptFile)
-                    ?: ScriptDependenciesManager.getScriptDefaultSdk(project)
+                return ScriptConfigurationManager.getInstance(project).getScriptSdk(scriptFile)
             }
 
         override fun contentScope(): GlobalSearchScope {
             // TODO: this is not very efficient because KotlinSourceFilterScope already checks if the files are in scripts classpath
             return KotlinSourceFilterScope.libraryClassFiles(
-                ScriptDependenciesManager.getInstance(project).getScriptDependenciesClassFilesScope(scriptFile), project
+                ScriptConfigurationManager.getInstance(project).getScriptDependenciesClassFilesScope(scriptFile), project
             )
         }
     }
@@ -105,13 +105,13 @@ sealed class ScriptDependenciesInfo(val project: Project) : IdeaModuleInfo, Bina
     class ForProject(project: Project) : ScriptDependenciesInfo(project) {
         override val sdk: Sdk?
             get() {
-                return ScriptDependenciesManager.getInstance(project).getAllScriptsSdks().firstOrNull()
-                    ?: ScriptDependenciesManager.getScriptDefaultSdk(project)
+                return ScriptConfigurationManager.getInstance(project).getFirstScriptsSdk()
+                    ?: ScriptConfigurationManager.getScriptDefaultSdk(project)
             }
 
         override fun contentScope(): GlobalSearchScope {
             return KotlinSourceFilterScope.libraryClassFiles(
-                ScriptDependenciesManager.getInstance(project).getAllScriptsDependenciesClassFilesScope(), project
+                ScriptConfigurationManager.getInstance(project).getAllScriptsDependenciesClassFilesScope(), project
             )
         }
     }
@@ -124,7 +124,7 @@ sealed class ScriptDependenciesSourceInfo(val project: Project) : IdeaModuleInfo
         get() = ScriptDependenciesInfo.ForProject(project)
 
     override fun sourceScope(): GlobalSearchScope = KotlinSourceFilterScope.librarySources(
-        ScriptDependenciesManager.getInstance(project).getAllScriptDependenciesSourcesScope(), project
+        ScriptConfigurationManager.getInstance(project).getAllScriptDependenciesSourcesScope(), project
     )
 
     override fun hashCode() = project.hashCode()

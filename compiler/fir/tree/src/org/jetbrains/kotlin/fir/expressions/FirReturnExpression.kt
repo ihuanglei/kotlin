@@ -5,17 +5,24 @@
 
 package org.jetbrains.kotlin.fir.expressions
 
+import org.jetbrains.kotlin.fir.FirPureAbstractElement
+import org.jetbrains.kotlin.fir.FirSourceElement
+import org.jetbrains.kotlin.fir.FirTarget
 import org.jetbrains.kotlin.fir.declarations.FirFunction
-import org.jetbrains.kotlin.fir.visitors.FirVisitor
+import org.jetbrains.kotlin.fir.types.FirTypeRef
+import org.jetbrains.kotlin.fir.visitors.*
 
-interface FirReturnExpression : FirJump<FirFunction> {
-    val result: FirExpression
+/*
+ * This file was generated automatically
+ * DO NOT MODIFY IT MANUALLY
+ */
 
-    override fun <R, D> accept(visitor: FirVisitor<R, D>, data: D): R =
-        visitor.visitReturnExpression(this, data)
+abstract class FirReturnExpression : FirPureAbstractElement(), FirJump<FirFunction<*>> {
+    abstract override val source: FirSourceElement?
+    abstract override val typeRef: FirTypeRef
+    abstract override val annotations: List<FirAnnotationCall>
+    abstract override val target: FirTarget<FirFunction<*>>
+    abstract val result: FirExpression
 
-    override fun <R, D> acceptChildren(visitor: FirVisitor<R, D>, data: D) {
-        result.accept(visitor, data)
-        super.acceptChildren(visitor, data)
-    }
+    override fun <R, D> accept(visitor: FirVisitor<R, D>, data: D): R = visitor.visitReturnExpression(this, data)
 }

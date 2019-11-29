@@ -8,7 +8,6 @@ package org.jetbrains.kotlin.idea.inspections;
 import com.intellij.testFramework.TestDataPath;
 import org.jetbrains.kotlin.test.JUnit3RunnerWithInners;
 import org.jetbrains.kotlin.test.KotlinTestUtils;
-import org.jetbrains.kotlin.test.TargetBackend;
 import org.jetbrains.kotlin.test.TestMetadata;
 import org.junit.runner.RunWith;
 
@@ -22,11 +21,11 @@ import java.util.regex.Pattern;
 @RunWith(JUnit3RunnerWithInners.class)
 public class MultiFileLocalInspectionTestGenerated extends AbstractMultiFileLocalInspectionTest {
     private void runTest(String testDataFilePath) throws Exception {
-        KotlinTestUtils.runTest(this::doTest, TargetBackend.ANY, testDataFilePath);
+        KotlinTestUtils.runTest(this::doTest, this, testDataFilePath);
     }
 
     public void testAllFilesPresentInMultiFileLocalInspections() throws Exception {
-        KotlinTestUtils.assertAllTestsPresentInSingleGeneratedClass(this.getClass(), new File("idea/testData/multiFileLocalInspections"), Pattern.compile("^(.+)\\.test$"), TargetBackend.ANY);
+        KotlinTestUtils.assertAllTestsPresentInSingleGeneratedClass(this.getClass(), new File("idea/testData/multiFileLocalInspections"), Pattern.compile("^(.+)\\.test$"));
     }
 
     @TestMetadata("convertSealedSubClassToObject/convertCallableReferenceUsages/convertCallableReferenceUsages.test")
@@ -87,6 +86,16 @@ public class MultiFileLocalInspectionTestGenerated extends AbstractMultiFileLoca
     @TestMetadata("reconcilePackageWithDirectory/packageMatchesDirectory/packageMatchesDirectory.test")
     public void testReconcilePackageWithDirectory_packageMatchesDirectory_PackageMatchesDirectory() throws Exception {
         runTest("idea/testData/multiFileLocalInspections/reconcilePackageWithDirectory/packageMatchesDirectory/packageMatchesDirectory.test");
+    }
+
+    @TestMetadata("redundantQualifierName/javaStatic2/fromKotlinTest.test")
+    public void testRedundantQualifierName_javaStatic2_FromKotlinTest() throws Exception {
+        runTest("idea/testData/multiFileLocalInspections/redundantQualifierName/javaStatic2/fromKotlinTest.test");
+    }
+
+    @TestMetadata("redundantQualifierName/javaStatic/fromKotlinTest.test")
+    public void testRedundantQualifierName_javaStatic_FromKotlinTest() throws Exception {
+        runTest("idea/testData/multiFileLocalInspections/redundantQualifierName/javaStatic/fromKotlinTest.test");
     }
 
     @TestMetadata("unusedSymbol/fromKotlinTest/fromKotlinTest.test")

@@ -9,17 +9,20 @@ import com.intellij.openapi.externalSystem.model.DataNode
 import com.intellij.openapi.externalSystem.model.ProjectKeys
 import com.intellij.openapi.externalSystem.model.project.AbstractExternalEntityData
 import com.intellij.openapi.externalSystem.model.project.AbstractNamedData
+import com.intellij.openapi.externalSystem.model.project.ExternalSystemSourceType
 import com.intellij.openapi.externalSystem.model.project.ModuleData
 import com.intellij.openapi.externalSystem.util.ExternalSystemApiUtil
 import com.intellij.openapi.util.Key
+import com.intellij.util.containers.MultiMap
 import org.jetbrains.kotlin.cli.common.arguments.CommonCompilerArguments
-import org.jetbrains.kotlin.gradle.KotlinModule
-import org.jetbrains.kotlin.gradle.KotlinPlatform
+import org.jetbrains.kotlin.config.ExternalSystemTestTask
+import org.jetbrains.kotlin.gradle.*
 import org.jetbrains.kotlin.idea.util.CopyableDataNodeUserDataProperty
 import org.jetbrains.plugins.gradle.util.GradleConstants
 import java.io.File
 import java.io.Serializable
 import com.intellij.openapi.externalSystem.model.Key as ExternalKey
+import com.intellij.serialization.PropertyMapping
 
 var DataNode<out ModuleData>.kotlinSourceSet: KotlinSourceSetInfo?
         by CopyableDataNodeUserDataProperty(Key.create("KOTLIN_SOURCE_SET"))
@@ -27,30 +30,48 @@ var DataNode<out ModuleData>.kotlinSourceSet: KotlinSourceSetInfo?
 val DataNode<ModuleData>.kotlinAndroidSourceSets: List<KotlinSourceSetInfo>?
         get() = ExternalSystemApiUtil.getChildren(this, KotlinAndroidSourceSetData.KEY).firstOrNull()?.data?.sourceSetInfos
 
-class KotlinSourceSetInfo(val kotlinModule: KotlinModule) : Serializable {
+class KotlinSourceSetInfo @PropertyMapping("kotlinModule") constructor(val kotlinModule: KotlinModule) : Serializable {
     var moduleId: String? = null
     var gradleModuleId: String = ""
-    var platform: KotlinPlatform = KotlinPlatform.COMMON
+
+    var actualPlatforms: KotlinPlatformContainer = KotlinPlatformContainerImpl()
+
+    @Deprecated("Returns only single TargetPlatform", ReplaceWith("actualPlatforms.actualPlatforms"), DeprecationLevel.ERROR)
+    val platform: KotlinPlatform
+        get() = actualPlatforms.getSinglePlatform()
+
+    @Transient
     var defaultCompilerArguments: CommonCompilerArguments? = null
+
+    @Transient
     var compilerArguments: CommonCompilerArguments? = null
     var dependencyClasspath: List<String> = emptyList()
     var isTestModule: Boolean = false
     var sourceSetIdsByName: MutableMap<String, String> = LinkedHashMap()
+    var dependsOn: List<String> = emptyList()
+    var externalSystemTestTasks: Collection<ExternalSystemTestTask> = emptyList()
 }
 
-class KotlinAndroidSourceSetData(
-    val sourceSetInfos: List<KotlinSourceSetInfo>
+class KotlinAndroidSourceSetData @PropertyMapping("sourceSetInfos") constructor(val sourceSetInfos: List<KotlinSourceSetInfo>
 ) : AbstractExternalEntityData(GradleConstants.SYSTEM_ID) {
     companion object {
         val KEY = ExternalKey.create(KotlinAndroidSourceSetData::class.java, KotlinTargetData.KEY.processingWeight + 1)
     }
 }
 
-class KotlinTargetData(name: String) : AbstractNamedData(GradleConstants.SYSTEM_ID, name) {
+class KotlinTargetData @PropertyMapping("externalName") constructor(externalName: String) :
+    AbstractNamedData(GradleConstants.SYSTEM_ID, externalName) {
     var moduleIds: Set<String> = emptySet()
     var archiveFile: File? = null
+    var konanArtifacts: Collection<KonanArtifactModel>? = null
 
     companion object {
         val KEY = ExternalKey.create(KotlinTargetData::class.java, ProjectKeys.MODULE.processingWeight + 1)
+    }
+}
+
+class KotlinOutputPathsData(val paths: MultiMap<ExternalSystemSourceType, String>) : AbstractExternalEntityData(GradleConstants.SYSTEM_ID) {
+    companion object {
+        val KEY = ExternalKey.create(KotlinOutputPathsData::class.java, ProjectKeys.CONTENT_ROOT.processingWeight + 1)
     }
 }

@@ -47,6 +47,7 @@ import org.jetbrains.uast.kotlin.KotlinConverter.convertDeclaration
 import org.jetbrains.uast.kotlin.KotlinConverter.convertDeclarationOrElement
 import org.jetbrains.uast.kotlin.declarations.KotlinUIdentifier
 import org.jetbrains.uast.kotlin.declarations.KotlinUMethod
+import org.jetbrains.uast.kotlin.declarations.KotlinUMethodWithFakeLightDelegate
 import org.jetbrains.uast.kotlin.expressions.*
 import org.jetbrains.uast.kotlin.psi.UastKotlinPsiParameter
 import org.jetbrains.uast.kotlin.psi.UastKotlinPsiVariable
@@ -376,7 +377,15 @@ internal object KotlinConverter {
             is KtContinueExpression -> expr<UContinueExpression>(build(::KotlinUContinueExpression))
             is KtReturnExpression -> expr<UReturnExpression>(build(::KotlinUReturnExpression))
             is KtThrowExpression -> expr<UThrowExpression>(build(::KotlinUThrowExpression))
-            is KtBlockExpression -> expr<UBlockExpression>(build(::KotlinUBlockExpression))
+            is KtBlockExpression -> expr<UBlockExpression> {
+                if (expression.parent is KtFunctionLiteral
+                    && expression.parent.parent is KtLambdaExpression
+                    && givenParent !is KotlinULambdaExpression
+                ) {
+                    KotlinULambdaExpression(expression.parent.parent as KtLambdaExpression, givenParent).body
+                } else
+                    KotlinUBlockExpression(expression, givenParent)
+            }
             is KtConstantExpression -> expr<ULiteralExpression>(build(::KotlinULiteralExpression))
             is KtTryExpression -> expr<UTryExpression>(build(::KotlinUTryExpression))
             is KtArrayAccessExpression -> expr<UArrayAccessExpression>(build(::KotlinUArrayAccessExpression))
@@ -505,8 +514,11 @@ internal object KotlinConverter {
                         }
                     } else {
                         el<UMethod> {
-                            val lightMethod = LightClassUtil.getLightClassMethod(original) ?: return null
-                            convertDeclaration(lightMethod, givenParent, expectedTypes)
+                            val lightMethod = LightClassUtil.getLightClassMethod(original)
+                            if (lightMethod != null)
+                                convertDeclaration(lightMethod, givenParent, expectedTypes)
+                            else
+                                KotlinUMethodWithFakeLightDelegate(original, givenParent)
                         }
                     }
 

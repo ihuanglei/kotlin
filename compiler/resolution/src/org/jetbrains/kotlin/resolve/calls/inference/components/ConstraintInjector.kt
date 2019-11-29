@@ -22,12 +22,17 @@ import org.jetbrains.kotlin.resolve.calls.inference.model.ConstraintKind.LOWER
 import org.jetbrains.kotlin.resolve.calls.inference.model.ConstraintKind.UPPER
 import org.jetbrains.kotlin.resolve.calls.model.KotlinCallDiagnostic
 import org.jetbrains.kotlin.types.*
-import org.jetbrains.kotlin.types.checker.NewCapturedType
+import org.jetbrains.kotlin.types.checker.KotlinTypeRefiner
 import org.jetbrains.kotlin.types.model.*
+import org.jetbrains.kotlin.types.refinement.TypeRefinement
 import java.util.*
 import kotlin.math.max
 
-class ConstraintInjector(val constraintIncorporator: ConstraintIncorporator, val typeApproximator: AbstractTypeApproximator) {
+class ConstraintInjector(
+    val constraintIncorporator: ConstraintIncorporator,
+    val typeApproximator: AbstractTypeApproximator,
+    val kotlinTypeRefiner: KotlinTypeRefiner
+) {
     private val ALLOWED_DEPTH_DELTA_FOR_INCORPORATION = 1
 
     interface Context : TypeSystemInferenceExtensionContext {
@@ -59,7 +64,6 @@ class ConstraintInjector(val constraintIncorporator: ConstraintIncorporator, val
         addSubTypeConstraintAndIncorporateIt(c, a, b, incorporationPosition)
         addSubTypeConstraintAndIncorporateIt(c, b, a, incorporationPosition)
     }
-
 
     private fun addSubTypeConstraintAndIncorporateIt(
         c: Context,
@@ -121,9 +125,9 @@ class ConstraintInjector(val constraintIncorporator: ConstraintIncorporator, val
         val possibleNewConstraints: MutableList<Pair<TypeVariableMarker, Constraint>>
     ) : AbstractTypeCheckerContextForConstraintSystem(), ConstraintIncorporator.Context, TypeSystemInferenceExtensionContext by c {
 
-        val baseContext: AbstractTypeCheckerContext = newBaseTypeCheckerContext(isErrorTypeEqualsToAnything)
+        val baseContext: AbstractTypeCheckerContext = newBaseTypeCheckerContext(isErrorTypeEqualsToAnything, isStubTypeEqualsToAnything)
 
-        override fun substitutionSupertypePolicy(type: SimpleTypeMarker): SupertypesPolicy.DoCustomTransform {
+        override fun substitutionSupertypePolicy(type: SimpleTypeMarker): SupertypesPolicy {
             return baseContext.substitutionSupertypePolicy(type)
         }
 
@@ -135,6 +139,15 @@ class ConstraintInjector(val constraintIncorporator: ConstraintIncorporator, val
             return baseContext.prepareType(type)
         }
 
+        @UseExperimental(TypeRefinement::class)
+        override fun refineType(type: KotlinTypeMarker): KotlinTypeMarker {
+            return if (type is KotlinType) {
+                kotlinTypeRefiner.refineType(type)
+            } else {
+                type
+            }
+        }
+
         fun runIsSubtypeOf(lowerType: KotlinTypeMarker, upperType: KotlinTypeMarker) {
             if (!AbstractTypeChecker.isSubtypeOf(this@TypeCheckerContext as AbstractTypeCheckerContext, lowerType, upperType)) {
                 // todo improve error reporting -- add information about base types
@@ -143,7 +156,8 @@ class ConstraintInjector(val constraintIncorporator: ConstraintIncorporator, val
         }
 
         // from AbstractTypeCheckerContextForConstraintSystem
-        override fun isMyTypeVariable(type: SimpleTypeMarker): Boolean = c.allTypeVariables.containsKey(type.typeConstructor())
+        override fun isMyTypeVariable(type: SimpleTypeMarker): Boolean =
+            type.mayBeTypeVariable() && c.allTypeVariables.containsKey(type.typeConstructor())
 
         override fun addUpperConstraint(typeVariable: TypeConstructorMarker, superType: KotlinTypeMarker) =
             addConstraint(typeVariable, superType, UPPER)

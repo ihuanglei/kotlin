@@ -48,11 +48,14 @@ object SerialEntityNames {
     const val DECODER_CLASS = "Decoder"
     const val STRUCTURE_DECODER_CLASS = "CompositeDecoder"
 
+    const val ANNOTATION_MARKER_CLASS = "SerializableWith"
+
     const val SERIAL_SAVER_CLASS = "SerializationStrategy"
     const val SERIAL_LOADER_CLASS = "DeserializationStrategy"
 
     const val SERIAL_DESCRIPTOR_CLASS = "SerialDescriptor"
     const val SERIAL_DESCRIPTOR_CLASS_IMPL = "SerialClassDescImpl"
+    const val SERIAL_DESCRIPTOR_FOR_ENUM = "EnumDescriptor"
 
     //exceptions
     const val SERIAL_EXC = "SerializationException"
@@ -74,8 +77,10 @@ object SerialEntityNames {
 
 object SpecialBuiltins {
     const val referenceArraySerializer = "ReferenceArraySerializer"
+    const val objectSerializer = "ObjectSerializer"
     const val enumSerializer = "EnumSerializer"
     const val polymorphicSerializer = "PolymorphicSerializer"
+    const val sealedSerializer = "SealedClassSerializer"
     const val contextSerializer = "ContextSerializer"
     const val nullableSerializer = "NullableSerializer"
 }
@@ -87,6 +92,8 @@ object CallingConventions {
     const val decode = "decode"
     const val update = "update"
     const val encode = "encode"
+    const val encodeEnum = "encodeEnum"
+    const val decodeEnum = "decodeEnum"
     const val decodeElementIndex = "decodeElementIndex"
     const val elementPostfix = "Element"
     const val shouldEncodeDefault = "shouldEncodeElementDefault"

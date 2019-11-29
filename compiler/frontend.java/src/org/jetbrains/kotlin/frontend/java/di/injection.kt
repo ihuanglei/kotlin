@@ -43,6 +43,7 @@ import org.jetbrains.kotlin.load.kotlin.VirtualFileFinderFactory
 import org.jetbrains.kotlin.platform.TargetPlatform
 import org.jetbrains.kotlin.resolve.*
 import org.jetbrains.kotlin.resolve.jvm.JavaDescriptorResolver
+import org.jetbrains.kotlin.resolve.jvm.JvmDiagnosticComponents
 import org.jetbrains.kotlin.resolve.jvm.platform.JvmPlatformAnalyzerServices
 import org.jetbrains.kotlin.resolve.lazy.KotlinCodeAnalyzer
 import org.jetbrains.kotlin.resolve.lazy.declarations.DeclarationProviderFactory
@@ -127,6 +128,7 @@ fun StorageComponentContainer.configureJavaSpecificComponents(
     )
 
     useImpl<FilesByFacadeFqNameIndexer>()
+    useImpl<JvmDiagnosticComponents>()
 }
 
 fun ComponentProvider.initJvmBuiltInsForTopDownAnalysis() {

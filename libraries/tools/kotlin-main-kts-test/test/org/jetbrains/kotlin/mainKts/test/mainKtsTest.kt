@@ -7,15 +7,13 @@ package org.jetbrains.kotlin.mainKts.test
 import org.jetbrains.kotlin.mainKts.MainKtsScript
 import org.junit.Assert
 import org.junit.Test
-import java.io.ByteArrayOutputStream
-import java.io.File
-import java.io.PrintStream
+import java.io.*
 import kotlin.script.experimental.api.*
 import kotlin.script.experimental.host.toScriptSource
-import kotlin.script.experimental.jvmhost.BasicJvmScriptingHost
-import kotlin.script.experimental.jvmhost.createJvmCompilationConfigurationFromTemplate
 import kotlin.script.experimental.jvm.baseClassLoader
 import kotlin.script.experimental.jvm.jvm
+import kotlin.script.experimental.jvmhost.BasicJvmScriptingHost
+import kotlin.script.experimental.jvmhost.createJvmCompilationConfigurationFromTemplate
 
 fun evalFile(scriptFile: File): ResultWithDiagnostics<EvaluationResult> {
 
@@ -32,11 +30,13 @@ fun evalFile(scriptFile: File): ResultWithDiagnostics<EvaluationResult> {
     return BasicJvmScriptingHost().eval(scriptFile.toScriptSource(), scriptDefinition, evaluationEnv)
 }
 
+const val TEST_DATA_ROOT = "libraries/tools/kotlin-main-kts-test/testData"
+
 class MainKtsTest {
 
     @Test
     fun testResolveJunit() {
-        val res = evalFile(File("testData/hello-resolve-junit.main.kts"))
+        val res = evalFile(File("$TEST_DATA_ROOT/hello-resolve-junit.main.kts"))
         assertSucceeded(res)
     }
 
@@ -46,34 +46,34 @@ class MainKtsTest {
     // TODO: 1. find non-default but non-pom dependency suitable for an example to test resolving
     // TODO: 2. implement proper handling of pom-typed dependencies (e.g. consider to reimplement it on aether as in JarRepositoryManager (from IDEA))
     fun testResolveWithArtifactType() {
-        val res = evalFile(File("testData/resolve-moneta.main.kts"))
+        val res = evalFile(File("$TEST_DATA_ROOT/resolve-moneta.main.kts"))
         assertSucceeded(res)
     }
 
     @Test
     fun testResolveJunitDynamicVer() {
-        val errRes = evalFile(File("testData/hello-resolve-junit-dynver-error.main.kts"))
+        val errRes = evalFile(File("$TEST_DATA_ROOT/hello-resolve-junit-dynver-error.main.kts"))
         assertFailed("Unresolved reference: assertThrows", errRes)
 
-        val res = evalFile(File("testData/hello-resolve-junit-dynver.main.kts"))
+        val res = evalFile(File("$TEST_DATA_ROOT/hello-resolve-junit-dynver.main.kts"))
         assertSucceeded(res)
     }
 
     @Test
     fun testUnresolvedJunit() {
-        val res = evalFile(File("testData/hello-unresolved-junit.main.kts"))
+        val res = evalFile(File("$TEST_DATA_ROOT/hello-unresolved-junit.main.kts"))
         assertFailed("Unresolved reference: junit", res)
     }
 
     @Test
     fun testResolveError() {
-        val res = evalFile(File("testData/hello-resolve-error.main.kts"))
-        assertFailed("Unrecognized set of arguments to ivy resolver: abracadabra", res)
+        val res = evalFile(File("$TEST_DATA_ROOT/hello-resolve-error.main.kts"))
+        assertFailed("File 'abracadabra' not found", res)
     }
 
     @Test
     fun testResolveLog4jAndDocopt() {
-        val res = evalFile(File("testData/resolve-log4j-and-docopt.main.kts"))
+        val res = evalFile(File("$TEST_DATA_ROOT/resolve-log4j-and-docopt.main.kts"))
         assertSucceeded(res)
     }
 
@@ -81,11 +81,37 @@ class MainKtsTest {
     fun testImport() {
 
         val out = captureOut {
-            val res = evalFile(File("testData/import-test.main.kts"))
+            val res = evalFile(File("$TEST_DATA_ROOT/import-test.main.kts"))
             assertSucceeded(res)
         }.lines()
 
         Assert.assertEquals(listOf("Hi from common", "Hi from middle", "sharedVar == 5"), out)
+    }
+
+    @Test
+    fun testCompilerOptions() {
+
+        val out = captureOut {
+            val res = evalFile(File("$TEST_DATA_ROOT/compile-java6.main.kts"))
+            assertSucceeded(res)
+            assertIsJava6Bytecode(res)
+        }.lines()
+
+        Assert.assertEquals(listOf("Hi from sub", "Hi from super", "Hi from random"), out)
+    }
+
+    private fun assertIsJava6Bytecode(res: ResultWithDiagnostics<EvaluationResult>) {
+        val scriptClassResource = res.valueOrThrow().returnValue.scriptClass!!.java.run {
+            getResource("$simpleName.class")
+        }
+
+        DataInputStream(ByteArrayInputStream(scriptClassResource.readBytes())).use { stream ->
+            val header = stream.readInt()
+            if (0xCAFEBABE.toInt() != header) throw IOException("Invalid header class header: $header")
+            val minor = stream.readUnsignedShort()
+            val major = stream.readUnsignedShort()
+            Assert.assertTrue(major == 50)
+        }
     }
 
     private fun assertSucceeded(res: ResultWithDiagnostics<EvaluationResult>) {
@@ -105,7 +131,7 @@ class MainKtsTest {
     }
 }
 
-private fun captureOut(body: () -> Unit): String {
+internal fun captureOut(body: () -> Unit): String {
     val outStream = ByteArrayOutputStream()
     val prevOut = System.out
     System.setOut(PrintStream(outStream))

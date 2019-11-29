@@ -6,37 +6,43 @@
 package org.jetbrains.kotlin.fir.resolve.calls
 
 import org.jetbrains.kotlin.fir.FirSession
-import org.jetbrains.kotlin.fir.declarations.FirNamedFunction
+import org.jetbrains.kotlin.fir.declarations.FirSimpleFunction
+import org.jetbrains.kotlin.fir.declarations.impl.FirDeclarationStatusImpl
 import org.jetbrains.kotlin.fir.declarations.impl.FirDefaultPropertyGetter
 import org.jetbrains.kotlin.fir.declarations.impl.FirDefaultPropertySetter
-import org.jetbrains.kotlin.fir.declarations.impl.FirMemberPropertyImpl
+import org.jetbrains.kotlin.fir.declarations.impl.FirPropertyImpl
+import org.jetbrains.kotlin.fir.declarations.modality
+import org.jetbrains.kotlin.fir.declarations.visibility
 import org.jetbrains.kotlin.fir.resolve.transformers.ReturnTypeCalculator
-import org.jetbrains.kotlin.fir.resolve.transformers.firSafeNullable
 import org.jetbrains.kotlin.fir.scopes.FirScope
 import org.jetbrains.kotlin.fir.scopes.ProcessorAction
 import org.jetbrains.kotlin.fir.symbols.*
-import org.jetbrains.kotlin.fir.symbols.impl.FirPropertySymbol
+import org.jetbrains.kotlin.fir.symbols.impl.*
 import org.jetbrains.kotlin.name.Name
 
-interface SyntheticSymbol : ConeSymbol
+interface SyntheticSymbol
 
 class SyntheticPropertySymbol(callableId: CallableId) : FirPropertySymbol(callableId), SyntheticSymbol
+
+class FirSyntheticFunctionSymbol(
+    callableId: CallableId
+) : FirNamedFunctionSymbol(callableId), SyntheticSymbol
 
 class FirSyntheticPropertiesScope(
     val session: FirSession,
     private val baseScope: FirScope,
     private val typeCalculator: ReturnTypeCalculator
-) : FirScope {
+) : FirScope() {
 
-    val synthetic: MutableMap<ConeCallableSymbol, ConeVariableSymbol> = mutableMapOf()
+    val synthetic: MutableMap<FirCallableSymbol<*>, FirVariableSymbol<*>> = mutableMapOf()
 
 
     private fun checkGetAndCreateSynthetic(
         name: Name,
-        symbol: ConeFunctionSymbol,
-        processor: (ConeVariableSymbol) -> ProcessorAction
+        symbol: FirFunctionSymbol<*>,
+        processor: (FirCallableSymbol<*>) -> ProcessorAction
     ): ProcessorAction {
-        val fir = symbol.firSafeNullable<FirNamedFunction>() ?: return ProcessorAction.NEXT
+        val fir = symbol.fir as? FirSimpleFunction ?: return ProcessorAction.NEXT
 
         if (fir.typeParameters.isNotEmpty()) return ProcessorAction.NEXT
         if (fir.valueParameters.isNotEmpty()) return ProcessorAction.NEXT
@@ -44,30 +50,34 @@ class FirSyntheticPropertiesScope(
         val synthetic = SyntheticPropertySymbol(CallableId(symbol.callableId.packageName, symbol.callableId.className, name))
 
         val returnTypeRef = typeCalculator.tryCalculateReturnType(fir)
-        FirMemberPropertyImpl(
-            session,
+        val status = FirDeclarationStatusImpl(fir.visibility, fir.modality).apply {
+            isExpect = false
+            isActual = false
+            isOverride = false
+            isConst = false
+            isLateInit = false
+        }
+        FirPropertyImpl(
             null,
-            synthetic,
+            session,
+            returnTypeRef,
+            null,
             name,
-            fir.visibility,
-            fir.modality,
-            isExpect = false,
-            isActual = false,
-            isOverride = false,
-            isConst = false,
-            isLateInit = false,
-            receiverTypeRef = null,
-            returnTypeRef = returnTypeRef,
-            isVar = true,
-            initializer = null,
-            getter = FirDefaultPropertyGetter(session, null, returnTypeRef, fir.visibility),
-            setter = FirDefaultPropertySetter(session, null, returnTypeRef, fir.visibility),
-            delegate = null
-        )
+            null,
+            null,
+            true,
+            synthetic,
+            false,
+            status
+        ).apply {
+            resolvePhase = fir.resolvePhase
+            getter = FirDefaultPropertyGetter(null, this@FirSyntheticPropertiesScope.session, returnTypeRef, fir.visibility)
+            setter = FirDefaultPropertySetter(null, this@FirSyntheticPropertiesScope.session, returnTypeRef, fir.visibility)
+        }
         return processor(synthetic)
     }
 
-    override fun processPropertiesByName(name: Name, processor: (ConeVariableSymbol) -> ProcessorAction): ProcessorAction {
+    override fun processPropertiesByName(name: Name, processor: (FirCallableSymbol<*>) -> ProcessorAction): ProcessorAction {
         if (name.isSpecial) return ProcessorAction.NEXT
         if (baseScope.processFunctionsByName(Name.guessByFirstCharacter("get${name.identifier.capitalize()}")) {
                 checkGetAndCreateSynthetic(name, it, processor)

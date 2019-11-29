@@ -18,19 +18,17 @@ import org.jetbrains.kotlin.idea.caches.lightClasses.IDELightClassConstructionCo
 import org.jetbrains.kotlin.idea.completion.test.withServiceRegistered
 import org.jetbrains.kotlin.idea.search.PsiBasedClassResolver
 import org.jetbrains.kotlin.idea.test.KotlinWithJdkAndRuntimeLightProjectDescriptor
-import org.jetbrains.kotlin.idea.test.PluginTestCaseBase
 import org.jetbrains.kotlin.test.InTextDirectivesUtils
 import org.junit.Assert
-import java.io.File
 
 abstract class AbstractAnnotatedMembersSearchTest : AbstractSearcherTest() {
     override fun getProjectDescriptor(): LightProjectDescriptor {
         return KotlinWithJdkAndRuntimeLightProjectDescriptor.INSTANCE
     }
 
-    fun doTest(path: String) {
-        myFixture.configureByFile(path)
-        val fileText = FileUtil.loadFile(File(path), true)
+    fun doTest(unused: String) {
+        myFixture.configureByFile(fileName())
+        val fileText = FileUtil.loadFile(testDataFile(), true)
         val directives = InTextDirectivesUtils.findListWithPrefixes(fileText, "// ANNOTATION: ")
 
         TestCase.assertFalse("Specify ANNOTATION directive in test file", directives.isEmpty())
@@ -41,8 +39,8 @@ abstract class AbstractAnnotatedMembersSearchTest : AbstractSearcherTest() {
             PsiBasedClassResolver.trueHits.set(0)
             PsiBasedClassResolver.falseHits.set(0)
 
-            AbstractSearcherTest.checkResult(
-                path,
+            checkResult(
+                testPath(),
                 AnnotatedElementsSearch.searchElements(
                     psiClass,
                     projectScope,
@@ -62,9 +60,6 @@ abstract class AbstractAnnotatedMembersSearchTest : AbstractSearcherTest() {
 
     }
 
-    override fun getTestDataPath(): String {
-        return File(PluginTestCaseBase.getTestDataPathBase(), "/search/annotations").path + File.separator
-    }
 }
 
 private object NoRealDelegatesComputed : StubComputationTracker {

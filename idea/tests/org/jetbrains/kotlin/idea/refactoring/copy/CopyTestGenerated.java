@@ -8,7 +8,6 @@ package org.jetbrains.kotlin.idea.refactoring.copy;
 import com.intellij.testFramework.TestDataPath;
 import org.jetbrains.kotlin.test.JUnit3RunnerWithInners;
 import org.jetbrains.kotlin.test.KotlinTestUtils;
-import org.jetbrains.kotlin.test.TargetBackend;
 import org.jetbrains.kotlin.test.TestMetadata;
 import org.junit.runner.RunWith;
 
@@ -22,11 +21,11 @@ import java.util.regex.Pattern;
 @RunWith(JUnit3RunnerWithInners.class)
 public class CopyTestGenerated extends AbstractCopyTest {
     private void runTest(String testDataFilePath) throws Exception {
-        KotlinTestUtils.runTest(this::doTest, TargetBackend.ANY, testDataFilePath);
+        KotlinTestUtils.runTest(this::doTest, this, testDataFilePath);
     }
 
     public void testAllFilesPresentInCopy() throws Exception {
-        KotlinTestUtils.assertAllTestsPresentInSingleGeneratedClass(this.getClass(), new File("idea/testData/refactoring/copy"), Pattern.compile("^(.+)\\.test$"), TargetBackend.ANY);
+        KotlinTestUtils.assertAllTestsPresentInSingleGeneratedClass(this.getClass(), new File("idea/testData/refactoring/copy"), Pattern.compile("^(.+)\\.test$"));
     }
 
     @TestMetadata("copyClassCaretInside/copyClassCaretInside.test")
@@ -67,6 +66,11 @@ public class CopyTestGenerated extends AbstractCopyTest {
     @TestMetadata("copyFileFromDefaultPackageToDefaultPackage/copyFIleToDefaultPackage.test")
     public void testCopyFileFromDefaultPackageToDefaultPackage_CopyFIleToDefaultPackage() throws Exception {
         runTest("idea/testData/refactoring/copy/copyFileFromDefaultPackageToDefaultPackage/copyFIleToDefaultPackage.test");
+    }
+
+    @TestMetadata("copyFileFromDefaultPackageWithImpicitPrefix/copyFileFromDefaultPackageWithImplicitPrefix.test")
+    public void testCopyFileFromDefaultPackageWithImpicitPrefix_CopyFileFromDefaultPackageWithImplicitPrefix() throws Exception {
+        runTest("idea/testData/refactoring/copy/copyFileFromDefaultPackageWithImpicitPrefix/copyFileFromDefaultPackageWithImplicitPrefix.test");
     }
 
     @TestMetadata("copyFIleRetainContent/copyFIleRetainContent.test")
@@ -137,6 +141,21 @@ public class CopyTestGenerated extends AbstractCopyTest {
     @TestMetadata("copyMultipleDeclarations/copyMultipleDeclarations.test")
     public void testCopyMultipleDeclarations_CopyMultipleDeclarations() throws Exception {
         runTest("idea/testData/refactoring/copy/copyMultipleDeclarations/copyMultipleDeclarations.test");
+    }
+
+    @TestMetadata("copyMultipleFilesDifferentDirectoriesToNewDirectory/copyMultipleFilesDifferentDirectoriesToNewDirectory.test")
+    public void testCopyMultipleFilesDifferentDirectoriesToNewDirectory_CopyMultipleFilesDifferentDirectoriesToNewDirectory() throws Exception {
+        runTest("idea/testData/refactoring/copy/copyMultipleFilesDifferentDirectoriesToNewDirectory/copyMultipleFilesDifferentDirectoriesToNewDirectory.test");
+    }
+
+    @TestMetadata("copyMultipleFilesDirectoriesToNewDirectoryAsClassOrObject/copyMultipleFilesDifferentDirectoriesToNewDirectory.test")
+    public void testCopyMultipleFilesDirectoriesToNewDirectoryAsClassOrObject_CopyMultipleFilesDifferentDirectoriesToNewDirectory() throws Exception {
+        runTest("idea/testData/refactoring/copy/copyMultipleFilesDirectoriesToNewDirectoryAsClassOrObject/copyMultipleFilesDifferentDirectoriesToNewDirectory.test");
+    }
+
+    @TestMetadata("copyMultipleFilesToNewDirectory/copyMultipleFilesToNewDirectory.test")
+    public void testCopyMultipleFilesToNewDirectory_CopyMultipleFilesToNewDirectory() throws Exception {
+        runTest("idea/testData/refactoring/copy/copyMultipleFilesToNewDirectory/copyMultipleFilesToNewDirectory.test");
     }
 
     @TestMetadata("copyNestedClass/copyNestedClass.test")

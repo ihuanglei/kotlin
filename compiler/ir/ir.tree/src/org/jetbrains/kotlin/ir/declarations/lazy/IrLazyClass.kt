@@ -10,7 +10,6 @@ import org.jetbrains.kotlin.descriptors.ClassKind
 import org.jetbrains.kotlin.descriptors.Modality
 import org.jetbrains.kotlin.descriptors.Visibility
 import org.jetbrains.kotlin.ir.declarations.*
-import org.jetbrains.kotlin.ir.expressions.IrCall
 import org.jetbrains.kotlin.ir.symbols.IrClassSymbol
 import org.jetbrains.kotlin.ir.types.IrType
 import org.jetbrains.kotlin.ir.util.DeclarationStubGenerator
@@ -28,13 +27,14 @@ class IrLazyClass(
     override val symbol: IrClassSymbol,
     override val name: Name,
     override val kind: ClassKind,
-    override val visibility: Visibility,
-    override val modality: Modality,
+    override var visibility: Visibility,
+    override var modality: Modality,
     override val isCompanion: Boolean,
     override val isInner: Boolean,
     override val isData: Boolean,
     override val isExternal: Boolean,
     override val isInline: Boolean,
+    override val isExpect: Boolean,
     stubGenerator: DeclarationStubGenerator,
     typeTranslator: TypeTranslator
 ) :
@@ -58,6 +58,7 @@ class IrLazyClass(
                 isData = symbol.descriptor.isData,
                 isExternal = symbol.descriptor.isEffectivelyExternal(),
                 isInline = symbol.descriptor.isInline,
+                isExpect = symbol.descriptor.isExpect,
                 stubGenerator = stubGenerator,
                 typeTranslator = TypeTranslator
             )
@@ -103,6 +104,8 @@ class IrLazyClass(
             }
         }
     }
+
+    override var attributeOwnerId: IrAttributeContainer = this
 
     override fun <R, D> accept(visitor: IrElementVisitor<R, D>, data: D): R =
         visitor.visitClass(this, data)

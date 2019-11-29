@@ -1,7 +1,6 @@
 // ERROR: Type mismatch: inferred type is String but Charset was expected
 // ERROR: Type mismatch: inferred type is String but Charset was expected
 import java.nio.charset.Charset
-import java.util.Comparator
 import java.util.Locale
 
 internal class A {
@@ -12,7 +11,6 @@ internal class A {
         String(charArrayOf('a', 'b', 'c'))
         String(charArrayOf('b', 'd'), 1, 1)
         String(intArrayOf(32, 65, 127), 0, 3)
-
         val bytes = byteArrayOf(32, 65, 100, 81)
         val charset = Charset.forName("utf-8")
         String(bytes)
@@ -21,7 +19,6 @@ internal class A {
         String(bytes, "utf-8")
         String(bytes, 0, 2, "utf-8")
         String(bytes, 0, 2, charset)
-
         String(StringBuilder("content"))
         String(StringBuffer("content"))
     }
@@ -60,7 +57,6 @@ internal class A {
         s.toLowerCase(Locale.FRENCH)
         s.toUpperCase()
         s.toUpperCase(Locale.FRENCH)
-
         s
         s.toCharArray()
     }
@@ -80,7 +76,8 @@ internal class A {
                 2
                 , ignoreCase = true)
         s.regionMatches(0, "st", 1, 2)
-        s.replace("\\w+".toRegex(), "---").replaceFirst("([s-t])".toRegex(), "A$1")
+        s.replace("\\w+".toRegex(), "---")
+                .replaceFirst("([s-t])".toRegex(), "A$1")
         /* TODO
         s.matches("\\w+");
         useSplit(s.split("\\s+"));
@@ -89,14 +86,11 @@ internal class A {
         useSplit(s.split("\\s+", 2));
         int limit = 5;
         useSplit(s.split("\\s+", limit));
-        */
-        s.trim { it <= ' ' }
+        */s.trim { it <= ' ' }
         "$s another"
-
         s.toByteArray()
         s.toByteArray(Charset.forName("utf-8"))
         s.toByteArray(charset("utf-8"))
-
         val chars = CharArray(10)
         s.toCharArray(chars, 0, 1, 11)
     }
@@ -109,20 +103,18 @@ internal class A {
         1.11f.toString()
         3.14.toString()
         Any().toString()
-
         String.format(
                 Locale.FRENCH,
                 "Je ne mange pas %d jours",
                 6
         )
         String.format("Operation completed with %s", "success")
-
         val chars = charArrayOf('a', 'b', 'c')
         String(chars)
         String(chars, 1, 2)
         String(chars)
         String(chars, 1, 2)
-        val order: Comparator<String?>? = java.lang.String.CASE_INSENSITIVE_ORDER
+        val order = java.lang.String.CASE_INSENSITIVE_ORDER
     }
 
     fun unsupportedMethods() {

@@ -58,6 +58,17 @@ class KDocSampleTest : AbstractMultiModuleTest() {
         doResolveTest("fqName/code/usage.kt", "samplez.a.b.c.Samplez")
     }
 
+    fun testTypeParameters() {
+
+        val code = module("code")
+        val samples = module("samples", hasTestRoot = true)
+
+        samples.addDependency(code)
+
+        doInfoTest("typeParameters/code/usageSingleTypeParameter.kt")
+        doInfoTest("typeParameters/code/usageNestedTypeParameters.kt")
+    }
+
     fun doResolveTest(path: String, link: String) {
 
         configureByFile(path)
@@ -90,7 +101,7 @@ class KDocSampleTest : AbstractMultiModuleTest() {
         }
 
         val textData = FileUtil.loadFile(testDataFile, true)
-        val directives = InTextDirectivesUtils.findLinesWithPrefixesRemoved(textData, false, "INFO:")
+        val directives = InTextDirectivesUtils.findLinesWithPrefixesRemoved(textData, false, true, "INFO:")
 
         if (directives.isEmpty()) {
             throw FileComparisonFailure(

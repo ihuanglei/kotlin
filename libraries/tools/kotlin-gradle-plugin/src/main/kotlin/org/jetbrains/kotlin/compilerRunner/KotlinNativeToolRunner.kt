@@ -20,43 +20,36 @@ import org.gradle.api.Named
 import org.gradle.api.Project
 import org.gradle.api.file.FileCollection
 import org.jetbrains.kotlin.cli.common.messages.MessageRenderer
+import org.jetbrains.kotlin.gradle.plugin.PropertiesProvider
+import org.jetbrains.kotlin.gradle.plugin.PropertiesProvider.Companion.KOTLIN_NATIVE_HOME
 import org.jetbrains.kotlin.gradle.utils.NativeCompilerDownloader
 import org.jetbrains.kotlin.konan.KonanVersion
 import org.jetbrains.kotlin.konan.target.HostManager
 import org.jetbrains.kotlin.konan.target.KonanTarget
 import org.jetbrains.kotlin.konan.util.DependencyDirectories
+import java.io.File
+import java.lang.reflect.InvocationTargetException
+import java.net.URLClassLoader
 import java.util.*
+import java.util.concurrent.ConcurrentHashMap
 
 /** Copied from Kotlin/Native repository. */
 
-internal enum class KotlinNativeProjectProperty(val propertyName: String) {
-    KONAN_HOME_OVERRIDE("org.jetbrains.kotlin.native.home"),
-    KONAN_JVM_ARGS("org.jetbrains.kotlin.native.jvmArgs"),
-    KONAN_VERSION("org.jetbrains.kotlin.native.version"),
-    KONAN_USE_ENVIRONMENT_VARIABLES("org.jetbrains.kotlin.native.useEnvironmentVariables")
-}
-
-internal fun Project.hasProperty(property: KotlinNativeProjectProperty) = hasProperty(property.propertyName)
-internal fun Project.findProperty(property: KotlinNativeProjectProperty): Any? = findProperty(property.propertyName)
-
-internal fun Project.setProperty(property: KotlinNativeProjectProperty, value: Any?) =
-    extensions.extraProperties.set(property.propertyName, value)
-
-internal fun Project.getProperty(property: KotlinNativeProjectProperty) = findProperty(property)
-    ?: throw IllegalArgumentException("No such property in the project: ${property.propertyName}")
-
-internal val Project.jvmArgs
-    get() = (findProperty(KotlinNativeProjectProperty.KONAN_JVM_ARGS) as String?)?.split("\\s+".toRegex()).orEmpty()
+private val Project.jvmArgs
+    get() = PropertiesProvider(this).nativeJvmArgs?.split("\\s+".toRegex()).orEmpty()
 
 internal val Project.konanHome: String
-    get() = findProperty(KotlinNativeProjectProperty.KONAN_HOME_OVERRIDE)?.let {
+    get() = PropertiesProvider(this).nativeHome?.let {
         file(it).absolutePath
     } ?: NativeCompilerDownloader(project).compilerDirectory.absolutePath
 
 internal val Project.konanVersion: KonanVersion
-    get() = project.findProperty(KotlinNativeProjectProperty.KONAN_VERSION)?.let {
+    get() = PropertiesProvider(this).nativeVersion?.let {
         KonanVersion.fromString(it.toString())
     } ?: NativeCompilerDownloader.DEFAULT_KONAN_VERSION
+
+internal val Project.disableKonanDaemon: Boolean
+    get() = PropertiesProvider(this).nativeDisableCompilerDaemon == true
 
 internal interface KonanToolRunner : Named {
     val mainClass: String
@@ -132,29 +125,68 @@ internal abstract class KonanCliRunner(
         if (classpath.isEmpty) {
             throw IllegalStateException(
                 "Classpath of the tool is empty: $toolName\n" +
-                        "Probably the '${KotlinNativeProjectProperty.KONAN_HOME_OVERRIDE.propertyName}' project property contains an incorrect path.\n" +
+                        "Probably the '$KOTLIN_NATIVE_HOME' project property contains an incorrect path.\n" +
                         "Please change it to the compiler root directory and rerun the build."
             )
         }
 
-        project.javaexec { spec ->
-            spec.main = mainClass
-            spec.classpath = classpath
-            spec.jvmArgs(jvmArgs)
-            spec.systemProperties(
-                System.getProperties().asSequence()
-                    .map { (k, v) -> k.toString() to v.toString() }
-                    .filter { (k, _) -> k !in blacklistProperties }
-                    .escapeQuotesForWindows()
-                    .toMap()
-            )
-            spec.systemProperties(additionalSystemProperties)
-            spec.args(listOf(toolName) + transformArgs(args))
-            blacklistEnvironment.forEach { spec.environment.remove(it) }
-            spec.environment(environment)
+        if (project.disableKonanDaemon || toolName == "cinterop") {
+            project.javaexec { spec ->
+                spec.main = mainClass
+                spec.classpath = classpath
+                spec.jvmArgs(jvmArgs)
+                spec.systemProperties(
+                    System.getProperties().asSequence()
+                        .map { (k, v) -> k.toString() to v.toString() }
+                        .filter { (k, _) -> k !in blacklistProperties }
+                        .escapeQuotesForWindows()
+                        .toMap()
+                )
+                spec.systemProperties(additionalSystemProperties)
+                spec.args(listOf(toolName) + transformArgs(args))
+                blacklistEnvironment.forEach { spec.environment.remove(it) }
+                spec.environment(environment)
+            }
+        } else {
+            val oldProperties = mutableMapOf<String, String?>()
+            additionalSystemProperties.forEach {
+                oldProperties[it.key] = System.getProperty(it.key)
+            }
+            System.getProperties().toList()
+                .map { (k, v) -> k.toString() to v.toString() }
+                .filter { (k, _) -> k in blacklistProperties }
+                .forEach { (k, v) ->
+                    oldProperties[k] = v
+                    System.clearProperty(k)
+                }
+
+            additionalSystemProperties.forEach { System.setProperty(it.key, it.value) }
+
+            val konanCompilerClassLoader = konanCompilerClassLoadersMap.computeIfAbsent(project.konanHome) {
+                val arrayOfURLs = classpath.map { File(it.absolutePath).toURI().toURL() }.toTypedArray()
+                URLClassLoader(arrayOfURLs, null)
+            }
+
+            val mainClass = konanCompilerClassLoader.loadClass(mainClass)
+            val mainMethod = mainClass.methods.single { it.name == "daemonMain" }
+
+            try {
+                mainMethod.invoke(null, (listOf(toolName) + transformArgs(args)).toTypedArray())
+            } catch (t: InvocationTargetException) {
+                throw t.targetException
+            } finally {
+                oldProperties.forEach {
+                    val value = it.value
+                    if (value == null)
+                        System.clearProperty(it.key)
+                    else System.setProperty(it.key, value)
+                }
+            }
         }
     }
 }
+
+private val konanCompilerClassLoadersMap = ConcurrentHashMap<String, ClassLoader>()
 
 internal class KonanInteropRunner(project: Project, additionalJvmArgs: List<String> = emptyList()) :
     KonanCliRunner("cinterop", "Kotlin/Native cinterop tool", project, additionalJvmArgs) {

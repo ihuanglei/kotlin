@@ -5,24 +5,47 @@
 
 package org.jetbrains.kotlin.fir.expressions
 
-import org.jetbrains.kotlin.fir.VisitedSupertype
-import org.jetbrains.kotlin.fir.visitors.FirVisitor
+import org.jetbrains.kotlin.fir.FirPureAbstractElement
+import org.jetbrains.kotlin.fir.FirSourceElement
+import org.jetbrains.kotlin.fir.references.FirReference
+import org.jetbrains.kotlin.fir.types.FirTypeProjection
+import org.jetbrains.kotlin.fir.visitors.*
 
-interface FirArraySetCall : @VisitedSupertype FirCall, FirAssignment {
-    // NB: arguments of this thing are indexes AND rvalue
-    val indexes: List<FirExpression>
+/*
+ * This file was generated automatically
+ * DO NOT MODIFY IT MANUALLY
+ */
 
-    override val arguments get() = indexes + rValue
+abstract class FirArraySetCall : FirPureAbstractElement(), FirQualifiedAccess, FirCall {
+    abstract override val source: FirSourceElement?
+    abstract override val annotations: List<FirAnnotationCall>
+    abstract override val safe: Boolean
+    abstract override val typeArguments: List<FirTypeProjection>
+    abstract override val explicitReceiver: FirExpression?
+    abstract override val dispatchReceiver: FirExpression
+    abstract override val extensionReceiver: FirExpression
+    abstract override val calleeReference: FirReference
+    abstract override val arguments: List<FirExpression>
+    abstract val rValue: FirExpression
+    abstract val operation: FirOperation
+    abstract val lValue: FirReference
+    abstract val indexes: List<FirExpression>
 
-    override fun <R, D> accept(visitor: FirVisitor<R, D>, data: D): R =
-        visitor.visitArraySetCall(this, data)
+    override fun <R, D> accept(visitor: FirVisitor<R, D>, data: D): R = visitor.visitArraySetCall(this, data)
 
-    override fun <R, D> acceptChildren(visitor: FirVisitor<R, D>, data: D) {
-        for (index in indexes) {
-            index.accept(visitor, data)
-        }
-        acceptAnnotations(visitor, data)
-        typeRef.accept(visitor, data)
-        super<FirAssignment>.acceptChildren(visitor, data)
-    }
+    abstract override fun <D> transformTypeArguments(transformer: FirTransformer<D>, data: D): FirArraySetCall
+
+    abstract override fun <D> transformExplicitReceiver(transformer: FirTransformer<D>, data: D): FirArraySetCall
+
+    abstract override fun <D> transformDispatchReceiver(transformer: FirTransformer<D>, data: D): FirArraySetCall
+
+    abstract override fun <D> transformExtensionReceiver(transformer: FirTransformer<D>, data: D): FirArraySetCall
+
+    abstract override fun <D> transformCalleeReference(transformer: FirTransformer<D>, data: D): FirArraySetCall
+
+    abstract override fun <D> transformArguments(transformer: FirTransformer<D>, data: D): FirArraySetCall
+
+    abstract fun <D> transformRValue(transformer: FirTransformer<D>, data: D): FirArraySetCall
+
+    abstract fun <D> transformIndexes(transformer: FirTransformer<D>, data: D): FirArraySetCall
 }

@@ -16,14 +16,19 @@
 
 package org.jetbrains.kotlin.resolve.calls.callUtil
 
+import com.intellij.psi.PsiElement
+import com.intellij.psi.PsiWhiteSpace
 import com.intellij.psi.util.PsiTreeUtil
 import org.jetbrains.kotlin.descriptors.*
+import org.jetbrains.kotlin.diagnostics.Diagnostic
+import org.jetbrains.kotlin.diagnostics.Errors
 import org.jetbrains.kotlin.incremental.KotlinLookupLocation
 import org.jetbrains.kotlin.psi.*
 import org.jetbrains.kotlin.psi.psiUtil.getTextWithLocation
 import org.jetbrains.kotlin.resolve.BindingContext
 import org.jetbrains.kotlin.resolve.BindingContext.CALL
 import org.jetbrains.kotlin.resolve.BindingContext.RESOLVED_CALL
+import org.jetbrains.kotlin.resolve.BindingTrace
 import org.jetbrains.kotlin.resolve.calls.ArgumentTypeResolver
 import org.jetbrains.kotlin.resolve.calls.CallTransformer
 import org.jetbrains.kotlin.resolve.calls.context.ResolutionContext
@@ -246,6 +251,9 @@ val KtElement.isFakeElement: Boolean
         return file is KtFile && file.doNotAnalyze != null
     }
 
+val PsiElement.isFakePsiElement: Boolean
+    get() = this is KtElement && isFakeElement
+
 fun Call.isSafeCall(): Boolean {
     if (this is CallTransformer.CallForImplicitInvoke) {
         //implicit safe 'invoke'
@@ -275,3 +283,32 @@ fun ResolvedCall<*>.getFirstArgumentExpression(): KtExpression? =
 
 fun ResolvedCall<*>.getReceiverExpression(): KtExpression? =
     extensionReceiver.safeAs<ExpressionReceiver>()?.expression ?: dispatchReceiver.safeAs<ExpressionReceiver>()?.expression
+
+val KtLambdaExpression.isTrailingLambdaOnNewLIne
+    get(): Boolean {
+        parent?.safeAs<KtLambdaArgument>()?.let { lambdaArgument ->
+            var prevSibling = lambdaArgument.prevSibling
+
+            while (prevSibling != null && prevSibling !is KtElement) {
+                if (prevSibling is PsiWhiteSpace && prevSibling.textContains('\n'))
+                    return true
+                prevSibling = prevSibling.prevSibling
+            }
+        }
+
+        return false
+    }
+
+
+inline fun BindingTrace.reportTrailingLambdaErrorOr(
+    expression: KtExpression?,
+    originalDiagnostic: (KtExpression) -> Diagnostic
+) {
+    expression?.let { expr ->
+        if (expr is KtLambdaExpression && expr.isTrailingLambdaOnNewLIne) {
+            report(Errors.UNEXPECTED_TRAILING_LAMBDA_ON_A_NEW_LINE.on(expr))
+        } else {
+            report(originalDiagnostic(expr))
+        }
+    }
+}

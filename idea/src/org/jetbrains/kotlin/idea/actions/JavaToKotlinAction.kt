@@ -36,6 +36,7 @@ import com.intellij.openapi.ui.Messages
 import com.intellij.openapi.ui.ex.MessagesEx
 import com.intellij.openapi.ui.popup.JBPopupFactory
 import com.intellij.openapi.util.Key
+import com.intellij.openapi.util.text.StringUtil
 import com.intellij.openapi.vfs.VfsUtilCore
 import com.intellij.openapi.vfs.VirtualFile
 import com.intellij.openapi.vfs.VirtualFileVisitor
@@ -47,18 +48,19 @@ import com.intellij.psi.PsiManager
 import com.intellij.psi.util.PsiTreeUtil
 import org.jetbrains.kotlin.idea.KotlinFileType
 import org.jetbrains.kotlin.idea.core.util.toPsiFile
+import org.jetbrains.kotlin.idea.formatter.commitAndUnblockDocument
 import org.jetbrains.kotlin.idea.j2k.IdeaJavaToKotlinServices
-import org.jetbrains.kotlin.idea.j2k.JavaToKotlinConverterFactory
+import org.jetbrains.kotlin.idea.j2k.J2kPostProcessor
 import org.jetbrains.kotlin.idea.util.application.executeWriteCommand
 import org.jetbrains.kotlin.idea.util.application.runReadAction
 import org.jetbrains.kotlin.idea.util.isRunningInCidrIde
-import org.jetbrains.kotlin.j2k.ConverterSettings
-import org.jetbrains.kotlin.j2k.FilesResult
+import org.jetbrains.kotlin.j2k.*
 import org.jetbrains.kotlin.psi.KtFile
 import org.jetbrains.kotlin.psi.UserDataProperty
 import java.io.File
 import java.io.IOException
 import java.util.*
+import kotlin.system.measureTimeMillis
 
 var VirtualFile.pathBeforeJ2K: String? by UserDataProperty(Key.create<String>("PATH_BEFORE_J2K_CONVERSION"))
 
@@ -82,12 +84,17 @@ class JavaToKotlinAction : AnAction() {
             for ((psiFile, text) in javaFiles.zip(convertedTexts)) {
                 try {
                     val document = PsiDocumentManager.getInstance(psiFile.project).getDocument(psiFile)
-                    if (document == null) {
-                        MessagesEx.error(psiFile.project, "Failed to save conversion result: couldn't find document for " + psiFile.name)
+                    val errorMessage = when {
+                        document == null -> "couldn't find document for ${psiFile.name}"
+                        !document.isWritable -> "file `${psiFile.name}` is read-only"
+                        else -> null
+                    }
+                    if (errorMessage != null) {
+                        MessagesEx.error(psiFile.project, "Failed to save conversion result: $errorMessage")
                             .showLater()
                         continue
                     }
-                    document.replaceString(0, document.textLength, text)
+                    document!!.replaceString(0, document.textLength, text)
                     FileDocumentManager.getInstance().saveDocument(document)
 
                     val virtualFile = psiFile.virtualFile
@@ -99,6 +106,7 @@ class JavaToKotlinAction : AnAction() {
                         virtualFile.pathBeforeJ2K = virtualFile.path
                         virtualFile.rename(this, fileName)
                     }
+                    result += virtualFile
                 } catch (e: IOException) {
                     MessagesEx.error(psiFile.project, e.message ?: "").showLater()
                 }
@@ -111,12 +119,17 @@ class JavaToKotlinAction : AnAction() {
             project: Project,
             module: Module,
             enableExternalCodeProcessing: Boolean = true,
-            askExternalCodeProcessing: Boolean = true
+            askExternalCodeProcessing: Boolean = true,
+            forceUsingOldJ2k: Boolean = false
         ): List<KtFile> {
             var converterResult: FilesResult? = null
             fun convert() {
                 val converter =
-                    JavaToKotlinConverterFactory.createJavaToKotlinConverter(
+                    if (forceUsingOldJ2k) OldJavaToKotlinConverter(
+                        project,
+                        ConverterSettings.defaultSettings,
+                        IdeaJavaToKotlinServices
+                    ) else J2kConverterExtension.extension().createJavaToKotlinConverter(
                         project,
                         module,
                         ConverterSettings.defaultSettings,
@@ -124,14 +137,32 @@ class JavaToKotlinAction : AnAction() {
                     )
                 converterResult = converter.filesToKotlin(
                     javaFiles,
-                    JavaToKotlinConverterFactory.createPostProcessor(formatCode = true),
+                    if (forceUsingOldJ2k) J2kPostProcessor(formatCode = true)
+                    else J2kConverterExtension.extension().createPostProcessor(formatCode = true),
                     progress = ProgressManager.getInstance().progressIndicator!!
+                )
+            }
+
+            fun convertWithStatistics() {
+                val conversionTime = measureTimeMillis {
+                    convert()
+                }
+                val linesCount = runReadAction {
+                    javaFiles.sumBy { StringUtil.getLineBreakCount(it.text) }
+                }
+
+                logJ2kConversionStatistics(
+                    ConversionType.FILES,
+                    J2kConverterExtension.isNewJ2k,
+                    conversionTime,
+                    linesCount,
+                    javaFiles.size
                 )
             }
 
 
             if (!ProgressManager.getInstance().runProcessWithProgressSynchronously(
-                    ::convert,
+                    ::convertWithStatistics,
                     title,
                     true,
                     project
@@ -139,7 +170,7 @@ class JavaToKotlinAction : AnAction() {
             ) return emptyList()
 
 
-            var externalCodeUpdate: (() -> Unit)? = null
+            var externalCodeUpdate: ((List<KtFile>) -> Unit)? = null
 
             if (enableExternalCodeProcessing && converterResult!!.externalCodeProcessing != null) {
                 val question =
@@ -170,23 +201,26 @@ class JavaToKotlinAction : AnAction() {
                 CommandProcessor.getInstance().markCurrentCommandAsGlobal(project)
 
                 val newFiles = saveResults(javaFiles, converterResult!!.results)
+                    .map { it.toPsiFile(project) as KtFile }
+                    .onEach { it.commitAndUnblockDocument() }
 
-                externalCodeUpdate?.invoke()
+                externalCodeUpdate?.invoke(newFiles)
 
                 PsiDocumentManager.getInstance(project).commitAllDocuments()
 
                 newFiles.singleOrNull()?.let {
-                    FileEditorManager.getInstance(project).openFile(it, true)
+                    FileEditorManager.getInstance(project).openFile(it.virtualFile, true)
                 }
 
-                newFiles.map { it.toPsiFile(project) as KtFile }
+                newFiles
             }
         }
     }
 
     override fun actionPerformed(e: AnActionEvent) {
         val javaFiles = selectedJavaFiles(e).filter { it.isWritable }.toList()
-        val project = CommonDataKeys.PROJECT.getData(e.dataContext)!!
+        val project = CommonDataKeys.PROJECT.getData(e.dataContext) ?: return
+        val module = e.getData(LangDataKeys.MODULE) ?: return
 
         if (javaFiles.isEmpty()) {
             val statusBar = WindowManager.getInstance().getStatusBar(project)
@@ -196,9 +230,7 @@ class JavaToKotlinAction : AnAction() {
                 .showInCenterOf(statusBar.component)
         }
 
-
-        val module = e.getData(LangDataKeys.MODULE)!!
-        if (!JavaToKotlinConverterFactory.doCheckBeforeConversion(project, module)) return
+        if (!J2kConverterExtension.extension().doCheckBeforeConversion(project, module)) return
 
         val firstSyntaxError = javaFiles.asSequence().map { PsiTreeUtil.findChildOfType(it, PsiErrorElement::class.java) }.firstOrNull()
 
@@ -235,6 +267,7 @@ class JavaToKotlinAction : AnAction() {
         if (isRunningInCidrIde) return false
         val virtualFiles = e.getData(CommonDataKeys.VIRTUAL_FILE_ARRAY) ?: return false
         val project = e.project ?: return false
+        e.getData(LangDataKeys.MODULE) ?: return false
         return isAnyJavaFileSelected(project, virtualFiles)
     }
 

@@ -3,9 +3,7 @@ description = 'Kotlin Test Annotations Common'
 apply plugin: 'kotlin-platform-common'
 apply plugin: 'pill-configurable'
 
-configureDist(project)
 configurePublishing(project)
-
 
 dependencies {
     compile kotlinStdlib("common")
@@ -14,6 +12,10 @@ dependencies {
 
 pill {
     importAsLibrary = true
+}
+
+tasks.withType(org.jetbrains.kotlin.gradle.dsl.KotlinCompile) {
+    kotlinOptions.freeCompilerArgs += "-Xallow-kotlin-package"
 }
 
 jar {

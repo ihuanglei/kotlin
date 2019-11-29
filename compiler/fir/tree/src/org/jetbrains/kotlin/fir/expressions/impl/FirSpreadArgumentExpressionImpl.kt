@@ -5,26 +5,37 @@
 
 package org.jetbrains.kotlin.fir.expressions.impl
 
-import com.intellij.psi.PsiElement
-import org.jetbrains.kotlin.fir.FirElement
-import org.jetbrains.kotlin.fir.FirSession
+import org.jetbrains.kotlin.fir.FirSourceElement
+import org.jetbrains.kotlin.fir.expressions.FirAnnotationCall
 import org.jetbrains.kotlin.fir.expressions.FirExpression
 import org.jetbrains.kotlin.fir.expressions.FirSpreadArgumentExpression
-import org.jetbrains.kotlin.fir.transformSingle
+import org.jetbrains.kotlin.fir.impl.FirAbstractAnnotatedElement
 import org.jetbrains.kotlin.fir.types.FirTypeRef
-import org.jetbrains.kotlin.fir.visitors.FirTransformer
+import org.jetbrains.kotlin.fir.visitors.*
+
+/*
+ * This file was generated automatically
+ * DO NOT MODIFY IT MANUALLY
+ */
 
 class FirSpreadArgumentExpressionImpl(
-    session: FirSession,
-    psi: PsiElement?,
+    override val source: FirSourceElement?,
     override var expression: FirExpression
-) : FirSpreadArgumentExpression, FirAbstractExpression(session, psi) {
-    override var typeRef: FirTypeRef
-        get() = super<FirSpreadArgumentExpression>.typeRef
-        set(_) {}
+) : FirSpreadArgumentExpression(), FirAbstractAnnotatedElement {
+    override val typeRef: FirTypeRef get() = expression.typeRef
+    override val annotations: MutableList<FirAnnotationCall> = mutableListOf()
+    override val isSpread: Boolean get() = true
 
-    override fun <D> transformChildren(transformer: FirTransformer<D>, data: D): FirElement {
-        expression = expression.transformSingle(transformer, data)
-        return super<FirAbstractExpression>.transformChildren(transformer, data)
+    override fun <R, D> acceptChildren(visitor: FirVisitor<R, D>, data: D) {
+        annotations.forEach { it.accept(visitor, data) }
+        expression.accept(visitor, data)
     }
+
+    override fun <D> transformChildren(transformer: FirTransformer<D>, data: D): FirSpreadArgumentExpressionImpl {
+        annotations.transformInplace(transformer, data)
+        expression = expression.transformSingle(transformer, data)
+        return this
+    }
+
+    override fun replaceTypeRef(newTypeRef: FirTypeRef) {}
 }

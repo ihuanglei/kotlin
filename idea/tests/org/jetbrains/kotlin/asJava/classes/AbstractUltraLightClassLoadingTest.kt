@@ -8,9 +8,9 @@ package org.jetbrains.kotlin.asJava.classes
 import com.intellij.testFramework.LightProjectDescriptor
 import org.jetbrains.kotlin.asJava.LightClassGenerationSupport
 import org.jetbrains.kotlin.idea.perf.UltraLightChecker
+import org.jetbrains.kotlin.idea.perf.UltraLightChecker.checkDescriptorsLeak
 import org.jetbrains.kotlin.idea.test.KotlinLightCodeInsightFixtureTestCase
 import org.jetbrains.kotlin.idea.test.KotlinWithJdkAndRuntimeLightProjectDescriptor
-import org.jetbrains.kotlin.psi.KtClassOrObject
 import org.jetbrains.kotlin.psi.KtFile
 import org.jetbrains.kotlin.test.KotlinTestUtils
 import java.io.File
@@ -19,7 +19,10 @@ abstract class AbstractUltraLightClassLoadingTest : KotlinLightCodeInsightFixtur
     override fun getProjectDescriptor(): LightProjectDescriptor = KotlinWithJdkAndRuntimeLightProjectDescriptor.INSTANCE
 
     fun doTest(testDataPath: String) {
-        val file = myFixture.addFileToProject(testDataPath, File(testDataPath).readText()) as KtFile
+        val sourceText = File(testDataPath).readText()
+        val file = myFixture.addFileToProject(testDataPath, sourceText) as KtFile
+
+        UltraLightChecker.checkForReleaseCoroutine(sourceText, module)
 
         val expectedTextFile = File(testDataPath.replaceFirst("\\.kt\$".toRegex(), ".java"))
         if (expectedTextFile.exists()) {
@@ -29,7 +32,7 @@ abstract class AbstractUltraLightClassLoadingTest : KotlinLightCodeInsightFixtur
                 }.joinToString("\n\n") { (ultraLightClass, ktClass) ->
                     with(UltraLightChecker) {
                         ultraLightClass.renderClass().also {
-                            checkClassLoadingExpectations(ktClass, ultraLightClass)
+                            checkDescriptorsLeak(ultraLightClass)
                         }
                     }
                 }
@@ -41,21 +44,9 @@ abstract class AbstractUltraLightClassLoadingTest : KotlinLightCodeInsightFixtur
         for (ktClass in UltraLightChecker.allClasses(file)) {
             val ultraLightClass = UltraLightChecker.checkClassEquivalence(ktClass)
             if (ultraLightClass != null) {
-                checkClassLoadingExpectations(ktClass, ultraLightClass)
+                checkDescriptorsLeak(ultraLightClass)
             }
         }
 
-    }
-
-    private fun checkClassLoadingExpectations(
-        ktClass: KtClassOrObject,
-        ultraLightClass: KtUltraLightClass
-    ) {
-        val clsLoadingExpected = ktClass.docComment?.text?.contains("should load cls") == true
-        assertEquals(
-            "Cls-loaded status differs from expected for ${ultraLightClass.qualifiedName}",
-            clsLoadingExpected,
-            ultraLightClass.isClsDelegateLoaded
-        )
     }
 }

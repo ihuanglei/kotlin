@@ -5,15 +5,23 @@
 
 package org.jetbrains.kotlin.fir.references
 
-import com.intellij.psi.PsiElement
-import org.jetbrains.kotlin.fir.FirAbstractElement
-import org.jetbrains.kotlin.fir.FirNamedReference
-import org.jetbrains.kotlin.fir.FirSession
+import org.jetbrains.kotlin.fir.FirSourceElement
+import org.jetbrains.kotlin.fir.diagnostics.FirDiagnostic
+import org.jetbrains.kotlin.fir.diagnostics.FirDiagnosticHolder
+import org.jetbrains.kotlin.fir.symbols.AbstractFirBasedSymbol
 import org.jetbrains.kotlin.name.Name
+import org.jetbrains.kotlin.fir.visitors.*
 
-class FirErrorNamedReference(
-    session: FirSession,
-    psi: PsiElement?,
-    val errorReason: String,
-    override val name: Name = Name.special("<$errorReason>")
-) : FirAbstractElement(session, psi), FirNamedReference
+/*
+ * This file was generated automatically
+ * DO NOT MODIFY IT MANUALLY
+ */
+
+abstract class FirErrorNamedReference : FirNamedReference(), FirDiagnosticHolder {
+    abstract override val source: FirSourceElement?
+    abstract override val name: Name
+    abstract override val candidateSymbol: AbstractFirBasedSymbol<*>?
+    abstract override val diagnostic: FirDiagnostic
+
+    override fun <R, D> accept(visitor: FirVisitor<R, D>, data: D): R = visitor.visitErrorNamedReference(this, data)
+}

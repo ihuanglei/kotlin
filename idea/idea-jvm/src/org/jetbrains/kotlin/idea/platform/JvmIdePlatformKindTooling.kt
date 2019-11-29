@@ -24,7 +24,6 @@ import org.jetbrains.kotlin.psi.KtClassOrObject
 import org.jetbrains.kotlin.psi.KtFunction
 import org.jetbrains.kotlin.psi.KtNamedDeclaration
 import org.jetbrains.kotlin.psi.KtNamedFunction
-import org.jetbrains.kotlin.resolve.jvm.JvmResolverForModuleFactory
 import org.jetbrains.kotlin.utils.PathUtil
 import javax.swing.Icon
 
@@ -32,8 +31,6 @@ class JvmIdePlatformKindTooling : IdePlatformKindTooling() {
     override val kind = JvmIdePlatformKind
 
     override fun compilerArgumentsForProject(project: Project) = Kotlin2JvmCompilerArgumentsHolder.getInstance(project).settings
-
-    override val resolverForModuleFactory = JvmResolverForModuleFactory
 
     override val mavenLibraryIds = listOf(
         PathUtil.KOTLIN_JAVA_STDLIB_NAME,
@@ -75,7 +72,7 @@ class JvmIdePlatformKindTooling : IdePlatformKindTooling() {
 
             else -> return null
         }
-        return getTestStateIcon(url, declaration.project) ?: framework.icon
+        return getTestStateIcon(url, declaration.project, strict = false) ?: framework.icon
     }
 
     override fun acceptsAsEntryPoint(function: KtFunction) = true

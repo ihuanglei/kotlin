@@ -51,16 +51,6 @@ import org.jetbrains.kotlin.resolve.lazy.BodyResolveMode
 import org.jetbrains.kotlin.utils.mapToIndex
 import java.util.*
 
-interface J2kPostProcessing {
-    fun createAction(element: KtElement, diagnostics: Diagnostics, settings: ConverterSettings?): (() -> Unit)? =
-        createAction(element, diagnostics)
-
-    fun createAction(element: KtElement, diagnostics: Diagnostics): (() -> Unit)? =
-        createAction(element, diagnostics, null)
-
-    val writeActionNeeded: Boolean
-}
-
 object J2KPostProcessingRegistrarImpl : J2KPostProcessingRegistrar {
     private val myProcessings = ArrayList<J2kPostProcessing>()
 
@@ -107,6 +97,7 @@ object J2KPostProcessingRegistrarImpl : J2KPostProcessingRegistrar {
         registerInspectionBasedProcessing(SimplifyAssertNotNullInspection())
         registerIntentionBasedProcessing(RemoveRedundantCallsOfConversionMethodsIntention())
         registerInspectionBasedProcessing(JavaMapForEachInspection())
+        registerInspectionBasedProcessing(ReplaceGuardClauseWithFunctionCallInspection())
 
 
         registerDiagnosticBasedProcessing<KtBinaryExpressionWithTypeRHS>(Errors.USELESS_CAST) { element, _ ->

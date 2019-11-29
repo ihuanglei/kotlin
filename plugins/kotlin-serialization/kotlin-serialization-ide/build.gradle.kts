@@ -7,6 +7,8 @@ plugins {
 }
 
 dependencies {
+    compileOnly(project(":js:js.translator"))
+
     compile(project(":kotlinx-serialization-compiler-plugin"))
     compile(project(":idea"))
     compile(project(":idea:idea-gradle"))
@@ -15,6 +17,9 @@ dependencies {
     compileOnly(intellijDep())
     excludeInAndroidStudio(rootProject) { compileOnly(intellijPluginDep("maven")) }
     compileOnly(intellijPluginDep("gradle"))
+
+    testCompileOnly(intellijDep())
+    testRuntimeOnly(intellijDep())
 }
 
 sourceSets {

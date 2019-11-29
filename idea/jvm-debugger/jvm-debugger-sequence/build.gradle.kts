@@ -6,7 +6,12 @@ plugins {
 dependencies {
     compile(project(":compiler:backend"))
     compile(project(":idea:ide-common"))
-    compile(files("${System.getProperty("java.home")}/../lib/tools.jar"))
+    compile(toolsJar())
+
+    compileOnly(intellijDep())
+    Platform[192].orHigher {
+        compileOnly(intellijPluginDep("java"))
+    }
 
     compileOnly(intellijPluginDep("stream-debugger"))
 

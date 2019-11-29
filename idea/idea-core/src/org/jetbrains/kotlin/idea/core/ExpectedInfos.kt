@@ -18,6 +18,7 @@ package org.jetbrains.kotlin.idea.core
 
 import com.intellij.openapi.util.text.StringUtil
 import org.jetbrains.kotlin.builtins.getReturnTypeFromFunctionType
+import org.jetbrains.kotlin.builtins.isFunctionOrSuspendFunctionType
 import org.jetbrains.kotlin.builtins.isFunctionType
 import org.jetbrains.kotlin.descriptors.*
 import org.jetbrains.kotlin.idea.resolve.ResolutionFacade
@@ -87,15 +88,15 @@ class ExpectedInfo(
         val expectedName: String?,
         val tail: Tail?,
         val itemOptions: ItemOptions = ItemOptions.DEFAULT,
-        val additionalData: ExpectedInfo.AdditionalData? = null
+        val additionalData: AdditionalData? = null
 ) {
     // just a marker interface
     interface AdditionalData {}
 
-    constructor(fuzzyType: FuzzyType, expectedName: String?, tail: Tail?, itemOptions: ItemOptions = ItemOptions.DEFAULT, additionalData: ExpectedInfo.AdditionalData? = null)
+    constructor(fuzzyType: FuzzyType, expectedName: String?, tail: Tail?, itemOptions: ItemOptions = ItemOptions.DEFAULT, additionalData: AdditionalData? = null)
         : this(ByExpectedTypeFilter(fuzzyType), expectedName, tail, itemOptions, additionalData)
 
-    constructor(type: KotlinType, expectedName: String?, tail: Tail?, itemOptions: ItemOptions = ItemOptions.DEFAULT, additionalData: ExpectedInfo.AdditionalData? = null)
+    constructor(type: KotlinType, expectedName: String?, tail: Tail?, itemOptions: ItemOptions = ItemOptions.DEFAULT, additionalData: AdditionalData? = null)
         : this(type.toFuzzyType(emptyList()), expectedName, tail, itemOptions, additionalData)
 
     fun matchingSubstitutor(descriptorType: FuzzyType): TypeSubstitutor? = filter.matchingSubstitutor(descriptorType)
@@ -375,7 +376,7 @@ class ExpectedInfos(
             if (alreadyHasStar) return
 
             if (isFunctionLiteralArgument) {
-                if (parameterType.isFunctionType) {
+                if (parameterType.isFunctionOrSuspendFunctionType) {
                     add(ExpectedInfo.createForArgument(parameterType, expectedName, null, argumentPositionData))
                 }
             }
@@ -504,7 +505,7 @@ class ExpectedInfos(
             val literalExpression = functionLiteral.parent as KtLambdaExpression
             calculate(literalExpression)
                     .mapNotNull { it.fuzzyType }
-                    .filter { it.type.isFunctionType }
+                    .filter { it.type.isFunctionOrSuspendFunctionType }
                     .map {
                         val returnType = it.type.getReturnTypeFromFunctionType()
                         ExpectedInfo(returnType.toFuzzyType(it.freeParameters), null, Tail.RBRACE)

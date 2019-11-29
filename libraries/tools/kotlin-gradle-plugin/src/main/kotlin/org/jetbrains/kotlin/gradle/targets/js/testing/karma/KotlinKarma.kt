@@ -12,33 +12,32 @@ import org.gradle.api.internal.tasks.testing.TestResultProcessor
 import org.gradle.internal.logging.progress.ProgressLogger
 import org.gradle.process.ProcessForkOptions
 import org.jetbrains.kotlin.gradle.internal.operation
-import org.jetbrains.kotlin.gradle.internal.testing.TCServiceMessagesClient
 import org.jetbrains.kotlin.gradle.internal.testing.TCServiceMessagesClientSettings
 import org.jetbrains.kotlin.gradle.internal.testing.TCServiceMessagesTestExecutionSpec
 import org.jetbrains.kotlin.gradle.plugin.mpp.KotlinJsCompilation
-import org.jetbrains.kotlin.gradle.targets.js.appendConfigsFromDir
-import org.jetbrains.kotlin.gradle.targets.js.internal.parseNodeJsStackTraceAsJvm
-import org.jetbrains.kotlin.gradle.targets.js.nodejs.nodeJs
 import org.jetbrains.kotlin.gradle.targets.js.NpmPackageVersion
 import org.jetbrains.kotlin.gradle.targets.js.RequiredKotlinJsDependency
+import org.jetbrains.kotlin.gradle.targets.js.appendConfigsFromDir
+import org.jetbrains.kotlin.gradle.targets.js.internal.parseNodeJsStackTraceAsJvm
+import org.jetbrains.kotlin.gradle.targets.js.jsQuoted
+import org.jetbrains.kotlin.gradle.targets.js.nodejs.NodeJsRootPlugin
 import org.jetbrains.kotlin.gradle.targets.js.npm.npmProject
-import org.jetbrains.kotlin.gradle.targets.js.testing.KotlinJsTest
-import org.jetbrains.kotlin.gradle.targets.js.testing.KotlinJsTestFramework
-import org.jetbrains.kotlin.gradle.targets.js.testing.karma.KarmaConfig.CoverageReporter.Reporter
-import org.jetbrains.kotlin.gradle.targets.js.webpack.KotlinWebpackConfigWriter
+import org.jetbrains.kotlin.gradle.targets.js.testing.*
+import org.jetbrains.kotlin.gradle.targets.js.webpack.KotlinWebpackConfig
 import org.jetbrains.kotlin.gradle.testing.internal.reportsDir
 import org.slf4j.Logger
 import java.io.File
 
 class KotlinKarma(override val compilation: KotlinJsCompilation) : KotlinJsTestFramework {
-    val project: Project
-        get() = compilation.target.project
+    private val project: Project = compilation.target.project
+    private val nodeJs = NodeJsRootPlugin.apply(project.rootProject)
+    private val versions = nodeJs.versions
 
     private val config: KarmaConfig = KarmaConfig()
-    private val requiredDependencies = mutableSetOf<NpmPackageVersion>()
+    private val requiredDependencies = mutableSetOf<RequiredKotlinJsDependency>()
 
-    private val versions = project.nodeJs.versions
     private val configurators = mutableListOf<(KotlinJsTest) -> Unit>()
+    private val envJsCollector = mutableMapOf<String, String>()
     private val confJsWriters = mutableListOf<(Appendable) -> Unit>()
     private var sourceMaps = false
     private var configDirectory: File? = project.projectDir.resolve("karma.config.d").takeIf { it.isDirectory }
@@ -50,20 +49,28 @@ class KotlinKarma(override val compilation: KotlinJsCompilation) : KotlinJsTestF
         get() = "KotlinKarma($config)"
 
     init {
+        requiredDependencies.add(versions.kotlinJsTestRunner)
         requiredDependencies.add(versions.karma)
 
-        useTeamcityReporter()
+        useKotlinReporter()
         useMocha()
         useWebpack()
         useSourceMapSupport()
-
-        config.singleRun = true
-        config.autoWatch = false
     }
 
-    private fun useTeamcityReporter() {
-        requiredDependencies.add(versions.karmaTeamcityReporter)
-        config.reporters.add("teamcity")
+    private fun useKotlinReporter() {
+        config.reporters.add("karma-kotlin-reporter")
+
+        confJsWriters.add {
+            //language=ES6
+            it.appendln(
+                """
+                config.plugins = config.plugins || [];
+                config.plugins.push('karma-*'); // default
+                config.plugins.push('kotlin-test-js-runner/karma-kotlin-reporter.js');
+            """.trimIndent()
+            )
+        }
     }
 
     internal fun watch() {
@@ -77,11 +84,26 @@ class KotlinKarma(override val compilation: KotlinJsCompilation) : KotlinJsTestF
         configDirectory = dir
     }
 
-    fun useChrome() = useBrowser("Chrome", versions.karmaChromeLauncher)
+    fun useChrome() {
+        useBrowser(
+            id = "Chrome",
+            dependency = versions.karmaChromeLauncher
+        )
+    }
 
-    fun useChromeCanary() = useBrowser("ChromeCanary", versions.karmaChromeLauncher)
+    fun useChromeCanary() {
+        useBrowser(
+            id = "ChromeCanary",
+            dependency = versions.karmaChromeLauncher
+        )
+    }
 
-    fun useChromeHeadless() = useBrowser("ChromeHeadless", versions.karmaChromeLauncher)
+    fun useChromeHeadless() {
+        useBrowser(
+            id = "ChromeHeadless",
+            dependency = versions.karmaChromeLauncher
+        )
+    }
 
     fun usePhantomJS() = useBrowser("PhantomJS", versions.karmaPhantomJsLauncher)
 
@@ -91,7 +113,7 @@ class KotlinKarma(override val compilation: KotlinJsCompilation) : KotlinJsTestF
 
     fun useSafari() = useBrowser("Safari", versions.karmaSafariLauncher)
 
-    fun useIe() = useBrowser("Ie", versions.karmaIeLauncher)
+    fun useIe() = useBrowser("IE", versions.karmaIeLauncher)
 
     private fun useBrowser(id: String, dependency: NpmPackageVersion) {
         config.browsers.add(id)
@@ -108,19 +130,35 @@ class KotlinKarma(override val compilation: KotlinJsCompilation) : KotlinJsTestF
         requiredDependencies.add(versions.karmaWebpack)
         requiredDependencies.add(versions.webpack)
 
+        val webpackConfigWriter = KotlinWebpackConfig(
+            configDirectory = project.projectDir.resolve("webpack.config.d").takeIf { it.isDirectory },
+            sourceMaps = true,
+            devtool = null,
+            export = false,
+            progressReporter = true,
+            progressReporterPathFilter = nodeJs.rootPackageDir.absolutePath
+        )
+        requiredDependencies.addAll(webpackConfigWriter.getRequiredDependencies(versions))
+
         addPreprocessor("webpack")
         confJsWriters.add {
             it.appendln()
             it.appendln("// webpack config")
             it.appendln("function createWebpackConfig() {")
 
-            KotlinWebpackConfigWriter(
-                configDirectory = project.projectDir.resolve("webpack.config.d").takeIf { it.isDirectory },
-                sourceMaps = true,
-                export = false,
-                progressReporter = true,
-                progressReporterPathFilter = project.nodeJs.root.rootPackageDir.absolutePath
-            ).appendTo(it)
+            webpackConfigWriter.appendTo(it)
+            //language=ES6
+            it.appendln(
+                """
+                // noinspection JSUnnecessarySemicolon
+                ;(function(config) {
+                    const webpack = require('webpack');
+                    config.plugins.push(new webpack.SourceMapDevToolPlugin({
+                        moduleFilenameTemplate: "[absolute-resource-path]"
+                    }))
+                })(config);
+            """.trimIndent()
+            )
 
             it.appendln("   return config;")
             it.appendln("}")
@@ -128,6 +166,10 @@ class KotlinKarma(override val compilation: KotlinJsCompilation) : KotlinJsTestF
             it.appendln("config.set({webpack: createWebpackConfig()});")
             it.appendln()
         }
+
+        requiredDependencies.add(versions.webpack)
+        requiredDependencies.add(versions.webpackCli)
+        requiredDependencies.add(versions.kotlinSourceMapLoader)
     }
 
     fun useCoverage(
@@ -155,7 +197,7 @@ class KotlinKarma(override val compilation: KotlinJsCompilation) : KotlinJsTestF
             val reportDir = project.reportsDir.resolve("coverage/${it.name}")
             reportDir.mkdirs()
 
-            config.coverageReporter = KarmaConfig.CoverageReporter(reportDir.canonicalPath).also { coverage ->
+            config.coverageReporter = CoverageReporter(reportDir.canonicalPath).also { coverage ->
                 if (html) coverage.reporters.add(Reporter("html"))
                 if (lcov) coverage.reporters.add(Reporter("lcovonly"))
                 if (cobertura) coverage.reporters.add(Reporter("cobertura"))
@@ -172,10 +214,6 @@ class KotlinKarma(override val compilation: KotlinJsCompilation) : KotlinJsTestF
         requiredDependencies.add(versions.karmaSourceMapLoader)
         sourceMaps = true
         addPreprocessor("sourcemap")
-
-        // stacktraces with sourcemaps
-        requiredDependencies.add(versions.karmaSourceMapSupport)
-        config.frameworks.add("source-map-support")
     }
 
     private fun addPreprocessor(name: String, predicate: (String) -> Boolean = { true }) {
@@ -188,11 +226,64 @@ class KotlinKarma(override val compilation: KotlinJsCompilation) : KotlinJsTestF
         }
     }
 
+    private fun createAdapterJs(
+        file: String,
+        debug: Boolean
+    ): File {
+        val npmProject = compilation.npmProject
+
+        val adapterJs = npmProject.dir.resolve("adapter-browser.js")
+        adapterJs.printWriter().use { writer ->
+            val karmaRunner = npmProject.require("kotlin-test-js-runner/kotlin-test-karma-runner.js")
+            // It is necessary for debugger attaching (--inspect-brk analogue)
+            if (debug) {
+                writer.println("debugger;")
+            }
+
+            writer.println("require(${karmaRunner.jsQuoted()})")
+
+            writer.println("module.exports = require(${file.jsQuoted()})")
+        }
+
+        return adapterJs
+    }
+
     override fun createTestExecutionSpec(
         task: KotlinJsTest,
         forkOptions: ProcessForkOptions,
-        nodeJsArgs: MutableList<String>
+        nodeJsArgs: MutableList<String>,
+        debug: Boolean
     ): TCServiceMessagesTestExecutionSpec {
+        val npmProject = compilation.npmProject
+
+        val file = task.nodeModulesToLoad
+            .map { npmProject.require(it) }
+            .single()
+
+        val adapterJs = createAdapterJs(file, debug)
+
+        config.files.add(adapterJs.canonicalPath)
+
+        if (debug) {
+            config.singleRun = false
+
+            confJsWriters.add {
+                //language=ES6
+                it.appendln(
+                    """
+                        if (!config.plugins) {
+                            config.plugins = config.plugins || [];
+                            config.plugins.push('karma-*'); // default
+                        }
+                        
+                        config.plugins.push('kotlin-test-js-runner/karma-debug-framework.js');
+                    """.trimIndent()
+                )
+            }
+
+            config.frameworks.add("karma-kotlin-debug")
+        }
+
         if (config.browsers.isEmpty()) {
             error("No browsers configured for $task")
         }
@@ -205,19 +296,28 @@ class KotlinKarma(override val compilation: KotlinJsCompilation) : KotlinJsTestF
             ignoreOutOfRootNodes = true
         )
 
-        val npmProject = compilation.npmProject
-
-        val files = task.nodeModulesToLoad.map { npmProject.require(it) }
-        config.files.addAll(files)
-
         config.basePath = npmProject.nodeModulesDir.absolutePath
 
         configurators.forEach {
             it(task)
         }
 
+        val cliArgs = KotlinTestRunnerCliArgs(
+            include = task.includePatterns,
+            exclude = task.excludePatterns
+        )
+
+        config.client.args.addAll(cliArgs.toList())
+
         val karmaConfJs = npmProject.dir.resolve("karma.conf.js")
         karmaConfJs.printWriter().use { confWriter ->
+            confWriter.println("// environment variables")
+            envJsCollector.forEach { (envVar, value) ->
+                //language=JavaScript 1.8
+                confWriter.println("process.env.$envVar = $value")
+            }
+
+            confWriter.println()
             confWriter.println("module.exports = function(config) {")
             confWriter.println()
 
@@ -235,18 +335,25 @@ class KotlinKarma(override val compilation: KotlinJsCompilation) : KotlinJsTestF
 
         val nodeModules = listOf("karma/bin/karma")
 
-        val args = nodeJsArgs +
-                nodeModules.map { npmProject.require(it) } +
-                listOf("start", karmaConfJs.absolutePath, "--debug")
+        val karmaConfigAbsolutePath = karmaConfJs.absolutePath
+        val args = if (debug) {
+            listOf(
+                npmProject.require("kotlin-test-js-runner/karma-debug-runner.js"),
+                karmaConfigAbsolutePath
+            )
+        } else {
+            nodeJsArgs +
+                    nodeModules.map { npmProject.require(it) } +
+                    listOf("start", karmaConfigAbsolutePath)
+        }
 
-        return object : TCServiceMessagesTestExecutionSpec(
+        return object : JSServiceMessagesTestExecutionSpec(
             forkOptions,
             args,
-            false,
+            true,
             clientSettings
         ) {
             lateinit var progressLogger: ProgressLogger
-            val suppressedOutput = StringBuilder()
 
             override fun wrapExecute(body: () -> Unit) {
                 project.operation("Running and building tests with karma and webpack") {
@@ -255,20 +362,25 @@ class KotlinKarma(override val compilation: KotlinJsCompilation) : KotlinJsTestF
                 }
             }
 
-            override fun showSuppressedOutput() {
-                println(suppressedOutput)
-            }
-
             override fun createClient(testResultProcessor: TestResultProcessor, log: Logger) =
-                object : TCServiceMessagesClient(testResultProcessor, clientSettings, log) {
-                    override fun printNonTestOutput(actualText: String) {
-                        val value = actualText.trimEnd()
-                        suppressedOutput.appendln(value)
-                        progressLogger.progress(value)
-                    }
-
+                object : JSServiceMessagesClient(
+                    testResultProcessor,
+                    clientSettings,
+                    log,
+                    suppressedOutput
+                ) {
                     val baseTestNameSuffix get() = settings.testNameSuffix
                     override var testNameSuffix: String? = baseTestNameSuffix
+
+                    override fun printNonTestOutput(text: String) {
+                        val value = text.trimEnd()
+                        progressLogger.progress(value)
+
+                        super.printNonTestOutput(text)
+                    }
+
+                    override fun processStackTrace(stackTrace: String): String =
+                        processKarmaStackTrace(stackTrace)
 
                     override fun getSuiteName(message: BaseTestSuiteMessage): String {
                         val src = message.suiteName.trim()
@@ -309,5 +421,10 @@ class KotlinKarma(override val compilation: KotlinJsCompilation) : KotlinJsTestF
         appendln()
         appendConfigsFromDir(configDirectory)
         appendln()
+    }
+
+    companion object {
+        const val CHROME_BIN = "CHROME_BIN"
+        const val CHROME_CANARY_BIN = "CHROME_CANARY_BIN"
     }
 }

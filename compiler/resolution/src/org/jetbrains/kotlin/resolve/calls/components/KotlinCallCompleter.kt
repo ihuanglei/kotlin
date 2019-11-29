@@ -7,12 +7,14 @@ package org.jetbrains.kotlin.resolve.calls.components
 
 import org.jetbrains.kotlin.config.LanguageFeature
 import org.jetbrains.kotlin.resolve.calls.inference.NewConstraintSystem
+import org.jetbrains.kotlin.resolve.calls.inference.addSubtypeConstraintIfCompatible
 import org.jetbrains.kotlin.resolve.calls.inference.components.KotlinConstraintSystemCompleter
 import org.jetbrains.kotlin.resolve.calls.inference.components.KotlinConstraintSystemCompleter.ConstraintSystemCompletionMode
 import org.jetbrains.kotlin.resolve.calls.inference.model.ConstraintStorage.Empty.hasContradiction
 import org.jetbrains.kotlin.resolve.calls.inference.model.ExpectedTypeConstraintPosition
 import org.jetbrains.kotlin.resolve.calls.model.*
 import org.jetbrains.kotlin.resolve.calls.tower.forceResolution
+import org.jetbrains.kotlin.resolve.descriptorUtil.hasExactAnnotation
 import org.jetbrains.kotlin.types.ErrorUtils
 import org.jetbrains.kotlin.types.TypeUtils
 import org.jetbrains.kotlin.types.UnwrappedType
@@ -39,9 +41,9 @@ class KotlinCallCompleter(
         }
 
         val candidate = prepareCandidateForCompletion(factory, candidates, resolutionCallbacks)
-        val returnType = candidate.returnTypeWithSmartCastInfo(resolutionCallbacks)
+        val returnType = candidate.substitutedReturnType()
 
-        candidate.addExpectedTypeConstraint(returnType, expectedType, resolutionCallbacks)
+        candidate.addExpectedTypeConstraint(returnType, expectedType)
         candidate.addExpectedTypeFromCastConstraint(returnType, resolutionCallbacks)
 
         return if (resolutionCallbacks.inferenceSession.shouldRunCompletion(candidate))
@@ -63,7 +65,7 @@ class KotlinCallCompleter(
             val diagnosticsHolder = KotlinDiagnosticsHolder.SimpleHolder()
 
             candidate.addExpectedTypeConstraint(
-                candidate.returnTypeWithSmartCastInfo(resolutionCallbacks), expectedType, resolutionCallbacks
+                candidate.substitutedReturnType(), expectedType
             )
 
             runCompletion(
@@ -141,29 +143,37 @@ class KotlinCallCompleter(
         return candidate ?: factory.createErrorCandidate().forceResolution()
     }
 
-    private fun KotlinResolutionCandidate.returnTypeWithSmartCastInfo(resolutionCallbacks: KotlinResolutionCallbacks): UnwrappedType? {
+    private fun KotlinResolutionCandidate.substitutedReturnType(): UnwrappedType? {
         val returnType = resolvedCall.candidateDescriptor.returnType?.unwrap() ?: return null
-        val returnTypeWithSmartCastInfo = computeReturnTypeWithSmartCastInfo(returnType, resolutionCallbacks)
-        return resolvedCall.substitutor.safeSubstitute(returnTypeWithSmartCastInfo)
+        return resolvedCall.freshVariablesSubstitutor.safeSubstitute(returnType)
     }
 
     private fun KotlinResolutionCandidate.addExpectedTypeConstraint(
         returnType: UnwrappedType?,
-        expectedType: UnwrappedType?,
-        resolutionCallbacks: KotlinResolutionCallbacks
+        expectedType: UnwrappedType?
     ) {
         if (returnType == null) return
-        if (expectedType == null || TypeUtils.noExpectedType(expectedType)) return
+        if (expectedType == null || (TypeUtils.noExpectedType(expectedType) && expectedType !== TypeUtils.UNIT_EXPECTED_TYPE)) return
 
-        // This is needed to avoid multiple mismatch errors as we type check resulting type against expected one later
-        // Plus, it helps with IDE-tests where it's important to have particular diagnostics.
-        // Note that it aligns with the old inference, see CallCompleter.completeResolvedCallAndArguments
-        if (csBuilder.currentStorage().notFixedTypeVariables.isEmpty()) return
+        when {
+            csBuilder.currentStorage().notFixedTypeVariables.isEmpty() -> {
+                // This is needed to avoid multiple mismatch errors as we type check resulting type against expected one later
+                // Plus, it helps with IDE-tests where it's important to have particular diagnostics.
+                // Note that it aligns with the old inference, see CallCompleter.completeResolvedCallAndArguments
 
-        // We don't add expected type constraint for constant expression like "1 + 1" because of type coercion for numbers:
-        // val a: Long = 1 + 1, note that result type of "1 + 1" will be Int and adding constraint with Long will produce type mismatch
-        if (!resolutionCallbacks.isCompileTimeConstant(resolvedCall, expectedType)) {
-            csBuilder.addSubtypeConstraint(returnType, expectedType, ExpectedTypeConstraintPosition(resolvedCall.atom))
+                // Another point is to avoid adding constraint from expected type for constant expressions like `1 + 1` because of
+                // type coercion for numbers:
+                // val a: Long = 1 + 1, result type of "1 + 1" will be Int and adding constraint with Long will produce type mismatch
+                return
+            }
+
+            expectedType === TypeUtils.UNIT_EXPECTED_TYPE ->
+                csBuilder.addSubtypeConstraintIfCompatible(
+                    returnType, csBuilder.builtIns.unitType, ExpectedTypeConstraintPosition(resolvedCall.atom)
+                )
+
+            else ->
+                csBuilder.addSubtypeConstraint(returnType, expectedType, ExpectedTypeConstraintPosition(resolvedCall.atom))
         }
     }
 
@@ -229,21 +239,15 @@ class KotlinCallCompleter(
         val constructor = typeVariable.constructor
         val variableWithConstraints = csBuilder.currentStorage().notFixedTypeVariables[constructor] ?: return false
         val constraints = variableWithConstraints.constraints
-        return constraints.isNotEmpty() && constraints.any {
+        return constraints.isNotEmpty() && constraints.anyOrAll(requireAll = typeVariable.hasExactAnnotation()) {
             !it.type.typeConstructor(context).isIntegerLiteralTypeConstructor(context) &&
                     (it.kind.isLower() || it.kind.isEqual()) &&
                     csBuilder.isProperType(it.type)
         }
-
     }
 
-    private fun KotlinResolutionCandidate.computeReturnTypeWithSmartCastInfo(
-        returnType: UnwrappedType,
-        resolutionCallbacks: KotlinResolutionCallbacks
-    ): UnwrappedType {
-        if (resolvedCall.atom.callKind != KotlinCallKind.VARIABLE) return returnType
-        return resolutionCallbacks.createReceiverWithSmartCastInfo(resolvedCall)?.stableType ?: returnType
-    }
+    private inline fun <T> Iterable<T>.anyOrAll(requireAll: Boolean, p: (T) -> Boolean): Boolean =
+        if (requireAll) all(p) else any(p)
 
     fun KotlinResolutionCandidate.asCallResolutionResult(
         type: ConstraintSystemCompletionMode,

@@ -13,13 +13,14 @@ import org.jetbrains.kotlin.backend.common.phaser.makeIrFilePhase
 import org.jetbrains.kotlin.descriptors.ClassKind
 import org.jetbrains.kotlin.descriptors.Visibilities
 import org.jetbrains.kotlin.ir.IrStatement
+import org.jetbrains.kotlin.ir.builders.*
 import org.jetbrains.kotlin.ir.declarations.*
 import org.jetbrains.kotlin.ir.expressions.IrCall
 import org.jetbrains.kotlin.ir.expressions.IrExpression
 import org.jetbrains.kotlin.ir.expressions.IrFieldAccessExpression
 import org.jetbrains.kotlin.ir.expressions.IrTypeOperator
 import org.jetbrains.kotlin.ir.expressions.impl.*
-import org.jetbrains.kotlin.ir.types.classifierOrFail
+import org.jetbrains.kotlin.ir.types.makeNotNull
 import org.jetbrains.kotlin.ir.util.hasAnnotation
 import org.jetbrains.kotlin.ir.visitors.IrElementTransformerVoid
 import org.jetbrains.kotlin.ir.visitors.transformChildrenVoid
@@ -48,12 +49,13 @@ class PropertiesToFieldsLowering(val context: CommonBackendContext) : IrElementT
 
     override fun visitCall(expression: IrCall): IrExpression {
         val simpleFunction = (expression.symbol.owner as? IrSimpleFunction) ?: return super.visitCall(expression)
-        val property = simpleFunction.correspondingProperty ?: return super.visitCall(expression)
+        val property = simpleFunction.correspondingPropertySymbol?.owner ?: return super.visitCall(expression)
 
         if (shouldSubstituteAccessorWithField(property, simpleFunction)) {
-            when (expression) {
-                is IrGetterCallImpl -> return substituteGetter(property, expression)
-                is IrSetterCallImpl -> return substituteSetter(property, expression)
+            // property.getter & property.setter might be erased by the above function.
+            when (simpleFunction.valueParameters.size) {
+                0 -> return substituteGetter(property, expression)
+                1 -> return substituteSetter(property, expression)
             }
         }
 
@@ -62,9 +64,6 @@ class PropertiesToFieldsLowering(val context: CommonBackendContext) : IrElementT
 
     private fun shouldSubstituteAccessorWithField(property: IrProperty, accessor: IrSimpleFunction?): Boolean {
         if (accessor == null) return false
-
-        // In contrast to the old backend, we do generate getters for lateinit properties, which fixes KT-28331
-        if (property.isLateinit) return false
 
         if ((property.parent as? IrClass)?.kind == ClassKind.ANNOTATION_CLASS) return false
 
@@ -96,12 +95,34 @@ class PropertiesToFieldsLowering(val context: CommonBackendContext) : IrElementT
             expression.startOffset,
             expression.endOffset,
             backingField.symbol,
-            expression.type,
+            backingField.type,
             receiver,
             expression.origin,
             expression.superQualifierSymbol
         )
-        return buildSubstitution(backingField.isStatic, getExpr, receiver)
+        val substitution = buildSubstitution(backingField.isStatic, getExpr, receiver)
+        return if (irProperty.isLateinit)
+            insertLateinitCheck(substitution, backingField)
+        else
+            substitution
+    }
+
+    private fun insertLateinitCheck(expression: IrExpression, field: IrField): IrExpression {
+        val backendContext = context
+        val startOffset = expression.startOffset
+        val endOffset = expression.endOffset
+        val irBuilder = context.createIrBuilder(field.symbol, startOffset, endOffset)
+        irBuilder.run {
+            return irBlock(expression) {
+                val tmpVar = irTemporaryVar(expression)
+                +irIfThenElse(
+                    expression.type.makeNotNull(),
+                    irEqualsNull(irGet(tmpVar)),
+                    backendContext.throwUninitializedPropertyAccessException(this, field.name.asString()),
+                    irGet(expression.type.makeNotNull(), tmpVar.symbol)
+                )
+            }
+        }
     }
 
     private fun buildSubstitution(needBlock: Boolean, setOrGetExpr: IrFieldAccessExpression, receiver: IrExpression?): IrExpression {
@@ -113,7 +134,7 @@ class PropertiesToFieldsLowering(val context: CommonBackendContext) : IrElementT
                     receiver.startOffset, receiver.endOffset,
                     context.irBuiltIns.unitType,
                     IrTypeOperator.IMPLICIT_COERCION_TO_UNIT,
-                    context.irBuiltIns.unitType, context.irBuiltIns.unitType.classifierOrFail,
+                    context.irBuiltIns.unitType,
                     receiver
                 )
 

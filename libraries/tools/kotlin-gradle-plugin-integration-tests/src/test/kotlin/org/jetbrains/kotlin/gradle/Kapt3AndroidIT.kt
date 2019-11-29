@@ -1,11 +1,10 @@
 package org.jetbrains.kotlin.gradle
 
-import org.jetbrains.kotlin.gradle.util.AGPVersion
-import org.jetbrains.kotlin.gradle.util.checkedReplace
-import org.jetbrains.kotlin.gradle.util.getFileByName
-import org.jetbrains.kotlin.gradle.util.modify
+import org.jetbrains.kotlin.gradle.util.*
 import org.jetbrains.kotlin.test.KotlinTestUtils
+import org.junit.Assert
 import org.junit.Test
+import java.io.File
 
 class Kapt3WorkersAndroid32IT : Kapt3Android32IT() {
     override fun kaptOptions(): KaptOptions =
@@ -15,9 +14,6 @@ class Kapt3WorkersAndroid32IT : Kapt3Android32IT() {
 open class Kapt3Android32IT : Kapt3AndroidIT() {
     override val androidGradlePluginVersion: AGPVersion
         get() = AGPVersion.v3_2_0
-
-    override val defaultGradleVersion: GradleVersionRequired
-        get() = GradleVersionRequired.AtLeast("4.6")
 }
 
 open class Kapt3Android33IT : Kapt3AndroidIT() {
@@ -36,6 +32,44 @@ open class Kapt3Android33IT : Kapt3AndroidIT() {
             assertFileExists("build/tmp/kotlin-classes/debug/test/androidx/navigation/StartFragmentKt.class")
         }
     }
+
+    /** Regression test for Android projects and KT-31127. */
+    @Test
+    fun testKotlinProcessorUsingFiler() {
+        val project = Project("AndroidLibraryKotlinProject").apply {
+            setupWorkingDir()
+            gradleBuildScript().appendText(
+                """
+                apply plugin: 'kotlin-kapt'
+                android {
+                    defaultConfig.javaCompileOptions.annotationProcessorOptions.includeCompileClasspath = false
+
+                    libraryVariants.all {
+                        it.generateBuildConfig.enabled = false
+                    }
+                }
+
+                dependencies {
+                    kapt "org.jetbrains.kotlin:annotation-processor-example:${"$"}kotlin_version"
+                    implementation "org.jetbrains.kotlin:annotation-processor-example:${"$"}kotlin_version"
+                }
+            """.trimIndent()
+            )
+
+            // The test must not contain any java sources in order to detect the issue.
+            Assert.assertEquals(emptyList<File>(), projectDir.allJavaFiles().toList())
+            projectDir.getFileByName("Dummy.kt").modify {
+                it.replace("class Dummy", "@example.KotlinFilerGenerated class Dummy")
+            }
+        }
+
+        project.build("assembleDebug") {
+            assertSuccessful()
+            assertFileExists("build/generated/source/kapt/debug/demo/DummyGenerated.kt")
+            assertTasksExecuted(":compileDebugKotlin")
+            assertTasksSkipped(":compileDebugJavaWithJavac")
+        }
+    }
 }
 
 class Kapt3Android31IT : Kapt3AndroidIT() {
@@ -44,7 +78,7 @@ class Kapt3Android31IT : Kapt3AndroidIT() {
 
     // there is a weird validation exception in testICWithAnonymousClasses with 5.0 todo: fix it
     override val defaultGradleVersion: GradleVersionRequired
-        get() = GradleVersionRequired.InRange("4.4", "4.10.2")
+        get() = GradleVersionRequired.Until("4.10.2")
 }
 
 open class Kapt3AndroidIT : Kapt3BaseIT() {
