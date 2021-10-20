@@ -1,7 +1,8 @@
-// !LANGUAGE: +InlineClasses
-// IGNORE_BACKEND_FIR: JVM_IR
+// WITH_RUNTIME
 
-inline class UInt(private val u: Int) {
+@Suppress("OPTIONAL_DECLARATION_USAGE_IN_NON_COMMON_SOURCE")
+@kotlin.jvm.JvmInline
+value class UInt(private val u: Int) {
     fun asResult() = u
 }
 

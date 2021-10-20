@@ -1,3 +1,4 @@
+// IGNORE_BACKEND_FIR: JVM_IR
 // WITH_RUNTIME
 
 // FILE: signedToUnsignedConversions_annotation.kt
@@ -50,5 +51,6 @@ fun test() {
 
     takeUBytes(IMPLICIT_INT, EXPLICIT_INT, 42u)
 
-    takeLong(IMPLICIT_INT)
+//    such kind of conversions (Int <-> Long) actually are not supported
+//    takeLong(IMPLICIT_INT)
 }

@@ -6,15 +6,14 @@ plugins {
 }
 
 dependencies {
-    testCompile(project(":kotlin-scripting-compiler"))
-    testCompile(projectTests(":compiler:tests-common"))
-    testCompileOnly(intellijCoreDep()) { includeJars("intellij-core") }
-    testCompile(projectTests(":generators:test-generator"))
-    testRuntime(project(":kotlin-reflect"))
-    testRuntime(intellijDep())
-    Platform[192].orHigher {
-        testRuntimeOnly(intellijPluginDep("java"))
-    }
+    testApi(project(":kotlin-scripting-compiler"))
+    testApi(projectTests(":compiler:tests-common"))
+    testImplementation(intellijCoreDep()) { includeJars("intellij-core") }
+    testApi(projectTests(":generators:test-generator"))
+    testRuntimeOnly(project(":kotlin-reflect"))
+    testRuntimeOnly(toolsJar())
+    testRuntimeOnly(intellijPluginDep("java"))
+    if (isIdeaActive) testRuntimeOnly(files("${rootProject.projectDir}/dist/kotlinc/lib/kotlin-reflect.jar"))
 }
 
 sourceSets {
@@ -22,13 +21,7 @@ sourceSets {
     "test" { projectDefault() }
 }
 
-tasks.withType<KotlinCompile> {
-    kotlinOptions.jdkHome = rootProject.extra["JDK_18"]!!.toString()
-    kotlinOptions.jvmTarget = "1.8"
-}
-
 projectTest(parallel = true) {
-    executable = "${rootProject.extra["JDK_18"]!!}/bin/java"
     dependsOn(":dist")
     workingDir = rootDir
     systemProperty("kotlin.test.script.classpath", testSourceSet.output.classesDirs.joinToString(File.pathSeparator))
@@ -36,5 +29,31 @@ projectTest(parallel = true) {
 }
 
 val generateTests by generator("org.jetbrains.kotlin.generators.tests.GenerateJava8TestsKt")
+val generateKotlinUseSiteFromJavaOnesForJspecifyTests by generator("org.jetbrains.kotlin.generators.tests.GenerateKotlinUseSitesFromJavaOnesForJspecifyTestsKt")
+
+task<Exec>("downloadJspecifyTests") {
+    val tmpDirPath = createTempDir().absolutePath
+    doFirst {
+        executable("git")
+        args("clone", "https://github.com/jspecify/jspecify/", tmpDirPath)
+    }
+    doLast {
+        copy {
+            from("$tmpDirPath/samples")
+            into("${project.rootDir}/compiler/testData/foreignAnnotationsJava8/tests/jspecify/java")
+        }
+    }
+}
+
+val test: Test by tasks
+
+test.apply {
+    exclude("**/*JspecifyAnnotationsTestGenerated*")
+}
+
+task<Test>("jspecifyTests") {
+    workingDir(project.rootDir)
+    include("**/*JspecifyAnnotationsTestGenerated*")
+}
 
 testsJar()

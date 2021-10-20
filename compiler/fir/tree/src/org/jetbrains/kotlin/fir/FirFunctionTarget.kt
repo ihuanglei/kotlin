@@ -6,7 +6,17 @@
 package org.jetbrains.kotlin.fir
 
 import org.jetbrains.kotlin.fir.declarations.FirFunction
+import org.jetbrains.kotlin.fir.symbols.impl.FirFunctionSymbol
 
 class FirFunctionTarget(
-    labelName: String?
-) : FirAbstractTarget<FirFunction<*>>(labelName)
+    labelName: String?,
+    val isLambda: Boolean
+) : FirAbstractTarget<FirFunction>(labelName) {
+    private lateinit var targetSymbol: FirFunctionSymbol<*>
+
+    override var _labeledElement: FirFunction
+        get() = targetSymbol.fir
+        set(value) {
+            targetSymbol = value.symbol
+        }
+}

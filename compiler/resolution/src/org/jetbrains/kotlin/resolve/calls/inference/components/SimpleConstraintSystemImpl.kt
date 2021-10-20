@@ -21,19 +21,21 @@ import org.jetbrains.kotlin.descriptors.TypeParameterDescriptor
 import org.jetbrains.kotlin.resolve.calls.components.ClassicTypeSystemContextForCS
 import org.jetbrains.kotlin.resolve.calls.inference.ConstraintSystemBuilder
 import org.jetbrains.kotlin.resolve.calls.inference.model.NewConstraintSystemImpl
+import org.jetbrains.kotlin.resolve.calls.inference.model.SimpleConstraintSystemConstraintPosition
 import org.jetbrains.kotlin.resolve.calls.inference.model.TypeVariableFromCallableDescriptor
 import org.jetbrains.kotlin.resolve.calls.inference.substitute
 import org.jetbrains.kotlin.resolve.calls.results.SimpleConstraintSystem
 import org.jetbrains.kotlin.types.TypeConstructorSubstitution
-import org.jetbrains.kotlin.types.checker.requireOrDescribe
-import org.jetbrains.kotlin.types.model.KotlinTypeMarker
-import org.jetbrains.kotlin.types.model.TypeParameterMarker
-import org.jetbrains.kotlin.types.model.TypeSubstitutorMarker
-import org.jetbrains.kotlin.types.model.TypeSystemInferenceExtensionContext
+import org.jetbrains.kotlin.types.checker.KotlinTypeRefiner
+import org.jetbrains.kotlin.types.model.*
 import org.jetbrains.kotlin.types.typeUtil.asTypeProjection
 
-class SimpleConstraintSystemImpl(constraintInjector: ConstraintInjector, builtIns: KotlinBuiltIns) : SimpleConstraintSystem {
-    val system = NewConstraintSystemImpl(constraintInjector, ClassicTypeSystemContextForCS(builtIns))
+class SimpleConstraintSystemImpl(
+    constraintInjector: ConstraintInjector,
+    builtIns: KotlinBuiltIns,
+    kotlinTypeRefiner: KotlinTypeRefiner
+) : SimpleConstraintSystem {
+    val system = NewConstraintSystemImpl(constraintInjector, ClassicTypeSystemContextForCS(builtIns, kotlinTypeRefiner))
     val csBuilder: ConstraintSystemBuilder =
         system.getBuilder()
 
@@ -60,8 +62,7 @@ class SimpleConstraintSystemImpl(constraintInjector: ConstraintInjector, builtIn
         csBuilder.addSubtypeConstraint(
             subType,
             superType,
-            @Suppress("DEPRECATION")
-            org.jetbrains.kotlin.resolve.calls.inference.model.SimpleConstraintSystemConstraintPosition
+            SimpleConstraintSystemConstraintPosition
         )
     }
 

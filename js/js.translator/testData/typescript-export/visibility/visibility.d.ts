@@ -3,18 +3,32 @@ declare namespace JS_TESTS {
     interface publicInterface {
     }
     const publicVal: number;
-    function publicFun(): number
+    function publicFun(): number;
     class publicClass {
-        constructor()
+        constructor();
     }
     class Class {
-        constructor()
+        constructor();
+        protected readonly protectedVal: number;
+        protected protectedFun(): number;
+        protected static readonly protectedNestedObject: {
+        };
+        protected static readonly Companion: {
+            readonly companionObjectProp: number;
+        };
         readonly publicVal: number;
-        publicFun(): number
+        publicFun(): number;
     }
     namespace Class {
+        class protectedClass {
+            constructor();
+        }
+        class classWithProtectedConstructors {
+            protected constructor();
+            protected static createWithString(arg: string): Class.classWithProtectedConstructors;
+        }
         class publicClass {
-            constructor()
+            constructor();
         }
     }
 }

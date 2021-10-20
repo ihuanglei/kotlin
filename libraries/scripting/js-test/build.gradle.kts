@@ -1,27 +1,26 @@
-
 plugins {
     kotlin("jvm")
 }
 
-jvmTarget = "1.6"
-
 val embeddableTestRuntime by configurations.creating
 
 dependencies {
-    testCompile(commonDep("junit"))
+    testApi(commonDep("junit"))
 
-    testCompile(project(":kotlin-scripting-js"))
-    testCompile(project(":compiler:plugin-api"))
-    testCompile(project(":kotlin-scripting-compiler"))
-    testCompile(project(":compiler:cli"))
-    testCompile(project(":compiler:backend.js"))
-    testCompile(project(":js:js.engines"))
-    testCompile(intellijCoreDep()) { includeJars("intellij-core") }
+    testApi(project(":kotlin-scripting-js"))
+    testApi(project(":compiler:plugin-api"))
+    testApi(project(":kotlin-scripting-compiler"))
+    testApi(project(":compiler:cli"))
+    testApi(project(":compiler:backend.js"))
+    testApi(project(":compiler:ir.tree.impl"))
+    testApi(project(":js:js.engines"))
+    testApi(intellijCoreDep()) { includeJars("intellij-core") }
     testRuntimeOnly(intellijCoreDep()) { includeJars("intellij-core") }
     testRuntimeOnly(intellijDep()) {
-        includeJars("openapi", "idea", "idea_rt", "log4j", "picocontainer", "guava", "jdom", rootProject = rootProject)
+        includeJars("idea", "idea_rt", "log4j", "guava", "jdom", rootProject = rootProject)
     }
     testRuntimeOnly(commonDep("org.jetbrains.intellij.deps", "trove4j"))
+    testRuntimeOnly(intellijDep()) { includeJars("intellij-deps-fastutil-8.4.1-4") }
 }
 
 sourceSets {
@@ -30,5 +29,7 @@ sourceSets {
 }
 
 projectTest(parallel = true) {
+    dependsOn(":kotlin-stdlib-js-ir:compileKotlinJs")
+    systemProperty("kotlin.js.full.stdlib.path", "libraries/stdlib/js-ir/build/classes/kotlin/js/main")
     workingDir = rootDir
 }

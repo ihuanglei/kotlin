@@ -37,11 +37,13 @@ public class JavaPropertyDescriptor extends PropertyDescriptorImpl implements Ja
     @Nullable
     private final Pair<UserDataKey<?>, ?> singleUserData;
 
+    private KotlinType inType = null;
+
     protected JavaPropertyDescriptor(
             @NotNull DeclarationDescriptor containingDeclaration,
             @NotNull Annotations annotations,
             @NotNull Modality modality,
-            @NotNull Visibility visibility,
+            @NotNull DescriptorVisibility visibility,
             boolean isVar,
             @NotNull Name name,
             @NotNull SourceElement source,
@@ -62,7 +64,7 @@ public class JavaPropertyDescriptor extends PropertyDescriptorImpl implements Ja
             @NotNull DeclarationDescriptor containingDeclaration,
             @NotNull Annotations annotations,
             @NotNull Modality modality,
-            @NotNull Visibility visibility,
+            @NotNull DescriptorVisibility visibility,
             boolean isVar,
             @NotNull Name name,
             @NotNull SourceElement source,
@@ -78,7 +80,7 @@ public class JavaPropertyDescriptor extends PropertyDescriptorImpl implements Ja
     protected PropertyDescriptorImpl createSubstitutedCopy(
             @NotNull DeclarationDescriptor newOwner,
             @NotNull Modality newModality,
-            @NotNull Visibility newVisibility,
+            @NotNull DescriptorVisibility newVisibility,
             @Nullable PropertyDescriptor original,
             @NotNull Kind kind,
             @NotNull Name newName,
@@ -99,7 +101,7 @@ public class JavaPropertyDescriptor extends PropertyDescriptorImpl implements Ja
     @Override
     public JavaCallableMemberDescriptor enhance(
             @Nullable KotlinType enhancedReceiverType,
-            @NotNull List<ValueParameterData> enhancedValueParametersData,
+            @NotNull List<KotlinType> enhancedValueParameterTypes,
             @NotNull KotlinType enhancedReturnType,
             @Nullable Pair<UserDataKey<?>, ?> additionalUserData
     ) {
@@ -170,6 +172,18 @@ public class JavaPropertyDescriptor extends PropertyDescriptorImpl implements Ja
         KotlinType type = getType();
         return isStaticFinal && ConstUtil.canBeUsedForConstVal(type) &&
                (!TypeEnhancementKt.hasEnhancedNullability(type) || KotlinBuiltIns.isString(type));
+    }
+
+    @Override
+    public void setInType(@NotNull KotlinType inType) {
+        this.inType = inType;
+    }
+
+    @Override
+    public @Nullable KotlinType getInType() {
+        PropertySetterDescriptor setter = getSetter();
+        KotlinType setterType = setter != null ? setter.getValueParameters().get(0).getType() : null;
+        return setterType != null ? setterType : inType;
     }
 
     @Nullable

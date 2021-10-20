@@ -23,12 +23,14 @@ import org.jetbrains.kotlin.name.Name
 import org.jetbrains.kotlin.psi.*
 import org.jetbrains.kotlin.resolve.BindingTrace
 import org.jetbrains.kotlin.resolve.calls.components.InferenceSession
+import org.jetbrains.kotlin.resolve.descriptorUtil.fqNameSafe
 import org.jetbrains.kotlin.resolve.lazy.LazyClassContext
 import org.jetbrains.kotlin.resolve.lazy.declarations.AbstractPsiBasedDeclarationProvider
 import org.jetbrains.kotlin.resolve.lazy.declarations.DeclarationProvider
 import org.jetbrains.kotlin.resolve.scopes.DescriptorKindFilter
 import org.jetbrains.kotlin.resolve.scopes.LexicalScope
 import org.jetbrains.kotlin.resolve.scopes.MemberScopeImpl
+import org.jetbrains.kotlin.resolve.source.KotlinSourceElement
 import org.jetbrains.kotlin.storage.MemoizedFunctionToNotNull
 import org.jetbrains.kotlin.storage.StorageManager
 import org.jetbrains.kotlin.utils.Printer
@@ -50,7 +52,7 @@ protected constructor(
     private val propertyDescriptors: MemoizedFunctionToNotNull<Name, Collection<PropertyDescriptor>> =
         storageManager.createMemoizedFunction { doGetProperties(it) }
     private val typeAliasDescriptors: MemoizedFunctionToNotNull<Name, Collection<TypeAliasDescriptor>> =
-        storageManager.createMemoizedFunction { doGetTypeAliases(it) }
+        storageManager.createMemoizedFunction( { doGetTypeAliases(it) }, onRecursiveCall = { _,_ -> emptyList() })
 
     private val declaredFunctionDescriptors: MemoizedFunctionToNotNull<Name, Collection<SimpleFunctionDescriptor>> =
         storageManager.createMemoizedFunction { getDeclaredFunctions(it) }
@@ -83,6 +85,9 @@ protected constructor(
         for (typeAlias in typeAliases) {
             if (!typeAlias.isExpect) return typeAlias
             if (result == null) result = typeAlias
+        }
+        if ((result?.source as? KotlinSourceElement)?.psi?.isValid == false) {
+            throw AssertionError("PSI is invalidated for contributed classifier ${result.fqNameSafe}")
         }
         return result
     }
@@ -117,7 +122,8 @@ protected constructor(
                     getScopeForMemberDeclarationResolution(functionDeclaration),
                     functionDeclaration,
                     trace,
-                    c.declarationScopeProvider.getOuterDataFlowInfoForDeclaration(functionDeclaration)
+                    c.declarationScopeProvider.getOuterDataFlowInfoForDeclaration(functionDeclaration),
+                    c.inferenceSession
                 )
             )
         }
@@ -206,6 +212,15 @@ protected constructor(
         }.toList()
     }
 
+    protected open fun collectDescriptorsFromDestructingDeclaration(
+        result: MutableSet<DeclarationDescriptor>,
+        declaration: KtDestructuringDeclaration,
+        nameFilter: (Name) -> Boolean,
+        location: LookupLocation,
+    ) {
+        // MultiDeclarations are not supported on global level by default
+    }
+
     protected fun computeDescriptorsFromDeclaredElements(
         kindFilter: DescriptorKindFilter,
         nameFilter: (Name) -> Boolean,
@@ -252,7 +267,7 @@ protected constructor(
                     }
                 }
                 is KtDestructuringDeclaration -> {
-                    // MultiDeclarations are not supported on global level
+                    collectDescriptorsFromDestructingDeclaration(result, declaration, nameFilter, location)
                 }
                 else -> throw IllegalArgumentException("Unsupported declaration kind: " + declaration)
             }

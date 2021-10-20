@@ -20,8 +20,9 @@ import org.jetbrains.kotlin.codegen.generateAsCast
 import org.jetbrains.kotlin.codegen.generateIsCheck
 import org.jetbrains.kotlin.codegen.intrinsics.IntrinsicMethods
 import org.jetbrains.kotlin.codegen.optimization.common.intConstant
+import org.jetbrains.kotlin.codegen.state.GenerationState
 import org.jetbrains.kotlin.config.LanguageVersionSettings
-import org.jetbrains.kotlin.config.isReleaseCoroutines
+import org.jetbrains.kotlin.name.Name
 import org.jetbrains.kotlin.resolve.jvm.AsmTypes
 import org.jetbrains.kotlin.types.KotlinType
 import org.jetbrains.kotlin.types.TypeSystemCommonBackendContext
@@ -52,7 +53,8 @@ class ReifiedTypeInliner<KT : KotlinTypeMarker>(
     private val parametersMapping: TypeParameterMappings<KT>?,
     private val intrinsicsSupport: IntrinsicsSupport<KT>,
     private val typeSystem: TypeSystemCommonBackendContext,
-    private val languageVersionSettings: LanguageVersionSettings
+    private val languageVersionSettings: LanguageVersionSettings,
+    private val unifiedNullChecks: Boolean,
 ) {
     enum class OperationKind {
         NEW_ARRAY, AS, SAFE_AS, IS, JAVA_CLASS, ENUM_REIFIED, TYPE_OF;
@@ -61,9 +63,19 @@ class ReifiedTypeInliner<KT : KotlinTypeMarker>(
     }
 
     interface IntrinsicsSupport<KT : KotlinTypeMarker> {
+        val state: GenerationState
+
         fun putClassInstance(v: InstructionAdapter, type: KT)
 
+        fun generateTypeParameterContainer(v: InstructionAdapter, typeParameter: TypeParameterMarker)
+
+        fun isMutableCollectionType(type: KT): Boolean
+
         fun toKotlinType(type: KT): KotlinType
+
+        fun checkAnnotatedType(type: KT)
+        fun reportSuspendTypeUnsupported()
+        fun reportNonReifiedTypeParameterWithRecursiveBoundUnsupported(typeParameterName: Name)
     }
 
     companion object {
@@ -219,10 +231,14 @@ class ReifiedTypeInliner<KT : KotlinTypeMarker>(
         if (stubCheckcast !is TypeInsnNode) return false
 
         val newMethodNode = MethodNode(Opcodes.API_VERSION)
-        generateAsCast(InstructionAdapter(newMethodNode), kotlinType, asmType, safe, languageVersionSettings)
+        generateAsCast(InstructionAdapter(newMethodNode), kotlinType, asmType, safe, unifiedNullChecks)
 
         instructions.insert(insn, newMethodNode.instructions)
-        instructions.remove(stubCheckcast)
+        // Keep stubCheckcast to avoid VerifyErrors on 1.8+ bytecode,
+        // it's safe to remove cast to Object as FrameMap will use it as default value for merged branches
+        if (stubCheckcast.desc == AsmTypes.OBJECT_TYPE.internalName) {
+            instructions.remove(stubCheckcast)
+        }
 
         // TODO: refine max stack calculation (it's not always as big as +4)
         maxStackSize = max(maxStackSize, 4)
@@ -239,7 +255,7 @@ class ReifiedTypeInliner<KT : KotlinTypeMarker>(
         if (stubInstanceOf !is TypeInsnNode) return false
 
         val newMethodNode = MethodNode(Opcodes.API_VERSION)
-        generateIsCheck(InstructionAdapter(newMethodNode), kotlinType, asmType, languageVersionSettings.isReleaseCoroutines())
+        generateIsCheck(InstructionAdapter(newMethodNode), kotlinType, asmType)
 
         instructions.insert(insn, newMethodNode.instructions)
         instructions.remove(stubInstanceOf)
@@ -254,13 +270,18 @@ class ReifiedTypeInliner<KT : KotlinTypeMarker>(
         instructions: InsnList,
         type: KT
     ) = rewriteNextTypeInsn(insn, Opcodes.ACONST_NULL) { stubConstNull: AbstractInsnNode ->
-        val newMethodNode = MethodNode(Opcodes.API_VERSION)
-        val stackSize = typeSystem.generateTypeOf(InstructionAdapter(newMethodNode), type, intrinsicsSupport)
+        val newMethodNode = MethodNode(Opcodes.API_VERSION, "fake", "()V", null, null)
+        val mv = wrapWithMaxLocalCalc(newMethodNode)
+        typeSystem.generateTypeOf(InstructionAdapter(mv), type, intrinsicsSupport)
 
-        instructions.insert(insn, newMethodNode.instructions)
+        // Adding a fake return (and removing it below) to trigger maxStack calculation
+        mv.visitInsn(Opcodes.RETURN)
+        mv.visitMaxs(-1, -1)
+
+        instructions.insert(insn, newMethodNode.instructions.apply { remove(last) })
         instructions.remove(stubConstNull)
 
-        maxStackSize = max(maxStackSize, stackSize)
+        maxStackSize = max(maxStackSize, newMethodNode.maxStack)
         return true
     }
 

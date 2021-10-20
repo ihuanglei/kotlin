@@ -1,9 +1,11 @@
-// IGNORE_BACKEND_FIR: JVM_IR
 // TARGET_BACKEND: JVM
+// WITH_RUNTIME
 
 // FILE: a.kt
 
-inline class IC(val v: Int) {
+@Suppress("OPTIONAL_DECLARATION_USAGE_IN_NON_COMMON_SOURCE")
+@kotlin.jvm.JvmInline
+value class IC(val v: Int) {
     fun <T> getT(): T? = null
 }
 

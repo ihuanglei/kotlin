@@ -1,11 +1,12 @@
-// !LANGUAGE: +InlineClasses
-// IGNORE_BACKEND_FIR: JVM_IR
+// WITH_RUNTIME
 
 interface Base {
     fun result(): Int
 }
 
-inline class Inlined(val x: Int) : Base {
+@Suppress("OPTIONAL_DECLARATION_USAGE_IN_NON_COMMON_SOURCE")
+@kotlin.jvm.JvmInline
+value class Inlined(val x: Int) : Base {
     override fun result(): Int = x
 }
 

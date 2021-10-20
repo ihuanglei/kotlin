@@ -1,10 +1,12 @@
 /*
- * Copyright 2010-2019 JetBrains s.r.o. and Kotlin Programming Language contributors.
+ * Copyright 2010-2021 JetBrains s.r.o. and Kotlin Programming Language contributors.
  * Use of this source code is governed by the Apache 2.0 license that can be found in the license/LICENSE.txt file.
  */
 
 package org.jetbrains.kotlin.asJava.classes
 
+import com.intellij.openapi.util.TextRange
+import com.intellij.openapi.util.registry.Registry
 import com.intellij.psi.*
 import com.intellij.psi.impl.InheritanceImplUtil
 import com.intellij.psi.impl.PsiClassImplUtil
@@ -13,7 +15,6 @@ import com.intellij.psi.impl.light.LightMethodBuilder
 import com.intellij.psi.util.CachedValue
 import com.intellij.psi.util.CachedValueProvider
 import com.intellij.psi.util.CachedValuesManager
-import org.jetbrains.kotlin.asJava.UltraLightClassModifierExtension
 import org.jetbrains.kotlin.asJava.builder.LightClassData
 import org.jetbrains.kotlin.asJava.elements.KtLightField
 import org.jetbrains.kotlin.asJava.elements.KtLightMethod
@@ -21,35 +22,40 @@ import org.jetbrains.kotlin.asJava.elements.KtUltraLightModifierList
 import org.jetbrains.kotlin.backend.common.CodegenUtil
 import org.jetbrains.kotlin.backend.common.DataClassMethodGenerator
 import org.jetbrains.kotlin.builtins.KotlinBuiltIns
+import org.jetbrains.kotlin.builtins.StandardNames
 import org.jetbrains.kotlin.codegen.JvmCodegenUtil
 import org.jetbrains.kotlin.codegen.kotlinType
+import org.jetbrains.kotlin.config.JvmAnalysisFlags
 import org.jetbrains.kotlin.descriptors.ClassDescriptor
 import org.jetbrains.kotlin.descriptors.FunctionDescriptor
 import org.jetbrains.kotlin.descriptors.PropertyDescriptor
 import org.jetbrains.kotlin.descriptors.ValueParameterDescriptor
 import org.jetbrains.kotlin.lexer.KtTokens.*
 import org.jetbrains.kotlin.load.java.JvmAbi
+import org.jetbrains.kotlin.load.java.JvmAnnotationNames
 import org.jetbrains.kotlin.load.kotlin.TypeMappingMode
 import org.jetbrains.kotlin.name.FqName
+import org.jetbrains.kotlin.name.JvmNames.JVM_OVERLOADS_FQ_NAME
+import org.jetbrains.kotlin.name.JvmNames.JVM_RECORD_ANNOTATION_FQ_NAME
 import org.jetbrains.kotlin.psi.*
+import org.jetbrains.kotlin.resolve.BindingContext
 import org.jetbrains.kotlin.resolve.DelegationResolver
 import org.jetbrains.kotlin.resolve.DescriptorToSourceUtils
 import org.jetbrains.kotlin.resolve.annotations.JVM_STATIC_ANNOTATION_FQ_NAME
 import org.jetbrains.kotlin.resolve.annotations.argumentValue
 import org.jetbrains.kotlin.resolve.constants.EnumValue
-import org.jetbrains.kotlin.resolve.jvm.annotations.JVM_OVERLOADS_FQ_NAME
+import org.jetbrains.kotlin.resolve.jvm.diagnostics.JvmDeclarationOriginKind
 import org.jetbrains.kotlin.types.KotlinType
 import org.jetbrains.kotlin.types.typeUtil.isAnyOrNullableAny
 
 open class KtUltraLightClass(classOrObject: KtClassOrObject, internal val support: KtUltraLightSupport) :
-    KtLightClassImpl(classOrObject) {
+    KtLightClassImpl(classOrObject, support.languageVersionSettings.getFlag(JvmAnalysisFlags.jvmDefaultMode)) {
 
     private class KtUltraLightClassModifierList(
         private val containingClass: KtLightClassForSourceDeclaration,
-        private val support: KtUltraLightSupport,
+        support: KtUltraLightSupport,
         private val computeModifiers: () -> Set<String>
-    ) :
-        KtUltraLightModifierList<KtLightClassForSourceDeclaration>(containingClass, support) {
+    ) : KtUltraLightModifierList<KtLightClassForSourceDeclaration>(containingClass, support) {
         private val modifiers by lazyPub { computeModifiers() }
 
         override fun hasModifierProperty(name: String): Boolean =
@@ -97,7 +103,7 @@ open class KtUltraLightClass(classOrObject: KtClassOrObject, internal val suppor
 
     override fun createImplementsList(): PsiReferenceList? = createInheritanceList(forExtendsList = false)
 
-    private fun createInheritanceList(forExtendsList: Boolean): PsiReferenceList? {
+    private fun createInheritanceList(forExtendsList: Boolean): PsiReferenceList {
 
         val role = if (forExtendsList) PsiReferenceList.Role.EXTENDS_LIST else PsiReferenceList.Role.IMPLEMENTS_LIST
 
@@ -185,7 +191,7 @@ open class KtUltraLightClass(classOrObject: KtClassOrObject, internal val suppor
                     membersBuilder.generateUniqueFieldName(companion.name.orEmpty(), usedNames),
                     this,
                     support,
-                    setOf(PsiModifier.STATIC, PsiModifier.FINAL, PsiModifier.PUBLIC)
+                    setOf(PsiModifier.STATIC, PsiModifier.FINAL, companion.simpleVisibility())
                 )
             )
 
@@ -226,7 +232,7 @@ open class KtUltraLightClass(classOrObject: KtClassOrObject, internal val suppor
             }
         }
 
-        if (isNamedObject()) {
+        if (isNamedObject() && !this.classOrObject.isLocal) {
             result.add(
                 KtUltraLightFieldForSourceDeclaration(
                     this.classOrObject,
@@ -279,7 +285,8 @@ open class KtUltraLightClass(classOrObject: KtClassOrObject, internal val suppor
                     parameter.isMutable,
                     forceStatic = false,
                     onlyJvmStatic = false,
-                    createAsAnnotationMethod = isAnnotationType
+                    createAsAnnotationMethod = isAnnotationType,
+                    isJvmRecord = classOrObject.hasAnnotation(JVM_RECORD_ANNOTATION_FQ_NAME),
                 )
             )
         }
@@ -332,15 +339,22 @@ open class KtUltraLightClass(classOrObject: KtClassOrObject, internal val suppor
 
     private fun addMethodsFromDataClass(result: MutableList<KtLightMethod>) {
         if (!classOrObject.hasModifier(DATA_KEYWORD)) return
+        val ktClass = classOrObject as? KtClass ?: return
         val descriptor = classOrObject.resolve() as? ClassDescriptor ?: return
         val bindingContext = classOrObject.analyze()
 
         // Force resolving data class members set
         descriptor.unsubstitutedMemberScope.getContributedDescriptors()
 
+        val areCtorParametersAreAnalyzed = ktClass.primaryConstructorParameters
+            .filter { it.hasValOrVar() }
+            .all { bindingContext.get(BindingContext.PRIMARY_CONSTRUCTOR_PARAMETER, it) != null }
+
+        if (!areCtorParametersAreAnalyzed) return
+
         object : DataClassMethodGenerator(classOrObject, bindingContext) {
             private fun addFunction(descriptor: FunctionDescriptor, declarationForOrigin: KtDeclaration? = null) {
-                result.add(createGeneratedMethodFromDescriptor(descriptor, declarationForOrigin))
+                result.add(createGeneratedMethodFromDescriptor(descriptor, JvmDeclarationOriginKind.OTHER, declarationForOrigin))
             }
 
             override fun generateComponentFunction(function: FunctionDescriptor, parameter: ValueParameterDescriptor) {
@@ -386,9 +400,17 @@ open class KtUltraLightClass(classOrObject: KtClassOrObject, internal val suppor
             when (delegate) {
 
                 is PropertyDescriptor -> delegate.accessors.mapTo(result) {
-                    createGeneratedMethodFromDescriptor(it)
+                    createGeneratedMethodFromDescriptor(
+                        descriptor = it,
+                        declarationOriginKindForOrigin = JvmDeclarationOriginKind.DELEGATION
+                    )
                 }
-                is FunctionDescriptor -> result.add(createGeneratedMethodFromDescriptor(delegate))
+                is FunctionDescriptor -> result.add(
+                    createGeneratedMethodFromDescriptor(
+                        descriptor = delegate,
+                        declarationOriginKindForOrigin = JvmDeclarationOriginKind.DELEGATION
+                    )
+                )
             }
         }
     }
@@ -404,7 +426,7 @@ open class KtUltraLightClass(classOrObject: KtClassOrObject, internal val suppor
         }
         val primary = classOrObject.primaryConstructor
         if (primary != null && shouldGenerateNoArgOverload(primary)) {
-            result.add(noArgConstructor(primary.simpleVisibility(), primary))
+            result.add(noArgConstructor(primary.simpleVisibility(), primary, METHOD_INDEX_FOR_NO_ARG_OVERLOAD_CTOR))
         }
         return result
     }
@@ -426,15 +448,20 @@ open class KtUltraLightClass(classOrObject: KtClassOrObject, internal val suppor
                 classOrObject is KtEnumEntry -> PsiModifier.PACKAGE_LOCAL
                 else -> PsiModifier.PUBLIC
             }
-        return noArgConstructor(visibility, classOrObject)
+        return noArgConstructor(visibility, classOrObject, METHOD_INDEX_FOR_DEFAULT_CTOR)
     }
 
-    private fun noArgConstructor(visibility: String, declaration: KtDeclaration): KtUltraLightMethod =
+    private fun noArgConstructor(
+        visibility: String,
+        declaration: KtDeclaration,
+        methodIndex: Int
+    ): KtUltraLightMethod =
         KtUltraLightMethodForSourceDeclaration(
             LightMethodBuilder(manager, language, name.orEmpty()).setConstructor(true).addModifier(visibility),
             declaration,
             support,
-            this
+            this,
+            methodIndex
         )
 
     private fun isHiddenByDeprecation(declaration: KtDeclaration): Boolean {
@@ -456,9 +483,16 @@ open class KtUltraLightClass(classOrObject: KtClassOrObject, internal val suppor
     override fun getInitializers(): Array<PsiClassInitializer> = emptyArray()
 
     override fun getContainingClass(): PsiClass? {
+
         val containingBody = classOrObject.parent as? KtClassBody
         val containingClass = containingBody?.parent as? KtClassOrObject
-        return containingClass?.let { create(it) }
+        containingClass?.let { return create(it, jvmDefaultMode) }
+
+        val containingBlock = classOrObject.parent as? KtBlockExpression
+        val containingScript = containingBlock?.parent as? KtScript
+        containingScript?.let { return KtLightClassForScript.create(it) }
+
+        return null
     }
 
     override fun getParent(): PsiElement? = containingClass ?: containingFile
@@ -471,4 +505,24 @@ open class KtUltraLightClass(classOrObject: KtClassOrObject, internal val suppor
     override fun isDeprecated(): Boolean = _deprecated
 
     override fun copy(): KtLightClassImpl = KtUltraLightClass(classOrObject.copy() as KtClassOrObject, support)
+
+    override fun getTextRange(): TextRange? {
+        if (Registry.`is`("kotlin.ultra.light.classes.empty.text.range", true)) {
+            return null
+        }
+
+        return super.getTextRange()
+    }
+
+    override fun getOwnInnerClasses(): List<PsiClass> = super.getOwnInnerClasses().let { superOwnInnerClasses ->
+        if (shouldGenerateRepeatableAnnotationContainer) {
+            superOwnInnerClasses + KtUltraLightClassForRepeatableAnnotationContainer(classOrObject, support)
+        } else
+            superOwnInnerClasses
+    }
+
+    private val shouldGenerateRepeatableAnnotationContainer: Boolean
+        get() = isAnnotationType &&
+                classOrObject.hasAnnotation(StandardNames.FqNames.repeatable) &&
+                !classOrObject.hasAnnotation(JvmAnnotationNames.REPEATABLE_ANNOTATION)
 }

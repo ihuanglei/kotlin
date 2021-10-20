@@ -13,12 +13,15 @@ import org.jetbrains.kotlin.checkers.setupLanguageVersionSettingsForCompilerTest
 import org.jetbrains.kotlin.cli.jvm.compiler.EnvironmentConfigFiles
 import org.jetbrains.kotlin.cli.jvm.compiler.KotlinCoreEnvironment
 import org.jetbrains.kotlin.codegen.GenerationUtils
+import org.jetbrains.kotlin.config.JVMConfigurationKeys
 import org.jetbrains.kotlin.jvm.compiler.AbstractLoadJavaTest
 import org.jetbrains.kotlin.kotlinp.Kotlinp
 import org.jetbrains.kotlin.kotlinp.KotlinpSettings
 import org.jetbrains.kotlin.test.ConfigurationKind
+import org.jetbrains.kotlin.test.InTextDirectivesUtils
 import org.jetbrains.kotlin.test.KotlinTestUtils
 import org.jetbrains.kotlin.test.TestJdkKind
+import org.jetbrains.kotlin.test.util.KtTestUtil
 import java.io.File
 import kotlin.test.fail
 
@@ -63,7 +66,7 @@ fun compileAndPrintAllFiles(file: File, disposable: Disposable, tmpdir: File, co
         KotlinTestUtils.assertEqualsToFile(File(file.path.replace(".kt", ".txt")), main.toString())
     }
 
-    if (readWriteAndCompare) {
+    if (readWriteAndCompare && InTextDirectivesUtils.findStringWithPrefixes(file.readText(), "// NO_READ_WRITE_COMPARE") == null) {
         assertEquals("Metadata is different after transformation with visitors.", main.toString(), afterVisitors.toString())
         assertEquals("Metadata is different after transformation with nodes.", main.toString(), afterNodes.toString())
     }
@@ -72,10 +75,11 @@ fun compileAndPrintAllFiles(file: File, disposable: Disposable, tmpdir: File, co
 private fun compile(file: File, disposable: Disposable, tmpdir: File, forEachOutputFile: (File) -> Unit) {
     val content = file.readText()
     val configuration = KotlinTestUtils.newConfiguration(ConfigurationKind.ALL, TestJdkKind.MOCK_JDK)
+    configuration.put(JVMConfigurationKeys.IR, true)
     AbstractLoadJavaTest.updateConfigurationWithDirectives(content, configuration)
     val environment = KotlinCoreEnvironment.createForTests(disposable, configuration, EnvironmentConfigFiles.JVM_CONFIG_FILES)
     setupLanguageVersionSettingsForCompilerTests(content, environment)
-    val ktFile = KotlinTestUtils.createFile(file.name, content, environment.project)
+    val ktFile = KtTestUtil.createFile(file.name, content, environment.project)
     GenerationUtils.compileFileTo(ktFile, environment, tmpdir)
 
     for (outputFile in tmpdir.walkTopDown().sortedBy { it.nameWithoutExtension }) {
@@ -86,8 +90,8 @@ private fun compile(file: File, disposable: Disposable, tmpdir: File, forEachOut
 }
 
 private fun StringBuilder.appendFileName(file: File) {
-    appendln("// ${file.invariantSeparatorsPath}")
-    appendln("// ------------------------------------------")
+    appendLine("// ${file.invariantSeparatorsPath}")
+    appendLine("// ------------------------------------------")
 }
 
 // Reads the class file and writes it back with *Writer visitors.

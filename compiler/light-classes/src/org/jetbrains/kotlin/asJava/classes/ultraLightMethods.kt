@@ -1,5 +1,5 @@
 /*
- * Copyright 2010-2019 JetBrains s.r.o. and Kotlin Programming Language contributors.
+ * Copyright 2010-2021 JetBrains s.r.o. and Kotlin Programming Language contributors.
  * Use of this source code is governed by the Apache 2.0 license that can be found in the license/LICENSE.txt file.
  */
 
@@ -10,6 +10,7 @@ import com.intellij.psi.impl.PsiImplUtil
 import com.intellij.psi.impl.PsiSuperMethodImplUtil
 import com.intellij.psi.impl.light.LightMethodBuilder
 import com.intellij.psi.impl.light.LightTypeParameterListBuilder
+import com.intellij.psi.util.MethodSignature
 import com.intellij.psi.util.MethodSignatureBackedByPsiMethod
 import org.jetbrains.kotlin.asJava.builder.LightMemberOrigin
 import org.jetbrains.kotlin.asJava.builder.LightMemberOriginForDeclaration
@@ -17,21 +18,34 @@ import org.jetbrains.kotlin.asJava.builder.MemberIndex
 import org.jetbrains.kotlin.asJava.elements.KtLightAbstractAnnotation
 import org.jetbrains.kotlin.asJava.elements.KtLightMethodImpl
 import org.jetbrains.kotlin.codegen.FunctionCodegen
+import org.jetbrains.kotlin.config.LanguageVersionSettingsImpl
 import org.jetbrains.kotlin.descriptors.ConstructorDescriptor
 import org.jetbrains.kotlin.descriptors.FunctionDescriptor
 import org.jetbrains.kotlin.load.java.BuiltinMethodsWithSpecialGenericSignature.getSpecialSignatureInfo
+import org.jetbrains.kotlin.load.java.descriptors.JavaMethodDescriptor
 import org.jetbrains.kotlin.load.kotlin.TypeMappingMode
 import org.jetbrains.kotlin.psi.KtDeclaration
 import org.jetbrains.kotlin.psi.KtFunction
 import org.jetbrains.kotlin.psi.KtProperty
 import org.jetbrains.kotlin.psi.KtTypeParameterListOwner
+import org.jetbrains.kotlin.resolve.DescriptorUtils
 import org.jetbrains.kotlin.resolve.jvm.diagnostics.JvmDeclarationOriginKind
+import org.jetbrains.kotlin.types.RawType
+
+const val METHOD_INDEX_FOR_GETTER = 1
+const val METHOD_INDEX_FOR_SETTER = 2
+const val METHOD_INDEX_FOR_DEFAULT_CTOR = 3
+const val METHOD_INDEX_FOR_NO_ARG_OVERLOAD_CTOR = 4
+const val METHOD_INDEX_FOR_NON_ORIGIN_METHOD = 5
+const val METHOD_INDEX_FOR_SCRIPT_MAIN = 6
+const val METHOD_INDEX_BASE = 7
 
 internal abstract class KtUltraLightMethod(
     internal val delegate: PsiMethod,
     lightMemberOrigin: LightMemberOrigin?,
     protected val support: KtUltraLightSupport,
-    containingClass: KtLightClass
+    containingClass: KtLightClass,
+    private val methodIndex: Int
 ) : KtLightMethodImpl(
     { delegate },
     lightMemberOrigin,
@@ -48,7 +62,7 @@ internal abstract class KtUltraLightMethod(
         val builder = KtUltraLightThrowsReferenceListBuilder(parentMethod = this)
 
         if (methodDescriptor !== null) {
-            for (ex in FunctionCodegen.getThrownExceptions(methodDescriptor)) {
+            for (ex in FunctionCodegen.getThrownExceptions(methodDescriptor, LanguageVersionSettingsImpl.DEFAULT)) {
                 val psiClassType = ex.defaultType.asPsiType(support, TypeMappingMode.DEFAULT, builder) as? PsiClassType
                 psiClassType ?: continue
                 builder.addReference(psiClassType)
@@ -59,10 +73,23 @@ internal abstract class KtUltraLightMethod(
     }
 
     protected fun computeCheckNeedToErasureParametersTypes(methodDescriptor: FunctionDescriptor?): Boolean {
-        return methodDescriptor
-            ?.getSpecialSignatureInfo()
-            ?.let { it.valueParametersSignature !== null }
-            ?: false
+
+        if (methodDescriptor == null) return false
+
+        val hasSpecialSignatureInfo = methodDescriptor.getSpecialSignatureInfo()
+            ?.let { it.valueParametersSignature != null } ?: false
+        if (hasSpecialSignatureInfo) return true
+
+        // Workaround for KT-32245 that checks if this signature could be affected by KT-38406
+        if (!DescriptorUtils.isOverride(methodDescriptor)) return false
+
+        val hasStarProjectionParameterType = methodDescriptor.valueParameters
+            .any { parameter -> parameter.type.arguments.any { it.isStarProjection } }
+        if (!hasStarProjectionParameterType) return false
+
+        return methodDescriptor.overriddenDescriptors
+            .filterIsInstance<JavaMethodDescriptor>()
+            .any { it.valueParameters.any { parameter -> parameter.type is RawType } }
     }
 
     abstract override fun buildTypeParameterList(): PsiTypeParameterList
@@ -104,9 +131,18 @@ internal abstract class KtUltraLightMethod(
     override fun findSuperMethods(parentClass: PsiClass?): Array<out PsiMethod> =
         PsiSuperMethodImplUtil.findSuperMethods(this, parentClass)
 
-    override fun equals(other: Any?): Boolean = this === other
+    override fun getSignature(substitutor: PsiSubstitutor): MethodSignature =
+        MethodSignatureBackedByPsiMethod.create(this, substitutor)
 
-    override fun hashCode(): Int = name.hashCode()
+    override fun equals(other: Any?): Boolean = other === this ||
+            other is KtUltraLightMethod &&
+            other.methodIndex == methodIndex &&
+            other.delegate == delegate &&
+            super.equals(other)
+
+    override fun hashCode(): Int = super.hashCode()
+        .times(31).plus(delegate.hashCode())
+        .times(31).plus(methodIndex.hashCode())
 
     override fun isDeprecated(): Boolean = _deprecated
 }
@@ -116,19 +152,29 @@ internal class KtUltraLightMethodForSourceDeclaration(
     lightMemberOrigin: LightMemberOrigin?,
     support: KtUltraLightSupport,
     containingClass: KtLightClass,
-    private val forceToSkipNullabilityAnnotation: Boolean = false
+    private val forceToSkipNullabilityAnnotation: Boolean = false,
+    methodIndex: Int
 ) : KtUltraLightMethod(
     delegate,
     lightMemberOrigin,
     support,
-    containingClass
+    containingClass,
+    methodIndex
 ) {
     constructor(
         delegate: PsiMethod,
         declaration: KtDeclaration,
         support: KtUltraLightSupport,
-        containingClass: KtLightClass
-    ) : this(delegate, LightMemberOriginForDeclaration(declaration, JvmDeclarationOriginKind.OTHER), support, containingClass)
+        containingClass: KtLightClass,
+        methodIndex: Int
+    ) : this(
+        delegate,
+        LightMemberOriginForDeclaration(declaration, JvmDeclarationOriginKind.OTHER),
+        support,
+        containingClass,
+        forceToSkipNullabilityAnnotation = false,
+        methodIndex
+    )
 
     override val qualifiedNameForNullabilityAnnotation: String?
         get() {
@@ -149,6 +195,13 @@ internal class KtUltraLightMethodForSourceDeclaration(
     override fun getThrowsList(): PsiReferenceList = _throwsList
 
     override val checkNeedToErasureParametersTypes: Boolean by lazyPub { computeCheckNeedToErasureParametersTypes(methodDescriptor) }
+
+    override fun equals(other: Any?): Boolean =
+        other is KtUltraLightMethodForSourceDeclaration &&
+                other.forceToSkipNullabilityAnnotation == forceToSkipNullabilityAnnotation &&
+                super.equals(other)
+
+    override fun hashCode(): Int = super.hashCode() * 31 + forceToSkipNullabilityAnnotation.hashCode()
 }
 
 internal class KtUltraLightMethodForDescriptor(
@@ -161,7 +214,8 @@ internal class KtUltraLightMethodForDescriptor(
     delegate,
     lightMemberOrigin,
     support,
-    containingClass
+    containingClass,
+    METHOD_INDEX_FOR_NON_ORIGIN_METHOD
 ) {
     // This is greedy realization of UL class.
     // This means that all data that depends on descriptor evaluated in ctor so the descriptor will be released on the end.
@@ -209,7 +263,7 @@ internal class KtUltraLightMethodForDescriptor(
             delegate.isConstructor = true
             PsiType.VOID
         } else {
-            support.mapType(this) { typeMapper, signatureWriter ->
+            support.mapType(methodDescriptor.returnType, this) { typeMapper, signatureWriter ->
                 typeMapper.mapReturnType(methodDescriptor, signatureWriter)
             }
         }

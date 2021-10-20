@@ -35,6 +35,7 @@ import org.jetbrains.kotlin.name.FqName;
 import org.jetbrains.kotlin.name.Name;
 import org.jetbrains.kotlin.psi.*;
 import org.jetbrains.kotlin.resolve.*;
+import org.jetbrains.kotlin.resolve.calls.components.InferenceSession;
 import org.jetbrains.kotlin.resolve.checkers.PlatformDiagnosticSuppressor;
 import org.jetbrains.kotlin.resolve.extensions.SyntheticResolveExtension;
 import org.jetbrains.kotlin.resolve.lazy.declarations.DeclarationProviderFactory;
@@ -42,6 +43,7 @@ import org.jetbrains.kotlin.resolve.lazy.declarations.PackageMemberDeclarationPr
 import org.jetbrains.kotlin.resolve.lazy.descriptors.LazyAnnotations;
 import org.jetbrains.kotlin.resolve.lazy.descriptors.LazyAnnotationsContextImpl;
 import org.jetbrains.kotlin.resolve.lazy.descriptors.LazyPackageDescriptor;
+import org.jetbrains.kotlin.resolve.sam.SamConversionResolver;
 import org.jetbrains.kotlin.resolve.scopes.LexicalScope;
 import org.jetbrains.kotlin.resolve.scopes.MemberScope;
 import org.jetbrains.kotlin.storage.*;
@@ -83,6 +85,10 @@ public class ResolveSession implements KotlinCodeAnalyzer, LazyClassContext {
     private DelegationFilter delegationFilter;
     private WrappedTypeFactory wrappedTypeFactory;
     private PlatformDiagnosticSuppressor platformDiagnosticSuppressor;
+    private SamConversionResolver samConversionResolver;
+    private SealedClassInheritorsProvider sealedClassInheritorsProvider;
+
+    private AdditionalClassPartsProvider additionalClassPartsProvider;
 
     private final SyntheticResolveExtension syntheticResolveExtension;
 
@@ -150,6 +156,21 @@ public class ResolveSession implements KotlinCodeAnalyzer, LazyClassContext {
         this.platformDiagnosticSuppressor = platformDiagnosticSuppressor;
     }
 
+    @Inject
+    public void setSamConversionResolver(@NotNull SamConversionResolver samConversionResolver) {
+        this.samConversionResolver = samConversionResolver;
+    }
+
+    @Inject
+    public void setAdditionalClassPartsProvider(@NotNull AdditionalClassPartsProvider additionalClassPartsProvider) {
+        this.additionalClassPartsProvider = additionalClassPartsProvider;
+    }
+
+    @Inject
+    public void setSealedClassInheritorsProvider(@NotNull SealedClassInheritorsProvider sealedClassInheritorsProvider) {
+        this.sealedClassInheritorsProvider = sealedClassInheritorsProvider;
+    }
+
     // Only calls from injectors expected
     @Deprecated
     public ResolveSession(
@@ -172,7 +193,23 @@ public class ResolveSession implements KotlinCodeAnalyzer, LazyClassContext {
 
         this.declarationProviderFactory = declarationProviderFactory;
 
-        this.packageFragmentProvider = new PackageFragmentProvider() {
+        this.packageFragmentProvider = new PackageFragmentProviderOptimized() {
+            @Override
+            public void collectPackageFragments(
+                    @NotNull FqName fqName, @NotNull Collection<PackageFragmentDescriptor> packageFragments
+            ) {
+                LazyPackageDescriptor fragment = getPackageFragment(fqName);
+                if (fragment != null) {
+                    packageFragments.add(fragment);
+                }
+            }
+
+            @Override
+            public boolean isEmpty(@NotNull FqName fqName) {
+                PackageMemberDeclarationProvider provider = declarationProviderFactory.getPackageMemberDeclarationProvider(fqName);
+                return provider == null;
+            }
+
             @NotNull
             @Override
             public List<PackageFragmentDescriptor> getPackageFragments(@NotNull FqName fqName) {
@@ -474,7 +511,32 @@ public class ResolveSession implements KotlinCodeAnalyzer, LazyClassContext {
 
     @NotNull
     @Override
-    public NewKotlinTypeChecker getKotlinTypeChecker() {
+    public NewKotlinTypeChecker getKotlinTypeCheckerOfOwnerModule() {
         return kotlinTypeChecker;
+    }
+
+    @NotNull
+    @Override
+    public SamConversionResolver getSamConversionResolver() {
+        return samConversionResolver;
+    }
+
+    @NotNull
+    @Override
+    public AdditionalClassPartsProvider getAdditionalClassPartsProvider() {
+        return additionalClassPartsProvider;
+    }
+
+    @NotNull
+    @Override
+    public SealedClassInheritorsProvider getSealedClassInheritorsProvider() {
+        return sealedClassInheritorsProvider;
+    }
+
+    // TODO: get inference session, otherwise, for instance, builder inference session is lost here
+    @Nullable
+    @Override
+    public InferenceSession getInferenceSession() {
+        return null;
     }
 }

@@ -17,6 +17,9 @@
 package org.jetbrains.kotlin.gradle
 
 import com.intellij.testFramework.TestDataPath
+import org.gradle.api.logging.LogLevel
+import org.gradle.api.logging.configuration.WarningMode
+import org.jetbrains.kotlin.gradle.internals.KOTLIN_12X_MPP_DEPRECATION_WARNING
 import org.jetbrains.kotlin.gradle.plugin.EXPECTED_BY_CONFIG_NAME
 import org.jetbrains.kotlin.gradle.plugin.IMPLEMENT_CONFIG_NAME
 import org.jetbrains.kotlin.gradle.plugin.IMPLEMENT_DEPRECATION_WARNING
@@ -35,6 +38,9 @@ class MultiplatformGradleIT : BaseGradleIT() {
 
         project.build("build") {
             assertSuccessful()
+
+            assertContains(KOTLIN_12X_MPP_DEPRECATION_WARNING)
+
             assertTasksExecuted(
                 ":lib:compileKotlinCommon",
                 ":lib:compileTestKotlinCommon",
@@ -49,6 +55,13 @@ class MultiplatformGradleIT : BaseGradleIT() {
             assertFileExists("libJvm/build/classes/kotlin/test/foo/PlatformTest.class")
             assertFileExists("libJs/build/classes/kotlin/main/libJs.js")
             assertFileExists("libJs/build/classes/kotlin/test/libJs_test.js")
+        }
+
+        project.projectDir.resolve("gradle.properties").appendText("\nkotlin.internal.mpp12x.deprecation.suppress=true")
+        project.build {
+            assertSuccessful()
+
+            assertNotContains(KOTLIN_12X_MPP_DEPRECATION_WARNING)
         }
     }
 
@@ -111,7 +124,10 @@ class MultiplatformGradleIT : BaseGradleIT() {
                 File(projectDir, "$subDirectory/build.gradle").modify {
                     """
                     buildscript {
-                        repositories { mavenLocal(); jcenter() }
+                        repositories { 
+                             mavenLocal();
+                             maven { url = uri("https://jcenter.bintray.com/") }
+                        }
                         dependencies {
                             classpath "org.jetbrains.kotlin:kotlin-gradle-plugin:${'$'}kotlin_version"
                         }
@@ -164,7 +180,7 @@ class MultiplatformGradleIT : BaseGradleIT() {
 
     @Test
     fun testMultipleCommonModules(): Unit = with(Project("multiplatformMultipleCommonModules")) {
-        build("build") {
+        build("build", options = defaultBuildOptions().copy(warningMode = WarningMode.Summary)) {
             assertSuccessful()
 
             val sourceSets = listOf("", "Test")
@@ -215,7 +231,7 @@ class MultiplatformGradleIT : BaseGradleIT() {
             ${'\n'}
             task printCompileConfiguration(type: DefaultTask) {
                 doFirst {
-                    configurations.compile.resolvedConfiguration.resolvedArtifacts.each {
+                    configurations.getByName("api").dependencies.each {
                         println("Dependency: '" + it.name + "'")
                     }
                 }
@@ -276,10 +292,6 @@ class MultiplatformGradleIT : BaseGradleIT() {
             gradleBuildScript(module).appendText(sourceSetDeclaration)
         }
 
-        gradleBuildScript("libJvm").appendText(
-            "\ndependencies { ${sourceSetName}Compile \"org.jetbrains.kotlin:kotlin-stdlib:${"$"}kotlin_version\" }"
-        )
-
         listOf(
             "expect fun foo(): String" to "lib/src/$sourceSetName/kotlin",
             "actual fun foo(): String = \"jvm\"" to "libJvm/src/$sourceSetName/kotlin",
@@ -294,9 +306,45 @@ class MultiplatformGradleIT : BaseGradleIT() {
         val customSourceSetCompileTasks = listOf(":lib" to "Common", ":libJs" to "2Js", ":libJvm" to "")
             .map { (module, platform) -> "$module:compile${sourceSetName.capitalize()}Kotlin$platform" }
 
-        build(*customSourceSetCompileTasks.toTypedArray()) {
+        build(*customSourceSetCompileTasks.toTypedArray(), options = defaultBuildOptions().copy(warningMode = WarningMode.Summary)) {
             assertSuccessful()
             assertTasksExecuted(customSourceSetCompileTasks)
+        }
+    }
+
+    @Test
+    fun testWithJavaDuplicatedResourcesFail() = with(
+        Project(
+            projectName = "mpp-single-jvm-target",
+            gradleVersionRequirement = GradleVersionRequired.AtLeast("7.0"),
+            minLogLevel = LogLevel.WARN
+        )
+    ) {
+        setupWorkingDir()
+
+        gradleBuildScript().modify { buildFileContent ->
+            buildFileContent
+                .lines()
+                .joinToString(separator = "\n") {
+                    if (it.contains("jvm()")) {
+                        "jvm { withJava() }"
+                    } else {
+                        it
+                    }
+                }
+        }
+
+        val resDir = projectDir.resolve("src/jvmMain/resources").also { it.mkdirs() }
+        resDir.resolve("test.properties").writeText(
+            """
+            one=true
+            two=false
+            """.trimIndent()
+        )
+
+        build("assemble") {
+            assertSuccessful()
+            assertNotContains("no duplicate handling strategy has been set")
         }
     }
 }

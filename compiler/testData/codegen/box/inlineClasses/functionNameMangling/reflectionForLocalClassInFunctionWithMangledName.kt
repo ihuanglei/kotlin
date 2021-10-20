@@ -1,10 +1,10 @@
-// !LANGUAGE: +InlineClasses
-// IGNORE_BACKEND_FIR: JVM_IR
 // TARGET_BACKEND: JVM
 // WITH_REFLECT
 import kotlin.test.*
 
-inline class S(val string: String)
+@Suppress("OPTIONAL_DECLARATION_USAGE_IN_NON_COMMON_SOURCE")
+@kotlin.jvm.JvmInline
+value class S(val string: String)
 
 fun test(s: S) {
     class Local

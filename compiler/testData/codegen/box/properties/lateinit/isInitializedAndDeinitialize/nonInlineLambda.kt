@@ -1,11 +1,12 @@
-// IGNORE_BACKEND_FIR: JVM_IR
 // WITH_RUNTIME
+
+fun <T> eval(fn: () -> T) = fn()
 
 class Foo {
     private lateinit var foo: String
 
     fun test(): Boolean {
-        val result = { ::foo.isInitialized }()
+        val result = eval { ::foo.isInitialized }
         foo = ""
         return result
     }

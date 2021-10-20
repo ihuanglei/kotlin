@@ -38,6 +38,9 @@ var KmClass.file: KlibSourceFile?
         klibExtensions.file = value
     }
 
+val KmClass.klibEnumEntries: MutableList<KlibEnumEntry>
+    get() = klibExtensions.enumEntries
+
 val KmProperty.annotations: MutableList<KmAnnotation>
     get() = klibExtensions.annotations
 
@@ -59,7 +62,7 @@ var KmProperty.file: Int?
         klibExtensions.file = value
     }
 
-var KmProperty.compileTimeValue: KmAnnotationArgument<*>?
+var KmProperty.compileTimeValue: KmAnnotationArgument?
     get() = klibExtensions.compileTimeValue
     set(value) {
         klibExtensions.compileTimeValue = value

@@ -1,5 +1,4 @@
-// !LANGUAGE: +InlineClasses
-// IGNORE_BACKEND_FIR: JVM_IR
+// WITH_RUNTIME
 
 class Foo {
     var a: Int = 42
@@ -8,7 +7,9 @@ class Foo {
 
 var setterInvoked = 0
 
-inline class Delegate(val default: Int) {
+@Suppress("OPTIONAL_DECLARATION_USAGE_IN_NON_COMMON_SOURCE")
+@kotlin.jvm.JvmInline
+value class Delegate(val default: Int) {
 
     operator fun getValue(thisRef: Any?, prop: Any?) =
         (thisRef as? Foo)?.a ?: default

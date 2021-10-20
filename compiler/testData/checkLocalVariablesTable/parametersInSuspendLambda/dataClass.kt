@@ -1,4 +1,3 @@
-// IGNORE_BACKEND: JVM_IR
 // WITH_RUNTIME
 data class Data(val x: String, val y: Int)
 
@@ -13,6 +12,7 @@ suspend fun foo(data: Data, body: suspend (Data) -> Unit) {
 }
 
 // METHOD : DataClassKt$test$2.invokeSuspend(Ljava/lang/Object;)Ljava/lang/Object;
+
 // VARIABLE : NAME=$dstr$x_param$y_param TYPE=LData; INDEX=2
 // VARIABLE : NAME=x_param TYPE=Ljava/lang/String; INDEX=3
 // VARIABLE : NAME=y_param TYPE=I INDEX=4

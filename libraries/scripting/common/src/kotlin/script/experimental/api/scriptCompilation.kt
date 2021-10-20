@@ -7,6 +7,7 @@
 
 package kotlin.script.experimental.api
 
+import java.io.File
 import java.io.Serializable
 import kotlin.reflect.KClass
 import kotlin.script.experimental.host.ScriptingHostConfiguration
@@ -107,6 +108,17 @@ val ScriptCompilationConfigurationKeys.implicitReceivers by PropertiesCollection
 val ScriptCompilationConfigurationKeys.providedProperties by PropertiesCollection.key<Map<String, KotlinType>>() // external variables
 
 /**
+ * Variable name that holds a {@link File} instance pointing to the location of the script file
+ */
+val ScriptCompilationConfigurationKeys.scriptFileLocationVariable by PropertiesCollection.key<String>()
+
+/**
+ * File pointing to the location of the script file. Note that in some cases it might not be possible
+ * to determine script file location properly - in this case the file is an empty file
+ */
+val ScriptCompilationConfigurationKeys.scriptFileLocation by PropertiesCollection.key<File>()
+
+/**
  * The list of import expressions that will be implicitly applied to the script body, the syntax is the same as for the "import" statement
  */
 val ScriptCompilationConfigurationKeys.defaultImports by PropertiesCollection.key<List<String>>()
@@ -148,7 +160,7 @@ val ScriptCompilationConfigurationKeys.refineConfigurationOnAnnotations by Prope
 val ScriptCompilationConfigurationKeys.refineConfigurationBeforeCompiling by PropertiesCollection.key<List<RefineConfigurationUnconditionallyData>>(isTransient = true)
 
 /**
- * The list of script fragments that should be compiled intead of the whole text
+ * The list of script fragments that should be compiled instead of the whole text
  * (for use primary with the refinement callbacks)
  */
 val ScriptCompilationConfigurationKeys.sourceFragments by PropertiesCollection.key<List<ScriptSourceNamedFragment>>()
@@ -317,13 +329,13 @@ interface ScriptCompiler {
     suspend operator fun invoke(
         script: SourceCode,
         scriptCompilationConfiguration: ScriptCompilationConfiguration
-    ): ResultWithDiagnostics<CompiledScript<*>>
+    ): ResultWithDiagnostics<CompiledScript>
 }
 
 /**
  * The interface to the compiled script
  */
-interface CompiledScript<out ScriptBase : Any> {
+interface CompiledScript {
 
     /**
      * The location identifier for the script source, taken from SourceCode.locationId
@@ -346,7 +358,7 @@ interface CompiledScript<out ScriptBase : Any> {
     /**
      * The scripts compiled along with this one in one module, imported or otherwise included into compilation
      */
-    val otherScripts: List<CompiledScript<*>>
+    val otherScripts: List<CompiledScript>
         get() = emptyList()
 
     /**

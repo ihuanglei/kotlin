@@ -21,11 +21,14 @@ public class JsToStringGenerationVisitor extends JsVisitor {
     private static final char[] CHARS_BREAK = "break".toCharArray();
     private static final char[] CHARS_CASE = "case".toCharArray();
     private static final char[] CHARS_CATCH = "catch".toCharArray();
+    private static final char[] CHARS_CLASS = "class".toCharArray();
+    private static final char[] CHARS_CONSTRUCTOR = "constructor".toCharArray();
     private static final char[] CHARS_CONTINUE = "continue".toCharArray();
     private static final char[] CHARS_DEBUGGER = "debugger".toCharArray();
     private static final char[] CHARS_DEFAULT = "default".toCharArray();
     private static final char[] CHARS_DO = "do".toCharArray();
     private static final char[] CHARS_ELSE = "else".toCharArray();
+    private static final char[] CHARS_EXTENDS = "extends".toCharArray();
     private static final char[] CHARS_FALSE = "false".toCharArray();
     private static final char[] CHARS_FINALLY = "finally".toCharArray();
     private static final char[] CHARS_FOR = "for".toCharArray();
@@ -435,6 +438,7 @@ public class JsToStringGenerationVisitor extends JsVisitor {
         _colon();
 
         popSourceInfo();
+        newlineOpt();
 
         sourceLocationConsumer.pushSourceInfo(null);
         printSwitchMemberStatements(x);
@@ -609,6 +613,14 @@ public class JsToStringGenerationVisitor extends JsVisitor {
 
         p.print(CHARS_FUNCTION);
         space();
+
+        printFunction(x);
+
+        popSourceInfo();
+    }
+
+    // name(<params>) { <body> }
+    private void printFunction(@NotNull JsFunction x) {
         if (x.getName() != null) {
             nameOf(x);
         }
@@ -630,6 +642,50 @@ public class JsToStringGenerationVisitor extends JsVisitor {
         sourceLocationConsumer.popSourceInfo();
 
         needSemi = true;
+    }
+
+    @Override
+    public void visitClass(@NotNull JsClass x) {
+        pushSourceInfo(x.getSource());
+
+        p.print(CHARS_CLASS);
+        space();
+        if (x.getName() != null) {
+            nameOf(x);
+        }
+
+        if (x.getBaseClass() != null) {
+            space();
+            p.print(CHARS_EXTENDS);
+            space();
+            accept(x.getBaseClass());
+        }
+
+        space();
+
+        if (x.getConstructor() == null && x.getMembers().isEmpty()) {
+            p.print("{}");
+            newline();
+        } else {
+            blockOpen();
+
+            if (x.getConstructor() != null) {
+                p.print(CHARS_CONSTRUCTOR);
+                x.getConstructor().setName(null);
+                printFunction(x.getConstructor());
+                // TODO newLineOpt ?
+                newline();
+            }
+
+            for (JsFunction m : x.getMembers()) {
+                printFunction(m);
+                newline();
+            }
+
+            blockClose();
+        }
+
+        needSemi = false;
 
         popSourceInfo();
     }
@@ -653,7 +709,7 @@ public class JsToStringGenerationVisitor extends JsVisitor {
         }
         nestedPush(thenStmt);
 
-        if (thenStmt instanceof JsBlock) {
+        if (thenStmt instanceof JsBlock && elseStatement != null) {
             lineBreakAfterBlock = false;
         }
 
@@ -1116,6 +1172,69 @@ public class JsToStringGenerationVisitor extends JsVisitor {
             newline();
         }
     }
+
+    @Override
+    public void visitExport(@NotNull JsExport export) {
+        p.print("export");
+        space();
+        JsExport.Subject subject = export.getSubject();
+
+        if (subject instanceof JsExport.Subject.All) {
+            p.print("*");
+        } else if (subject instanceof JsExport.Subject.Elements) {
+            blockOpen();
+            List<JsExport.Element> elements = ((JsExport.Subject.Elements) subject).getElements();
+            for (JsExport.Element element : elements) {
+                nameDef(element.getName());
+                JsName alias = element.getAlias();
+                if (alias != null) {
+                    p.print(" as ");
+                    nameDef(alias);
+                }
+                p.print(',');
+                p.newline();
+            }
+            p.indentOut();
+            p.print('}');
+        }
+
+        if (export.getFromModule() != null) {
+            p.print(" from ");
+            p.print(javaScriptString(export.getFromModule()));
+        }
+        needSemi = true;
+    }
+
+    @Override
+    public void visitImport(@NotNull JsImport jsImport) {
+        p.print("import {");
+        boolean isMultiline = jsImport.getElements().size() > 1;
+        p.indentIn();
+        if (isMultiline)
+            newlineOpt();
+        else
+            space();
+
+        for (JsImport.Element element : jsImport.getElements()) {
+            nameDef(element.getName());
+            JsName alias = element.getAlias();
+            if (alias != null) {
+                p.print(" as ");
+                nameDef(alias);
+            }
+
+            if (isMultiline) {
+                p.print(',');
+                newlineOpt();
+            } else {
+                space();
+            }
+        }
+        p.indentOut();
+        p.print("} from ");
+        p.print(javaScriptString(jsImport.getModule()));
+    }
+
 
     private void newline() {
         p.newline();

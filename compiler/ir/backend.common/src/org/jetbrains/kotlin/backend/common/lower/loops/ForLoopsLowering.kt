@@ -5,20 +5,22 @@
 
 package org.jetbrains.kotlin.backend.common.lower.loops
 
+import org.jetbrains.kotlin.backend.common.BodyLoweringPass
 import org.jetbrains.kotlin.backend.common.CommonBackendContext
-import org.jetbrains.kotlin.backend.common.FileLoweringPass
 import org.jetbrains.kotlin.backend.common.IrElementTransformerVoidWithContext
 import org.jetbrains.kotlin.backend.common.lower.createIrBuilder
 import org.jetbrains.kotlin.backend.common.phaser.makeIrFilePhase
+import org.jetbrains.kotlin.ir.IrElement
 import org.jetbrains.kotlin.ir.IrStatement
+import org.jetbrains.kotlin.ir.declarations.IrDeclaration
 import org.jetbrains.kotlin.ir.declarations.IrDeclarationOrigin
-import org.jetbrains.kotlin.ir.declarations.IrFile
+import org.jetbrains.kotlin.ir.declarations.IrSymbolOwner
 import org.jetbrains.kotlin.ir.declarations.IrVariable
 import org.jetbrains.kotlin.ir.expressions.*
 import org.jetbrains.kotlin.ir.expressions.impl.IrCompositeImpl
 import org.jetbrains.kotlin.ir.util.dump
-import org.jetbrains.kotlin.ir.visitors.IrElementTransformerVoid
-import org.jetbrains.kotlin.ir.visitors.transformChildrenVoid
+import org.jetbrains.kotlin.ir.util.render
+import org.jetbrains.kotlin.ir.visitors.*
 
 val forLoopsPhase = makeIrFilePhase(
     ::ForLoopsLowering,
@@ -95,15 +97,18 @@ val forLoopsPhase = makeIrFilePhase(
  *   }
  * ```
  */
-class ForLoopsLowering(val context: CommonBackendContext) : FileLoweringPass {
+class ForLoopsLowering(
+    val context: CommonBackendContext,
+    private val loopBodyTransformer: ForLoopBodyTransformer? = null
+) : BodyLoweringPass {
 
-    override fun lower(irFile: IrFile) {
+    override fun lower(irBody: IrBody, container: IrDeclaration) {
         val oldLoopToNewLoop = mutableMapOf<IrLoop, IrLoop>()
-        val transformer = RangeLoopTransformer(context, oldLoopToNewLoop)
-        irFile.transformChildrenVoid(transformer)
+        val transformer = RangeLoopTransformer(context, container as IrSymbolOwner, oldLoopToNewLoop, loopBodyTransformer)
+        irBody.transformChildrenVoid(transformer)
 
         // Update references in break/continue.
-        irFile.transformChildrenVoid(object : IrElementTransformerVoid() {
+        irBody.transformChildrenVoid(object : IrElementTransformerVoid() {
             override fun visitBreakContinue(jump: IrBreakContinue): IrExpression {
                 oldLoopToNewLoop[jump.loop]?.let { jump.loop = it }
                 return jump
@@ -112,16 +117,31 @@ class ForLoopsLowering(val context: CommonBackendContext) : FileLoweringPass {
     }
 }
 
+/**
+ * Abstract class for additional for-loop bodies transformations.
+ */
+abstract class ForLoopBodyTransformer : IrElementTransformerVoid() {
+
+    abstract fun transform(
+        context: CommonBackendContext,
+        loopBody: IrExpression,
+        loopVariable: IrVariable,
+        forLoopHeader: ForLoopHeader,
+        loopComponents: Map<Int, IrVariable>
+    )
+}
+
 private class RangeLoopTransformer(
     val context: CommonBackendContext,
-    val oldLoopToNewLoop: MutableMap<IrLoop, IrLoop>
+    val container: IrSymbolOwner,
+    val oldLoopToNewLoop: MutableMap<IrLoop, IrLoop>,
+    val loopBodyTransformer: ForLoopBodyTransformer? = null
 ) : IrElementTransformerVoidWithContext() {
 
-    private val symbols = context.ir.symbols
     private val headerInfoBuilder = DefaultHeaderInfoBuilder(context, this::getScopeOwnerSymbol)
     private val headerProcessor = HeaderProcessor(context, headerInfoBuilder, this::getScopeOwnerSymbol)
 
-    fun getScopeOwnerSymbol() = currentScope!!.scope.scopeOwnerSymbol
+    fun getScopeOwnerSymbol() = currentScope?.scope?.scopeOwnerSymbol ?: container.symbol
 
     override fun visitBlock(expression: IrBlock): IrExpression {
         // LoopExpressionGenerator in psi2ir lowers `for (loopVar in <someIterable>) { // Loop body }` into an IrBlock with origin FOR_LOOP.
@@ -143,26 +163,30 @@ private class RangeLoopTransformer(
             return super.visitBlock(expression)  // Not a for-loop block.
         }
 
-        with(expression.statements) {
-            assert(size == 2) { "Expected 2 statements in for-loop block, was:\n${expression.dump()}" }
-            val iteratorVariable = get(0) as IrVariable
-            assert(iteratorVariable.origin == IrDeclarationOrigin.FOR_LOOP_ITERATOR) { "Expected FOR_LOOP_ITERATOR origin for iterator variable, was:\n${iteratorVariable.dump()}" }
-            val loopHeader = headerProcessor.extractHeader(iteratorVariable)
-                ?: return super.visitBlock(expression)  // The iterable in the header is not supported.
-            val loweredHeader = lowerHeader(iteratorVariable, loopHeader)
-
-            val oldLoop = get(1) as IrWhileLoop
-            assert(oldLoop.origin == IrStatementOrigin.FOR_LOOP_INNER_WHILE) { "Expected FOR_LOOP_INNER_WHILE origin for while loop, was:\n${oldLoop.dump()}" }
-            val (newLoop, loopReplacementExpression) = lowerWhileLoop(oldLoop, loopHeader)
-                ?: return super.visitBlock(expression)  // Cannot lower the loop.
-
-            // We can lower both the header and while loop.
-            // Update mapping from old to new loop so we can later update references in break/continue.
-            oldLoopToNewLoop[oldLoop] = newLoop
-
-            set(0, loweredHeader)
-            set(1, loopReplacementExpression)
+        val statements = expression.statements
+        assert(statements.size == 2) { "Expected 2 statements in for-loop block, was:\n${expression.dump()}" }
+        val iteratorVariable = statements[0] as IrVariable
+        assert(iteratorVariable.origin == IrDeclarationOrigin.FOR_LOOP_ITERATOR) {
+            "Expected FOR_LOOP_ITERATOR origin for iterator variable, was:\n${iteratorVariable.dump()}"
         }
+        val oldLoop = statements[1] as IrWhileLoop
+        assert(oldLoop.origin == IrStatementOrigin.FOR_LOOP_INNER_WHILE) {
+            "Expected FOR_LOOP_INNER_WHILE origin for while loop, was:\n${oldLoop.dump()}"
+        }
+
+        val loopHeader = headerProcessor.extractHeader(iteratorVariable)
+            ?: return super.visitBlock(expression)  // The iterable in the header is not supported.
+        val loweredHeader = lowerHeader(iteratorVariable, loopHeader)
+
+        val (newLoop, loopReplacementExpression) = lowerWhileLoop(oldLoop, loopHeader)
+            ?: return super.visitBlock(expression)  // Cannot lower the loop.
+
+        // We can lower both the header and while loop.
+        // Update mapping from old to new loop so we can later update references in break/continue.
+        oldLoopToNewLoop[oldLoop] = newLoop
+
+        statements[0] = loweredHeader
+        statements[1] = loopReplacementExpression
 
         return super.visitBlock(expression)
     }
@@ -187,9 +211,8 @@ private class RangeLoopTransformer(
 
     private fun lowerWhileLoop(loop: IrWhileLoop, loopHeader: ForLoopHeader): LoopReplacement? {
         val loopBodyStatements = (loop.body as? IrContainerExpression)?.statements ?: return null
-        val (mainLoopVariable, mainLoopVariableIndex, loopVariableComponents, loopVariableComponentIndices) = gatherLoopVariableInfo(
-            loopBodyStatements
-        )
+        val (mainLoopVariable, mainLoopVariableIndex, loopVariableComponents, loopVariableComponentIndices) =
+            gatherLoopVariableInfo(loopBodyStatements)
 
         if (loopHeader.consumesLoopVariableComponents && mainLoopVariable.origin != IrDeclarationOrigin.IR_TEMPORARY_VARIABLE) {
             // We determine if there is a destructuring declaration by checking if the main loop variable is temporary.
@@ -230,14 +253,14 @@ private class RangeLoopTransformer(
         //
         //   val i = inductionVariable  // For progressions, or `array[inductionVariable]` for arrays
         //   inductionVariable = inductionVariable + step
-        val initializer = mainLoopVariable.initializer as IrCall
+        val initializer = mainLoopVariable.initializer!!
         val replacement = with(context.createIrBuilder(getScopeOwnerSymbol(), initializer.startOffset, initializer.endOffset)) {
             IrCompositeImpl(
                 mainLoopVariable.startOffset,
                 mainLoopVariable.endOffset,
                 context.irBuiltIns.unitType,
                 IrStatementOrigin.FOR_LOOP_NEXT,
-                loopHeader.initializeIteration(mainLoopVariable, loopVariableComponents, symbols, this)
+                loopHeader.initializeIteration(mainLoopVariable, loopVariableComponents, this, this@RangeLoopTransformer.context)
             )
         }
 
@@ -258,6 +281,9 @@ private class RangeLoopTransformer(
                 it
             }
         }
+        if (newBody != null && loopBodyTransformer != null) {
+            loopBodyTransformer.transform(context, newBody, mainLoopVariable, loopHeader, loopVariableComponents)
+        }
 
         return loopHeader.buildLoop(context.createIrBuilder(getScopeOwnerSymbol(), loop.startOffset, loop.endOffset), loop, newBody)
     }
@@ -268,6 +294,35 @@ private class RangeLoopTransformer(
         val loopVariableComponents: Map<Int, IrVariable>,
         val loopVariableComponentIndices: List<Int>
     )
+
+    private class FindInitializerCallVisitor(private val mainLoopVariable: IrVariable?) : IrElementVisitorVoid {
+        var initializerCall: IrCall? = null
+
+        override fun visitElement(element: IrElement) {
+            element.acceptChildrenVoid(this)
+        }
+
+        override fun visitCall(expression: IrCall) {
+            val candidateCall = when (expression.origin) {
+                IrStatementOrigin.FOR_LOOP_NEXT -> expression
+                is IrStatementOrigin.COMPONENT_N ->
+                    if (mainLoopVariable != null && (expression.dispatchReceiver as? IrGetValue)?.symbol == mainLoopVariable.symbol) {
+                        expression
+                    } else {
+                        null
+                    }
+                else -> null
+            }
+
+            when {
+                candidateCall == null -> super.visitCall(expression)
+                initializerCall == null -> initializerCall = candidateCall
+                else -> throw IllegalStateException(
+                    "Multiple initializer calls found. First: ${initializerCall!!.render()}\nSecond: ${candidateCall.render()}"
+                )
+            }
+        }
+    }
 
     private fun gatherLoopVariableInfo(statements: MutableList<IrStatement>): LoopVariableInfo {
         // The "next" statement (at the top of the loop) looks something like:
@@ -288,19 +343,58 @@ private class RangeLoopTransformer(
         val loopVariableComponentIndices = mutableListOf<Int>()
         for ((i, stmt) in statements.withIndex()) {
             if (stmt !is IrVariable) continue
-            val initializer = stmt.initializer as? IrCall
+            val initializer = stmt.initializer?.let {
+                // The `next()` and `componentN()` calls could be wrapped in an IMPLICIT_NOTNULL type-cast when the iterator comes from Java
+                // and the iterator's type parameter has enhanced nullability information (either explicit or implicit). Therefore we need
+                // to traverse the initializer to find the `next()` or `componentN()` call. Example:
+                //
+                //   // In Java:
+                //   public static Collection<@NotNull String> collection() { /* ... */ }
+                //
+                //   // In Kotlin:
+                //   for ((i, s) in JavaClass.collection().withIndex()) {
+                //     println("$i: ${s.toUpperCase()}")   // NOTE: `s` is not nullable
+                //   }
+                //
+                // The variable declaration for `s` looks like this:
+                //
+                //   VAR name:s type:@[NotNull(...)] kotlin.String [val]
+                //     TYPE_OP type=@[NotNull(...)] kotlin.String origin=IMPLICIT_NOTNULL typeOperand=@[NotNull(...)] kotlin.String
+                //       CALL 'public final fun component2 (): T of ...IndexedValue [operator] declared in ...IndexedValue' type=@[NotNull(...)] kotlin.String origin=COMPONENT_N(index=2)
+                //         $this: GET_VAR 'val tmp1_loop_parameter: ...IndexedValue<@[NotNull(...)] kotlin.String> [val] declared in <root>.box' type=...IndexedValue<@[NotNull(...)] kotlin.String> origin=null
+                //
+                // Enhanced nullability information can be implicit if the Java function overrides a Kotlin function. Example:
+                //
+                //   // In Java:
+                //   public class AImpl implements A {
+                //     // NOTE: The array and String are both implicitly not nullable because they are not nullable in A.array()
+                //     @Override public String[] array() { return new String[0]; }
+                //   }
+                //
+                //   // In Kotlin
+                //   interface A {
+                //     fun array(): Array<String>
+                //   }
+                //   for (s in AImpl().array()) {
+                //     println(s.toUpperCase())   // NOTE: `s` is not nullable
+                //   }
+                //
+                // The variable declaration for `s` looks like this:
+                //
+                //   VAR name:s type:kotlin.String [val]
+                //     TYPE_OP type=kotlin.String origin=IMPLICIT_NOTNULL typeOperand=kotlin.String
+                //       CALL 'public abstract fun next (): T of ...Iterator [operator] declared in ...Iterator' type=kotlin.String origin=FOR_LOOP_NEXT
+                //         $this: GET_VAR 'val tmp0_iterator: ...Iterator<kotlin.String> [val] declared in <root>.box' type=...Iterator<kotlin.String> origin=null
+                FindInitializerCallVisitor(mainLoopVariable).apply { it.acceptVoid(this) }.initializerCall
+            }
             when (val origin = initializer?.origin) {
                 IrStatementOrigin.FOR_LOOP_NEXT -> {
                     mainLoopVariable = stmt
                     mainLoopVariableIndex = i
                 }
                 is IrStatementOrigin.COMPONENT_N -> {
-                    if (mainLoopVariable != null &&
-                        (initializer.dispatchReceiver as? IrGetValue)?.symbol == mainLoopVariable.symbol
-                    ) {
-                        loopVariableComponents[origin.index] = stmt
-                        loopVariableComponentIndices.add(i)
-                    }
+                    loopVariableComponents[origin.index] = stmt
+                    loopVariableComponentIndices.add(i)
                 }
             }
         }

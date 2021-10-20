@@ -1,4 +1,5 @@
-// IGNORE_BACKEND_FIR: JVM_IR
+fun <T> eval(fn: () -> T) = fn()
+
 class C {
     companion object {
         private val s: String
@@ -18,5 +19,5 @@ class C {
 }
 
 fun box(): String {
-    return C.foo() + {C.bar2(); C.foo2()}()
+    return C.foo() + eval { C.bar2(); C.foo2() }
 }

@@ -1,13 +1,16 @@
-// !LANGUAGE: +InlineClasses
-// IGNORE_BACKEND_FIR: JVM_IR
+// IGNORE_BACKEND: WASM
+// WASM_MUTE_REASON: IGNORED_IN_JS
 // IGNORE_BACKEND: JS, JS_IR, NATIVE
+// IGNORE_BACKEND: JS_IR_ES6
 // WITH_RUNTIME
 
 class CharacterLiteral(private val prefix: NamelessString, private val s: NamelessString) {
     override fun toString(): String = "$prefix'$s'"
 }
 
-inline class NamelessString(val b: ByteArray) {
+@Suppress("OPTIONAL_DECLARATION_USAGE_IN_NON_COMMON_SOURCE")
+@kotlin.jvm.JvmInline
+value class NamelessString(val b: ByteArray) {
     override fun toString(): String = String(b)
 }
 

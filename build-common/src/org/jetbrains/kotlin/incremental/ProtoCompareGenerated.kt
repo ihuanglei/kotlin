@@ -1,5 +1,5 @@
 /*
- * Copyright 2010-2018 JetBrains s.r.o.
+ * Copyright 2010-2020 JetBrains s.r.o. and Kotlin Programming Language contributors.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -13,6 +13,8 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
+
+@file:Suppress("UNUSED_PARAMETER")
 
 package org.jetbrains.kotlin.incremental
 
@@ -180,6 +182,21 @@ open class ProtoCompareGenerated(
 
         if (!checkEqualsClassSealedSubclassFqName(old, new)) return false
 
+        if (old.hasInlineClassUnderlyingPropertyName() != new.hasInlineClassUnderlyingPropertyName()) return false
+        if (old.hasInlineClassUnderlyingPropertyName()) {
+            if (!checkStringEquals(old.inlineClassUnderlyingPropertyName, new.inlineClassUnderlyingPropertyName)) return false
+        }
+
+        if (old.hasInlineClassUnderlyingType() != new.hasInlineClassUnderlyingType()) return false
+        if (old.hasInlineClassUnderlyingType()) {
+            if (!checkEquals(old.inlineClassUnderlyingType, new.inlineClassUnderlyingType)) return false
+        }
+
+        if (old.hasInlineClassUnderlyingTypeId() != new.hasInlineClassUnderlyingTypeId()) return false
+        if (old.hasInlineClassUnderlyingTypeId()) {
+            if (!checkEquals(oldTypeTable.getType(old.inlineClassUnderlyingTypeId), newTypeTable.getType(new.inlineClassUnderlyingTypeId))) return false
+        }
+
         if (!checkEqualsClassVersionRequirement(old, new)) return false
 
         if (old.hasVersionRequirementTable() != new.hasVersionRequirementTable()) return false
@@ -204,6 +221,11 @@ open class ProtoCompareGenerated(
         if (old.hasExtension(JvmProtoBuf.anonymousObjectOriginName) != new.hasExtension(JvmProtoBuf.anonymousObjectOriginName)) return false
         if (old.hasExtension(JvmProtoBuf.anonymousObjectOriginName)) {
             if (!checkStringEquals(old.getExtension(JvmProtoBuf.anonymousObjectOriginName), new.getExtension(JvmProtoBuf.anonymousObjectOriginName))) return false
+        }
+
+        if (old.hasExtension(JvmProtoBuf.jvmClassFlags) != new.hasExtension(JvmProtoBuf.jvmClassFlags)) return false
+        if (old.hasExtension(JvmProtoBuf.jvmClassFlags)) {
+            if (old.getExtension(JvmProtoBuf.jvmClassFlags) != new.getExtension(JvmProtoBuf.jvmClassFlags)) return false
         }
 
         if (old.getExtensionCount(JsProtoBuf.classAnnotation) != new.getExtensionCount(JsProtoBuf.classAnnotation)) {
@@ -259,11 +281,15 @@ open class ProtoCompareGenerated(
         TYPE_ALIAS_LIST,
         ENUM_ENTRY_LIST,
         SEALED_SUBCLASS_FQ_NAME_LIST,
+        INLINE_CLASS_UNDERLYING_PROPERTY_NAME,
+        INLINE_CLASS_UNDERLYING_TYPE,
+        INLINE_CLASS_UNDERLYING_TYPE_ID,
         VERSION_REQUIREMENT_LIST,
         VERSION_REQUIREMENT_TABLE,
         JVM_EXT_CLASS_MODULE_NAME,
         JVM_EXT_CLASS_LOCAL_VARIABLE_LIST,
         JVM_EXT_ANONYMOUS_OBJECT_ORIGIN_NAME,
+        JVM_EXT_JVM_CLASS_FLAGS,
         JS_EXT_CLASS_ANNOTATION_LIST,
         JS_EXT_CLASS_CONTAINING_FILE_ID,
         JAVA_EXT_IS_PACKAGE_PRIVATE_CLASS,
@@ -306,6 +332,21 @@ open class ProtoCompareGenerated(
 
         if (!checkEqualsClassSealedSubclassFqName(old, new)) result.add(ProtoBufClassKind.SEALED_SUBCLASS_FQ_NAME_LIST)
 
+        if (old.hasInlineClassUnderlyingPropertyName() != new.hasInlineClassUnderlyingPropertyName()) result.add(ProtoBufClassKind.INLINE_CLASS_UNDERLYING_PROPERTY_NAME)
+        if (old.hasInlineClassUnderlyingPropertyName()) {
+            if (!checkStringEquals(old.inlineClassUnderlyingPropertyName, new.inlineClassUnderlyingPropertyName)) result.add(ProtoBufClassKind.INLINE_CLASS_UNDERLYING_PROPERTY_NAME)
+        }
+
+        if (old.hasInlineClassUnderlyingType() != new.hasInlineClassUnderlyingType()) result.add(ProtoBufClassKind.INLINE_CLASS_UNDERLYING_TYPE)
+        if (old.hasInlineClassUnderlyingType()) {
+            if (!checkEquals(old.inlineClassUnderlyingType, new.inlineClassUnderlyingType)) result.add(ProtoBufClassKind.INLINE_CLASS_UNDERLYING_TYPE)
+        }
+
+        if (old.hasInlineClassUnderlyingTypeId() != new.hasInlineClassUnderlyingTypeId()) result.add(ProtoBufClassKind.INLINE_CLASS_UNDERLYING_TYPE_ID)
+        if (old.hasInlineClassUnderlyingTypeId()) {
+            if (!checkEquals(oldTypeTable.getType(old.inlineClassUnderlyingTypeId), newTypeTable.getType(new.inlineClassUnderlyingTypeId))) result.add(ProtoBufClassKind.INLINE_CLASS_UNDERLYING_TYPE_ID)
+        }
+
         if (!checkEqualsClassVersionRequirement(old, new)) result.add(ProtoBufClassKind.VERSION_REQUIREMENT_LIST)
 
         if (old.hasVersionRequirementTable() != new.hasVersionRequirementTable()) result.add(ProtoBufClassKind.VERSION_REQUIREMENT_TABLE)
@@ -330,6 +371,11 @@ open class ProtoCompareGenerated(
         if (old.hasExtension(JvmProtoBuf.anonymousObjectOriginName) != new.hasExtension(JvmProtoBuf.anonymousObjectOriginName)) result.add(ProtoBufClassKind.JVM_EXT_ANONYMOUS_OBJECT_ORIGIN_NAME)
         if (old.hasExtension(JvmProtoBuf.anonymousObjectOriginName)) {
             if (!checkStringEquals(old.getExtension(JvmProtoBuf.anonymousObjectOriginName), new.getExtension(JvmProtoBuf.anonymousObjectOriginName))) result.add(ProtoBufClassKind.JVM_EXT_ANONYMOUS_OBJECT_ORIGIN_NAME)
+        }
+
+        if (old.hasExtension(JvmProtoBuf.jvmClassFlags) != new.hasExtension(JvmProtoBuf.jvmClassFlags)) result.add(ProtoBufClassKind.JVM_EXT_JVM_CLASS_FLAGS)
+        if (old.hasExtension(JvmProtoBuf.jvmClassFlags)) {
+            if (old.getExtension(JvmProtoBuf.jvmClassFlags) != new.getExtension(JvmProtoBuf.jvmClassFlags)) result.add(ProtoBufClassKind.JVM_EXT_JVM_CLASS_FLAGS)
         }
 
         if (old.getExtensionCount(JsProtoBuf.classAnnotation) != new.getExtensionCount(JsProtoBuf.classAnnotation)) {
@@ -1058,6 +1104,11 @@ open class ProtoCompareGenerated(
             if (!checkEquals(old.setter, new.setter)) return false
         }
 
+        if (old.hasDelegateMethod() != new.hasDelegateMethod()) return false
+        if (old.hasDelegateMethod()) {
+            if (!checkEquals(old.delegateMethod, new.delegateMethod)) return false
+        }
+
         return true
     }
 
@@ -1715,6 +1766,18 @@ fun ProtoBuf.Class.hashCode(stringIndexes: (Int) -> Int, fqNameIndexes: (Int) ->
         hashCode = 31 * hashCode + fqNameIndexes(getSealedSubclassFqName(i))
     }
 
+    if (hasInlineClassUnderlyingPropertyName()) {
+        hashCode = 31 * hashCode + stringIndexes(inlineClassUnderlyingPropertyName)
+    }
+
+    if (hasInlineClassUnderlyingType()) {
+        hashCode = 31 * hashCode + inlineClassUnderlyingType.hashCode(stringIndexes, fqNameIndexes, typeById)
+    }
+
+    if (hasInlineClassUnderlyingTypeId()) {
+        hashCode = 31 * hashCode + typeById(inlineClassUnderlyingTypeId).hashCode(stringIndexes, fqNameIndexes, typeById)
+    }
+
     for(i in 0..versionRequirementCount - 1) {
         hashCode = 31 * hashCode + getVersionRequirement(i)
     }
@@ -1733,6 +1796,10 @@ fun ProtoBuf.Class.hashCode(stringIndexes: (Int) -> Int, fqNameIndexes: (Int) ->
 
     if (hasExtension(JvmProtoBuf.anonymousObjectOriginName)) {
         hashCode = 31 * hashCode + stringIndexes(getExtension(JvmProtoBuf.anonymousObjectOriginName))
+    }
+
+    if (hasExtension(JvmProtoBuf.jvmClassFlags)) {
+        hashCode = 31 * hashCode + getExtension(JvmProtoBuf.jvmClassFlags)
     }
 
     for(i in 0..getExtensionCount(JsProtoBuf.classAnnotation) - 1) {
@@ -2289,6 +2356,10 @@ fun JvmProtoBuf.JvmPropertySignature.hashCode(stringIndexes: (Int) -> Int, fqNam
 
     if (hasSetter()) {
         hashCode = 31 * hashCode + setter.hashCode(stringIndexes, fqNameIndexes, typeById)
+    }
+
+    if (hasDelegateMethod()) {
+        hashCode = 31 * hashCode + delegateMethod.hashCode(stringIndexes, fqNameIndexes, typeById)
     }
 
     return hashCode

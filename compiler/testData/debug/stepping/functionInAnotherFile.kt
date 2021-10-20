@@ -1,4 +1,4 @@
-//FILE: foo.kt
+// FILE: foo.kt
 import bar
 fun foo(x: Int): Int {
     if (x >= 0) {   // 4
@@ -7,7 +7,7 @@ fun foo(x: Int): Int {
     return bar(x)   // 7
 }
 
-//FILE: test.kt
+// FILE: test.kt
 import foo
 fun box() {
     foo(-3)            //4
@@ -20,16 +20,16 @@ fun bar(x: Int) =
         foo(x)
     }
 
-// LINENUMBERS
-// TestKt.box():4
-// FooKt.foo(int):4
-// FooKt.foo(int):7
-// TestKt.bar(int):8
-// TestKt.bar(int):9
-// FooKt.foo(int):4
-// FooKt.foo(int):5
-// TestKt.bar(int):9
-// TestKt.bar(int):12
-// FooKt.foo(int):7
-// TestKt.box():4
-// TestKt.box():5
+// EXPECTATIONS
+// test.kt:13 box
+// foo.kt:4 foo
+// foo.kt:7 foo
+// test.kt:17 bar
+// test.kt:18 bar
+// foo.kt:4 foo
+// foo.kt:5 foo
+// test.kt:18 bar
+// test.kt:21 bar
+// foo.kt:7 foo
+// test.kt:13 box
+// test.kt:14 box

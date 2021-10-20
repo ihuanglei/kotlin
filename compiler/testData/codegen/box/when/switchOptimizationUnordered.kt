@@ -1,5 +1,3 @@
-// IGNORE_BACKEND_FIR: JVM_IR
-// KJS_WITH_FULL_RUNTIME
 // WITH_RUNTIME
 // CHECK_CASES_COUNT: function=foo count=3
 // CHECK_IF_COUNT: function=foo count=0

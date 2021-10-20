@@ -1,6 +1,7 @@
-// IGNORE_BACKEND_FIR: JVM_IR
+fun <T> eval(fn: () -> T) = fn()
+
 class A(
-        val a: String = {
+        val a: String = eval {
             open class B() {
                 open fun s() : String = "O"
             }
@@ -10,7 +11,7 @@ class A(
             }
 
             B().s() + o.s()
-        }()
+        }
 )
 
 fun box() : String {

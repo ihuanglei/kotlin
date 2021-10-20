@@ -26,10 +26,8 @@ import com.intellij.psi.impl.source.tree.FileElement
 import com.intellij.psi.search.GlobalSearchScope
 import com.intellij.psi.tree.IElementType
 import com.intellij.testFramework.LightVirtualFile
-import org.jetbrains.kotlin.descriptors.DeclarationDescriptor
 import org.jetbrains.kotlin.idea.KotlinFileType
 import org.jetbrains.kotlin.psi.psiUtil.getElementTextWithContext
-import org.jetbrains.kotlin.types.KotlinType
 import java.util.*
 
 abstract class KtCodeFragment(
@@ -172,12 +170,12 @@ abstract class KtCodeFragment(
     override fun getExceptionHandler() = exceptionHandler
 
     fun getContextContainingFile(): KtFile? {
-        return getOriginalContext()?.containingKtFile
+        return getOriginalContext()?.takeIf { it.isValid }?.containingKtFile
     }
 
     fun getOriginalContext(): KtElement? {
         val contextElement = getContext() as? KtElement
-        val contextFile = contextElement?.containingKtFile
+        val contextFile = contextElement?.containingFile as? KtFile
         if (contextFile is KtCodeFragment) {
             return contextFile.getOriginalContext()
         }
@@ -195,11 +193,9 @@ abstract class KtCodeFragment(
 
     companion object {
         const val IMPORT_SEPARATOR: String = ","
-        val RUNTIME_TYPE_EVALUATOR: Key<Function1<KtExpression, KotlinType?>> = Key.create("RUNTIME_TYPE_EVALUATOR")
+
         val FAKE_CONTEXT_FOR_JAVA_FILE: Key<Function0<KtElement>> = Key.create("FAKE_CONTEXT_FOR_JAVA_FILE")
 
         private val LOG = Logger.getInstance(KtCodeFragment::class.java)
     }
 }
-
-var KtCodeFragment.externalDescriptors: List<DeclarationDescriptor>? by CopyablePsiUserDataProperty(Key.create("EXTERNAL_DESCRIPTORS"))

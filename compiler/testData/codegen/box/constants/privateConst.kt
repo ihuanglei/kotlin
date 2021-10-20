@@ -1,8 +1,7 @@
-// IGNORE_BACKEND_FIR: JVM_IR
+fun <T> eval(fn: () -> T) = fn()
+
 private const val z = "OK";
 
 fun box(): String {
-    return {
-        z
-    }()
+    return eval { z }
 }

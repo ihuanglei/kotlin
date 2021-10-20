@@ -1,4 +1,5 @@
-// IGNORE_BACKEND: JVM_IR
+// TODO KT-36654 Generate more compact bytecode for safe call in JVM_IR
+
 interface A {
     fun foo(): Any
 }

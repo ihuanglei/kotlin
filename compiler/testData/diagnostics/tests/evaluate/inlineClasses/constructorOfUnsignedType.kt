@@ -1,5 +1,6 @@
-// !LANGUAGE: +InlineClasses
-// JAVAC_SKIP
+// !LANGUAGE: +InlineClasses, -JvmInlineValueClasses -ApproximateIntegerLiteralTypesInReceiverPosition
+// SKIP_JAVAC
+// ALLOW_KOTLIN_PACKAGE
 
 // FILE: uint.kt
 

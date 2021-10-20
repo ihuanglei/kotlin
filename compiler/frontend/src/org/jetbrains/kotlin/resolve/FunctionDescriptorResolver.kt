@@ -19,11 +19,7 @@ package org.jetbrains.kotlin.resolve
 import com.intellij.openapi.util.ThrowableComputable
 import com.intellij.psi.PsiElement
 import com.intellij.util.AstLoadingFilter
-import org.jetbrains.kotlin.builtins.KotlinBuiltIns
-import org.jetbrains.kotlin.builtins.getReceiverTypeFromFunctionType
-import org.jetbrains.kotlin.builtins.getValueParameterTypesFromFunctionType
-import org.jetbrains.kotlin.builtins.isBuiltinFunctionalType
-import org.jetbrains.kotlin.config.AnalysisFlags
+import org.jetbrains.kotlin.builtins.*
 import org.jetbrains.kotlin.config.LanguageFeature
 import org.jetbrains.kotlin.config.LanguageVersionSettings
 import org.jetbrains.kotlin.contracts.description.ContractProviderKey
@@ -51,6 +47,7 @@ import org.jetbrains.kotlin.resolve.ModifiersChecker.resolveMemberModalityFromMo
 import org.jetbrains.kotlin.resolve.ModifiersChecker.resolveVisibilityFromModifiers
 import org.jetbrains.kotlin.resolve.bindingContextUtil.recordScope
 import org.jetbrains.kotlin.resolve.calls.DslMarkerUtils
+import org.jetbrains.kotlin.resolve.calls.components.InferenceSession
 import org.jetbrains.kotlin.resolve.calls.smartcasts.DataFlowInfo
 import org.jetbrains.kotlin.resolve.calls.util.createValueParametersForInvokeInFunctionType
 import org.jetbrains.kotlin.resolve.lazy.ForceResolveUtil
@@ -68,6 +65,7 @@ import org.jetbrains.kotlin.types.expressions.ExpressionTypingServices
 import org.jetbrains.kotlin.types.expressions.ExpressionTypingUtils
 import org.jetbrains.kotlin.types.expressions.ExpressionTypingUtils.isFunctionExpression
 import org.jetbrains.kotlin.types.expressions.ExpressionTypingUtils.isFunctionLiteral
+import org.jetbrains.kotlin.types.isError
 import org.jetbrains.kotlin.types.typeUtil.replaceAnnotations
 import java.util.*
 
@@ -88,12 +86,14 @@ class FunctionDescriptorResolver(
         scope: LexicalScope,
         function: KtNamedFunction,
         trace: BindingTrace,
-        dataFlowInfo: DataFlowInfo
+        dataFlowInfo: DataFlowInfo,
+        inferenceSession: InferenceSession?
     ): SimpleFunctionDescriptor {
         if (function.name == null) trace.report(FUNCTION_DECLARATION_WITH_NO_NAME.on(function))
 
         return resolveFunctionDescriptor(
-            SimpleFunctionDescriptorImpl::create, containingDescriptor, scope, function, trace, dataFlowInfo, TypeUtils.NO_EXPECTED_TYPE
+            SimpleFunctionDescriptorImpl::create, containingDescriptor, scope,
+            function, trace, dataFlowInfo, TypeUtils.NO_EXPECTED_TYPE, inferenceSession
         )
     }
 
@@ -104,9 +104,10 @@ class FunctionDescriptorResolver(
         function: KtNamedFunction,
         trace: BindingTrace,
         dataFlowInfo: DataFlowInfo,
-        expectedFunctionType: KotlinType
+        expectedFunctionType: KotlinType,
+        inferenceSession: InferenceSession?
     ): SimpleFunctionDescriptor = resolveFunctionDescriptor(
-        ::FunctionExpressionDescriptor, containingDescriptor, scope, function, trace, dataFlowInfo, expectedFunctionType
+        ::FunctionExpressionDescriptor, containingDescriptor, scope, function, trace, dataFlowInfo, expectedFunctionType, inferenceSession
     )
 
     private fun resolveFunctionDescriptor(
@@ -116,7 +117,8 @@ class FunctionDescriptorResolver(
         function: KtNamedFunction,
         trace: BindingTrace,
         dataFlowInfo: DataFlowInfo,
-        expectedFunctionType: KotlinType
+        expectedFunctionType: KotlinType,
+        inferenceSession: InferenceSession?
     ): SimpleFunctionDescriptor {
         val functionDescriptor = functionConstructor(
             containingDescriptor,
@@ -132,9 +134,10 @@ class FunctionDescriptorResolver(
             functionDescriptor,
             trace,
             expectedFunctionType,
-            dataFlowInfo
+            dataFlowInfo,
+            inferenceSession
         )
-        initializeFunctionReturnTypeBasedOnFunctionBody(scope, function, functionDescriptor, trace, dataFlowInfo)
+        initializeFunctionReturnTypeBasedOnFunctionBody(scope, function, functionDescriptor, trace, dataFlowInfo, inferenceSession)
         BindingContextUtils.recordFunctionDeclarationToDescriptor(trace, function, functionDescriptor)
         return functionDescriptor
     }
@@ -144,7 +147,8 @@ class FunctionDescriptorResolver(
         function: KtNamedFunction,
         functionDescriptor: SimpleFunctionDescriptorImpl,
         trace: BindingTrace,
-        dataFlowInfo: DataFlowInfo
+        dataFlowInfo: DataFlowInfo,
+        inferenceSession: InferenceSession?
     ) {
         if (functionDescriptor.returnType != null) return
         assert(function.typeReference == null) {
@@ -157,7 +161,9 @@ class FunctionDescriptorResolver(
             function.hasBlockBody() ->
                 builtIns.unitType
             function.hasBody() ->
-                descriptorResolver.inferReturnTypeFromExpressionBody(trace, scope, dataFlowInfo, function, functionDescriptor)
+                descriptorResolver.inferReturnTypeFromExpressionBody(
+                    trace, scope, dataFlowInfo, function, functionDescriptor, inferenceSession
+                )
             else ->
                 ErrorUtils.createErrorType("No type, no body")
         }
@@ -171,7 +177,8 @@ class FunctionDescriptorResolver(
         functionDescriptor: SimpleFunctionDescriptorImpl,
         trace: BindingTrace,
         expectedFunctionType: KotlinType,
-        dataFlowInfo: DataFlowInfo
+        dataFlowInfo: DataFlowInfo,
+        inferenceSession: InferenceSession?
     ) {
         val headerScope = LexicalWritableScope(
             scope, functionDescriptor, true,
@@ -192,7 +199,7 @@ class FunctionDescriptorResolver(
 
 
         val valueParameterDescriptors =
-            createValueParameterDescriptors(function, functionDescriptor, headerScope, trace, expectedFunctionType)
+            createValueParameterDescriptors(function, functionDescriptor, headerScope, trace, expectedFunctionType, inferenceSession)
 
         headerScope.freeze()
 
@@ -204,7 +211,7 @@ class FunctionDescriptorResolver(
             trace.bindingContext, container
         )
 
-        val contractProvider = getContractProvider(functionDescriptor, trace, scope, dataFlowInfo, function)
+        val contractProvider = getContractProvider(functionDescriptor, trace, scope, dataFlowInfo, function, inferenceSession)
         val userData = mutableMapOf<CallableDescriptor.UserDataKey<*>, Any>().apply {
             if (contractProvider != null) {
                 put(ContractProviderKey, contractProvider)
@@ -254,17 +261,19 @@ class FunctionDescriptorResolver(
         trace: BindingTrace,
         scope: LexicalScope,
         dataFlowInfo: DataFlowInfo,
-        function: KtFunction
+        function: KtFunction,
+        inferenceSession: InferenceSession?
     ): LazyContractProvider? {
         if (function !is KtNamedFunction) return null
 
         val isContractsEnabled = languageVersionSettings.supportsFeature(LanguageFeature.AllowContractsForCustomFunctions)
+        val isAllowedOnMembers = languageVersionSettings.supportsFeature(LanguageFeature.AllowContractsForNonOverridableMembers)
 
-        if (!isContractsEnabled || !function.mayHaveContract()) return null
+        if (!isContractsEnabled || !function.mayHaveContract(isAllowedOnMembers)) return null
 
         return LazyContractProvider(storageManager) {
             AstLoadingFilter.forceAllowTreeLoading(function.containingFile, ThrowableComputable {
-                expressionTypingServices.getBodyExpressionType(trace, scope, dataFlowInfo, function, functionDescriptor)
+                expressionTypingServices.getBodyExpressionType(trace, scope, dataFlowInfo, function, functionDescriptor, inferenceSession)
             })
         }
     }
@@ -274,7 +283,8 @@ class FunctionDescriptorResolver(
         functionDescriptor: SimpleFunctionDescriptorImpl,
         innerScope: LexicalWritableScope,
         trace: BindingTrace,
-        expectedFunctionType: KotlinType
+        expectedFunctionType: KotlinType,
+        inferenceSession: InferenceSession?
     ): List<ValueParameterDescriptor> {
         val expectedValueParameters = expectedFunctionType.getValueParameters(functionDescriptor)
         val expectedParameterTypes = expectedValueParameters?.map { it.type.removeParameterNameAnnotation() }
@@ -303,13 +313,14 @@ class FunctionDescriptorResolver(
             innerScope,
             function.valueParameters,
             trace,
-            expectedParameterTypes
+            expectedParameterTypes,
+            inferenceSession
         )
     }
 
     private fun KotlinType.removeParameterNameAnnotation(): KotlinType {
         if (this is TypeUtils.SpecialType) return this
-        val parameterNameAnnotation = annotations.findAnnotation(KotlinBuiltIns.FQ_NAMES.parameterName) ?: return this
+        val parameterNameAnnotation = annotations.findAnnotation(StandardNames.FqNames.parameterName) ?: return this
         return replaceAnnotations(Annotations.create(annotations.filter { it != parameterNameAnnotation }))
     }
 
@@ -326,7 +337,9 @@ class FunctionDescriptorResolver(
         scope: LexicalScope,
         classDescriptor: ClassDescriptor,
         classElement: KtPureClassOrObject,
-        trace: BindingTrace
+        trace: BindingTrace,
+        languageVersionSettings: LanguageVersionSettings,
+        inferenceSession: InferenceSession?
     ): ClassConstructorDescriptorImpl? {
         if (classDescriptor.kind == ClassKind.ENUM_ENTRY || !classElement.hasPrimaryConstructor()) return null
         return createConstructorDescriptor(
@@ -336,7 +349,9 @@ class FunctionDescriptorResolver(
             classElement.primaryConstructorModifierList,
             classElement.primaryConstructor ?: classElement,
             classElement.primaryConstructorParameters,
-            trace
+            trace,
+            languageVersionSettings,
+            inferenceSession
         )
     }
 
@@ -344,7 +359,9 @@ class FunctionDescriptorResolver(
         scope: LexicalScope,
         classDescriptor: ClassDescriptor,
         constructor: KtSecondaryConstructor,
-        trace: BindingTrace
+        trace: BindingTrace,
+        languageVersionSettings: LanguageVersionSettings,
+        inferenceSession: InferenceSession?
     ): ClassConstructorDescriptorImpl {
         return createConstructorDescriptor(
             scope,
@@ -353,7 +370,9 @@ class FunctionDescriptorResolver(
             constructor.modifierList,
             constructor,
             constructor.valueParameters,
-            trace
+            trace,
+            languageVersionSettings,
+            inferenceSession
         )
     }
 
@@ -364,7 +383,9 @@ class FunctionDescriptorResolver(
         modifierList: KtModifierList?,
         declarationToTrace: KtPureElement,
         valueParameters: List<KtParameter>,
-        trace: BindingTrace
+        trace: BindingTrace,
+        languageVersionSettings: LanguageVersionSettings,
+        inferenceSession: InferenceSession?
     ): ClassConstructorDescriptorImpl {
         val constructorDescriptor = ClassConstructorDescriptorImpl.create(
             classDescriptor,
@@ -373,8 +394,7 @@ class FunctionDescriptorResolver(
             declarationToTrace.toSourceElement()
         )
         constructorDescriptor.isExpect = classDescriptor.isExpect
-        constructorDescriptor.isActual =
-                modifierList?.hasActualModifier() == true ||
+        constructorDescriptor.isActual = modifierList?.hasActualModifier() == true ||
                 // We don't require 'actual' for constructors of actual annotations
                 classDescriptor.kind == ClassKind.ANNOTATION_CLASS && classDescriptor.isActual
         if (declarationToTrace is PsiElement)
@@ -387,10 +407,12 @@ class FunctionDescriptorResolver(
             LexicalScopeKind.CONSTRUCTOR_HEADER
         )
         val constructor = constructorDescriptor.initialize(
-            resolveValueParameters(constructorDescriptor, parameterScope, valueParameters, trace, null),
+            resolveValueParameters(
+                constructorDescriptor, parameterScope, valueParameters, trace, null, inferenceSession
+            ),
             resolveVisibilityFromModifiers(
                 modifierList,
-                DescriptorUtils.getDefaultConstructorVisibility(classDescriptor)
+                DescriptorUtils.getDefaultConstructorVisibility(classDescriptor, languageVersionSettings.supportsFeature(LanguageFeature.AllowSealedInheritorsInDifferentFilesOfSamePackage))
             )
         )
         constructor.returnType = classDescriptor.defaultType
@@ -405,7 +427,8 @@ class FunctionDescriptorResolver(
         parameterScope: LexicalWritableScope,
         valueParameters: List<KtParameter>,
         trace: BindingTrace,
-        expectedParameterTypes: List<KotlinType>?
+        expectedParameterTypes: List<KotlinType>?,
+        inferenceSession: InferenceSession?
     ): List<ValueParameterDescriptor> {
         val result = ArrayList<ValueParameterDescriptor>()
 
@@ -424,10 +447,8 @@ class FunctionDescriptorResolver(
                 }
             } else {
                 type = if (isFunctionLiteral(functionDescriptor) || isFunctionExpression(functionDescriptor)) {
-                    val containsUninferredParameter = TypeUtils.contains(expectedType) {
-                        TypeUtils.isDontCarePlaceholder(it) || ErrorUtils.isUninferredParameter(it)
-                    }
-                    if (expectedType == null || containsUninferredParameter) {
+                    val containsErrorType = TypeUtils.contains(expectedType) { it.isError }
+                    if (expectedType == null || containsErrorType) {
                         trace.report(CANNOT_INFER_PARAMETER_TYPE.on(valueParameter))
                     }
 
@@ -449,7 +470,7 @@ class FunctionDescriptorResolver(
             }
 
             val valueParameterDescriptor = descriptorResolver.resolveValueParameterDescriptor(
-                parameterScope, functionDescriptor, valueParameter, i, type, trace, Annotations.EMPTY
+                parameterScope, functionDescriptor, valueParameter, i, type, trace, Annotations.EMPTY, inferenceSession
             )
 
             // Do not report NAME_SHADOWING for lambda destructured parameters as they may be not fully resolved at this time

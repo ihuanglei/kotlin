@@ -1,6 +1,9 @@
-// IGNORE_BACKEND_FIR: JVM_IR
 // WITH_RUNTIME
+// IGNORE_BACKEND: WASM
+// WASM_MUTE_REASON: REFLECTION
+
 // FILE: lateinit.kt
+
 private lateinit var s: String
 
 object C {

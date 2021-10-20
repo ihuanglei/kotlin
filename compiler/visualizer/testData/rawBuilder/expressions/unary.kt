@@ -1,4 +1,5 @@
 // FIR_IGNORE
+// WITH_RUNTIME
 fun test() {
 //      Int Int
 //      │   │
@@ -22,7 +23,7 @@ fun test() {
 //  Unit
 //  │   fun (Boolean).not(): Boolean
 //  │   │ var test.x: Int
-//  │   │ │ fun (Any).equals(Any?): Boolean
+//  │   │ │ EQ operator call
 //  │   │ │ │  Int
 //  │   │ │ │  │
     if (!(x == 0)) {

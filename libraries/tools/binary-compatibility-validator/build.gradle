@@ -6,15 +6,9 @@ configurations {
 }
 
 dependencies {
-    compile project(':kotlin-stdlib')
-    compileOnly project(':kotlinx-metadata')
-    compileOnly project(':kotlinx-metadata-jvm')
-    compile 'org.ow2.asm:asm:6.0'
-    compile 'org.ow2.asm:asm-tree:6.0'
+    api("org.jetbrains.kotlinx:binary-compatibility-validator:0.7.1")
 
-    runtime project(path: ':kotlinx-metadata-jvm', configuration: 'runtime')
-
-    testCompile project(':kotlin-test:kotlin-test-junit')
+    testApi project(':kotlin-test:kotlin-test-junit')
 
     testArtifacts project(':kotlin-stdlib')
     testArtifacts project(':kotlin-stdlib-jdk7')
@@ -31,12 +25,6 @@ sourceSets {
         java {
             srcDir "src/test/kotlin"
         }
-    }
-}
-
-compileTestKotlin {
-    kotlinOptions {
-        freeCompilerArgs = ["-Xnormalize-constructor-calls=enable"]
     }
 }
 

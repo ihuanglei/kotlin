@@ -17,6 +17,7 @@
 package org.jetbrains.kotlin.descriptors.annotations
 
 import org.jetbrains.kotlin.name.FqName
+import org.jetbrains.kotlin.types.model.AnnotationMarker
 
 interface Annotated {
     val annotations: Annotations
@@ -51,8 +52,11 @@ interface Annotations : Iterable<AnnotationDescriptor> {
 
 class FilteredAnnotations(
     private val delegate: Annotations,
+    private val isDefinitelyNewInference: Boolean,
     private val fqNameFilter: (FqName) -> Boolean
 ) : Annotations {
+
+    constructor(delegate: Annotations, fqNameFilter: (FqName) -> Boolean) : this(delegate, false, fqNameFilter)
 
     override fun hasAnnotation(fqName: FqName) =
         if (fqNameFilter(fqName)) delegate.hasAnnotation(fqName)
@@ -64,12 +68,33 @@ class FilteredAnnotations(
 
     override fun iterator() = delegate.filter(this::shouldBeReturned).iterator()
 
-    override fun isEmpty() = delegate.any(this::shouldBeReturned)
+    override fun isEmpty(): Boolean {
+        val condition = delegate.any(this::shouldBeReturned)
+        // fixing KT-32189 && KT-32138 for the new inference only
+        return if (isDefinitelyNewInference) !condition else condition
+    }
 
     private fun shouldBeReturned(annotation: AnnotationDescriptor): Boolean =
         annotation.fqName.let { fqName ->
             fqName != null && fqNameFilter(fqName)
         }
+}
+
+class FilteredByPredicateAnnotations(
+    private val delegate: Annotations,
+    private val filter: (AnnotationDescriptor) -> Boolean
+) : Annotations {
+    override fun isEmpty(): Boolean {
+        return !iterator().hasNext()
+    }
+
+    override fun iterator(): Iterator<AnnotationDescriptor> {
+        return delegate.filter(filter).iterator()
+    }
+
+    override fun findAnnotation(fqName: FqName): AnnotationDescriptor? {
+        return super.findAnnotation(fqName)?.takeIf(filter)
+    }
 }
 
 class CompositeAnnotations(
@@ -83,7 +108,7 @@ class CompositeAnnotations(
 
     override fun findAnnotation(fqName: FqName) = delegates.asSequence().mapNotNull { it.findAnnotation(fqName) }.firstOrNull()
 
-    @Suppress("DEPRECATION", "OverridingDeprecatedMember")
+    @Suppress("DEPRECATION", "OverridingDeprecatedMember", "OVERRIDE_DEPRECATION")
     override fun getUseSiteTargetedAnnotations() = delegates.flatMap { it.getUseSiteTargetedAnnotations() }
 
     override fun iterator() = delegates.asSequence().flatMap { it.asSequence() }.iterator()

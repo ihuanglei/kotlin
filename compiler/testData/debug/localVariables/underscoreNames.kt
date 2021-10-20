@@ -1,4 +1,5 @@
-//FILE: test.kt
+
+// FILE: test.kt
 
 data class A(val x: Double = 1.0, val y: String = "", val z: Char = '0')
 
@@ -21,29 +22,29 @@ fun box() {
         ""
     }
 }
-// IGNORE_BACKEND: JVM_IR
-// LOCAL VARIABLES
-// TestKt:11:
-// A:3:
-// A:3: x:double, y:java.lang.String, z:char
-// A:3:
-// TestKt:11:
-// TestKt:5: a:A, block:TestKt$box$1
-// TestKt$box$1:14: $dstr$x$_u24__u24$y:A, $noName_1:java.lang.String, w:int
-// A:3:
-// A:3: x:double, y:java.lang.String, z:char
-// A:3:
-// TestKt$box$1:14: $dstr$x$_u24__u24$y:A, $noName_1:java.lang.String, w:int, x:double, y:char
-// TestKt$box$1:15: $dstr$x$_u24__u24$y:A, $noName_1:java.lang.String, w:int, x:double, y:char, a:double, c:char
-// A:3:
-// A:3: x:double, y:java.lang.String, z:char
-// A:3:
-// TestKt$box$1:15: $dstr$x$_u24__u24$y:A, $noName_1:java.lang.String, w:int, x:double, y:char, a:double, c:char
-// TestKt$box$1:17: $dstr$x$_u24__u24$y:A, $noName_1:java.lang.String, w:int, x:double, y:char, a:double, c:char, _:java.lang.String, d:char
-// TestKt:7:
-// TestKt$box$1:17: $dstr$x$_u24__u24$y:A, $noName_1:java.lang.String, w:int, x:double, y:char, a:double, c:char, _:java.lang.String, d:char
-// TestKt$box$1:21: $dstr$x$_u24__u24$y:A, $noName_1:java.lang.String, w:int, x:double, y:char, a:double, c:char, _:java.lang.String, d:char
-// TestKt$box$1.invoke(java.lang.Object, java.lang.Object, java.lang.Object)+19:
-// TestKt:5: a:A, block:TestKt$box$1
-// TestKt:11:
-// TestKt:23:
+
+// EXPECTATIONS
+// test.kt:12 box:
+// test.kt:4 <init>: x:double=1.0:double, y:java.lang.String="":java.lang.String, z:char=0:char
+// test.kt:12 box:
+// test.kt:6 foo: a:A=A, block:kotlin.jvm.functions.Function3=TestKt$box$1
+
+// EXPECTATIONS JVM_IR
+// test.kt:13 invoke: $dstr$x$_u24__u24$y:A=A, $noName_1:java.lang.String="":java.lang.String, w:int=1:int
+// test.kt:15 invoke: $dstr$x$_u24__u24$y:A=A, $noName_1:java.lang.String="":java.lang.String, w:int=1:int, x:double=1.0:double, y:char=0:char
+// EXPECTATIONS JVM
+// test.kt:15 invoke: $dstr$x$_u24__u24$y:A=A, $noName_1:java.lang.String="":java.lang.String, w:int=1:int
+
+// EXPECTATIONS
+// test.kt:4 <init>: x:double=1.0:double, y:java.lang.String="":java.lang.String, z:char=0:char
+// test.kt:15 invoke: $dstr$x$_u24__u24$y:A=A, $noName_1:java.lang.String="":java.lang.String, w:int=1:int, x:double=1.0:double, y:char=0:char
+// test.kt:16 invoke: $dstr$x$_u24__u24$y:A=A, $noName_1:java.lang.String="":java.lang.String, w:int=1:int, x:double=1.0:double, y:char=0:char, a:double=1.0:double, c:char=0:char
+// test.kt:4 <init>: x:double=1.0:double, y:java.lang.String="":java.lang.String, z:char=0:char
+// test.kt:16 invoke: $dstr$x$_u24__u24$y:A=A, $noName_1:java.lang.String="":java.lang.String, w:int=1:int, x:double=1.0:double, y:char=0:char, a:double=1.0:double, c:char=0:char
+// test.kt:18 invoke: $dstr$x$_u24__u24$y:A=A, $noName_1:java.lang.String="":java.lang.String, w:int=1:int, x:double=1.0:double, y:char=0:char, a:double=1.0:double, c:char=0:char, _:java.lang.String="":java.lang.String, d:char=0:char
+// test.kt:8 getArrayOfA:
+// test.kt:18 invoke: $dstr$x$_u24__u24$y:A=A, $noName_1:java.lang.String="":java.lang.String, w:int=1:int, x:double=1.0:double, y:char=0:char, a:double=1.0:double, c:char=0:char, _:java.lang.String="":java.lang.String, d:char=0:char
+// test.kt:22 invoke: $dstr$x$_u24__u24$y:A=A, $noName_1:java.lang.String="":java.lang.String, w:int=1:int, x:double=1.0:double, y:char=0:char, a:double=1.0:double, c:char=0:char, _:java.lang.String="":java.lang.String, d:char=0:char
+// test.kt:6 foo: a:A=A, block:kotlin.jvm.functions.Function3=TestKt$box$1
+// test.kt:12 box:
+// test.kt:24 box:

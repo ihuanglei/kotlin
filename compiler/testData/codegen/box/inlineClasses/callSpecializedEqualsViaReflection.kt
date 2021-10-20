@@ -1,11 +1,14 @@
-// IGNORE_BACKEND_FIR: JVM_IR
 // WITH_REFLECT
 // FULL_JDK
 // TARGET_BACKEND: JVM
 
+// WITH_RUNTIME
+
 import java.lang.reflect.InvocationTargetException
 
-inline class Simple(val x: String) {
+@Suppress("OPTIONAL_DECLARATION_USAGE_IN_NON_COMMON_SOURCE")
+@kotlin.jvm.JvmInline
+value class Simple(val x: String) {
     fun somethingWeird() {}
 }
 

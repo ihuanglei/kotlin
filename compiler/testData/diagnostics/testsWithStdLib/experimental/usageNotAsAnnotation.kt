@@ -1,5 +1,5 @@
 // !LANGUAGE: +NestedClassesInAnnotations
-// !USE_EXPERIMENTAL: kotlin.Experimental
+// !OPT_IN: kotlin.RequiresOptIn
 // !DIAGNOSTICS: -UNUSED_PARAMETER
 // FILE: api.kt
 
@@ -8,25 +8,26 @@ package test
 import kotlin.reflect.KClass
 
 // Usages in import should be OK
-import kotlin.Experimental.Level.*
-import kotlin.Experimental.Level
-import kotlin.Experimental
+import kotlin.RequiresOptIn.Level.*
+import kotlin.RequiresOptIn.Level
+import kotlin.RequiresOptIn
 
 // Usages with FQ names should be OK
 
-@kotlin.Experimental(kotlin.Experimental.Level.ERROR)
+@kotlin.RequiresOptIn(level = kotlin.RequiresOptIn.Level.ERROR)
+@Retention(AnnotationRetention.BINARY)
 annotation class M
 
 
 // Usages as types should be errors
 
-fun f1(e: <!EXPERIMENTAL_CAN_ONLY_BE_USED_AS_ANNOTATION!>Experimental<!>) {}
-fun f2(u: <!EXPERIMENTAL_CAN_ONLY_BE_USED_AS_ANNOTATION!>UseExperimental<!>?) {}
+fun f1(e: <!OPT_IN_CAN_ONLY_BE_USED_AS_ANNOTATION!>RequiresOptIn<!>) {}
+fun f2(u: <!OPT_IN_CAN_ONLY_BE_USED_AS_ANNOTATION!>OptIn<!>?) {}
 
-typealias Experimental0 = <!EXPERIMENTAL_CAN_ONLY_BE_USED_AS_ANNOTATION!>Experimental<!>
-typealias UseExperimental0 = <!EXPERIMENTAL_CAN_ONLY_BE_USED_AS_ANNOTATION!>UseExperimental<!>
+typealias Experimental0 = <!OPT_IN_CAN_ONLY_BE_USED_AS_ANNOTATION!>RequiresOptIn<!>
+typealias OptIn0 = <!OPT_IN_CAN_ONLY_BE_USED_AS_ANNOTATION!>OptIn<!>
 fun f3(e: Experimental0 /* TODO */) {}
-fun f4(u: UseExperimental0 /* TODO */) {}
+fun f4(u: OptIn0 /* TODO */) {}
 
 
 // Usages as ::class literals should be errors
@@ -34,17 +35,17 @@ fun f4(u: UseExperimental0 /* TODO */) {}
 annotation class VarargKClasses(vararg val k: KClass<*>)
 
 @VarargKClasses(
-    <!EXPERIMENTAL_CAN_ONLY_BE_USED_AS_ANNOTATION!>Experimental<!>::class,
-    <!EXPERIMENTAL_CAN_ONLY_BE_USED_AS_ANNOTATION!>UseExperimental<!>::class,
-    kotlin.<!EXPERIMENTAL_CAN_ONLY_BE_USED_AS_ANNOTATION!>Experimental<!>::class,
-    kotlin.<!EXPERIMENTAL_CAN_ONLY_BE_USED_AS_ANNOTATION!>UseExperimental<!>::class
+    <!OPT_IN_CAN_ONLY_BE_USED_AS_ANNOTATION!>RequiresOptIn<!>::class,
+    <!OPT_IN_CAN_ONLY_BE_USED_AS_ANNOTATION!>OptIn<!>::class,
+    kotlin.<!OPT_IN_CAN_ONLY_BE_USED_AS_ANNOTATION!>RequiresOptIn<!>::class,
+    kotlin.<!OPT_IN_CAN_ONLY_BE_USED_AS_ANNOTATION!>OptIn<!>::class
 )
 fun f5() {}
 
 
 // Usages of markers as types should be errors
 
-@Experimental
+@RequiresOptIn
 annotation class Marker {
     class NestedClass
 
@@ -53,19 +54,19 @@ annotation class Marker {
     }
 }
 
-fun f6(m: <!EXPERIMENTAL_MARKER_CAN_ONLY_BE_USED_AS_ANNOTATION_OR_ARGUMENT_IN_USE_EXPERIMENTAL!>Marker<!>) {}
-fun f7(): List<<!EXPERIMENTAL_MARKER_CAN_ONLY_BE_USED_AS_ANNOTATION_OR_ARGUMENT_IN_USE_EXPERIMENTAL!>Marker<!>>? = null
-fun f8(): test.<!EXPERIMENTAL_MARKER_CAN_ONLY_BE_USED_AS_ANNOTATION_OR_ARGUMENT_IN_USE_EXPERIMENTAL!>Marker<!>? = null
+fun f6(m: <!OPT_IN_MARKER_CAN_ONLY_BE_USED_AS_ANNOTATION_OR_ARGUMENT_IN_OPT_IN!>Marker<!>) {}
+fun f7(): List<<!OPT_IN_MARKER_CAN_ONLY_BE_USED_AS_ANNOTATION_OR_ARGUMENT_IN_OPT_IN!>Marker<!>>? = null
+fun f8(): test.<!OPT_IN_MARKER_CAN_ONLY_BE_USED_AS_ANNOTATION_OR_ARGUMENT_IN_OPT_IN!>Marker<!>? = null
 
-typealias Marker0 = <!EXPERIMENTAL_MARKER_CAN_ONLY_BE_USED_AS_ANNOTATION_OR_ARGUMENT_IN_USE_EXPERIMENTAL!>Marker<!>
+typealias Marker0 = <!OPT_IN_MARKER_CAN_ONLY_BE_USED_AS_ANNOTATION_OR_ARGUMENT_IN_OPT_IN!>Marker<!>
 
-fun f9(m: <!EXPERIMENTAL_MARKER_CAN_ONLY_BE_USED_AS_ANNOTATION_OR_ARGUMENT_IN_USE_EXPERIMENTAL!>Marker0<!>) {}
+fun f9(m: <!OPT_IN_MARKER_CAN_ONLY_BE_USED_AS_ANNOTATION_OR_ARGUMENT_IN_OPT_IN!>Marker0<!>) {}
 
 
 // Usages of markers as qualifiers are errors as well (we can lift this restriction for select cases)
 
-fun f10(m: <!EXPERIMENTAL_MARKER_CAN_ONLY_BE_USED_AS_ANNOTATION_OR_ARGUMENT_IN_USE_EXPERIMENTAL!>Marker<!>.NestedClass) {
-    <!EXPERIMENTAL_MARKER_CAN_ONLY_BE_USED_AS_ANNOTATION_OR_ARGUMENT_IN_USE_EXPERIMENTAL!>Marker<!>.value
+fun f10(m: <!OPT_IN_MARKER_CAN_ONLY_BE_USED_AS_ANNOTATION_OR_ARGUMENT_IN_OPT_IN!>Marker<!>.NestedClass) {
+    <!OPT_IN_MARKER_CAN_ONLY_BE_USED_AS_ANNOTATION_OR_ARGUMENT_IN_OPT_IN!>Marker<!>.value
 }
 
 // FILE: usage-from-other-file.kt
@@ -73,5 +74,5 @@ fun f10(m: <!EXPERIMENTAL_MARKER_CAN_ONLY_BE_USED_AS_ANNOTATION_OR_ARGUMENT_IN_U
 // Usages of markers in import statements should be OK, but not as qualifiers to import their nested classes
 
 import test.Marker
-import test.<!EXPERIMENTAL_MARKER_CAN_ONLY_BE_USED_AS_ANNOTATION_OR_ARGUMENT_IN_USE_EXPERIMENTAL!>Marker<!>.NestedClass
-import test.<!EXPERIMENTAL_MARKER_CAN_ONLY_BE_USED_AS_ANNOTATION_OR_ARGUMENT_IN_USE_EXPERIMENTAL!>Marker<!>.Companion
+import test.<!OPT_IN_MARKER_CAN_ONLY_BE_USED_AS_ANNOTATION_OR_ARGUMENT_IN_OPT_IN!>Marker<!>.NestedClass
+import test.<!OPT_IN_MARKER_CAN_ONLY_BE_USED_AS_ANNOTATION_OR_ARGUMENT_IN_OPT_IN!>Marker<!>.Companion

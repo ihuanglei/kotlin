@@ -6,29 +6,25 @@
 package org.jetbrains.kotlin.codegen
 
 import com.intellij.psi.PsiElement
-import org.jetbrains.annotations.TestOnly
 import org.jetbrains.kotlin.builtins.KotlinBuiltIns
 import org.jetbrains.kotlin.builtins.UnsignedTypes
+import org.jetbrains.kotlin.codegen.JvmCodegenUtil.isJvmInterface
 import org.jetbrains.kotlin.codegen.binding.CodegenBinding
 import org.jetbrains.kotlin.codegen.context.CodegenContext
 import org.jetbrains.kotlin.codegen.context.FieldOwnerContext
 import org.jetbrains.kotlin.codegen.context.MultifileClassFacadeContext
-import org.jetbrains.kotlin.codegen.coroutines.continuationAsmType
+import org.jetbrains.kotlin.codegen.coroutines.CONTINUATION_ASM_TYPE
 import org.jetbrains.kotlin.codegen.coroutines.unwrapInitialDescriptorForSuspendFunction
 import org.jetbrains.kotlin.codegen.inline.NUMBERED_FUNCTION_PREFIX
 import org.jetbrains.kotlin.codegen.inline.ReificationArgument
 import org.jetbrains.kotlin.codegen.intrinsics.TypeIntrinsics
-import org.jetbrains.kotlin.codegen.optimization.common.asSequence
 import org.jetbrains.kotlin.codegen.state.GenerationState
 import org.jetbrains.kotlin.codegen.state.KotlinTypeMapper
-import org.jetbrains.kotlin.config.ApiVersion
-import org.jetbrains.kotlin.config.LanguageVersionSettings
-import org.jetbrains.kotlin.config.isReleaseCoroutines
 import org.jetbrains.kotlin.descriptors.*
 import org.jetbrains.kotlin.descriptors.deserialization.PLATFORM_DEPENDENT_ANNOTATION_FQ_NAME
 import org.jetbrains.kotlin.descriptors.impl.ValueParameterDescriptorImpl
-import org.jetbrains.kotlin.load.java.BuiltinMethodsWithSpecialGenericSignature.SpecialSignatureInfo
-import org.jetbrains.kotlin.load.java.JvmAbi
+import org.jetbrains.kotlin.load.java.DescriptorsJvmAbiUtil
+import org.jetbrains.kotlin.load.java.SpecialGenericSignatures.SpecialSignatureInfo
 import org.jetbrains.kotlin.load.java.descriptors.JavaCallableMemberDescriptor
 import org.jetbrains.kotlin.name.ClassId
 import org.jetbrains.kotlin.name.FqName
@@ -37,8 +33,8 @@ import org.jetbrains.kotlin.renderer.DescriptorRenderer
 import org.jetbrains.kotlin.resolve.*
 import org.jetbrains.kotlin.resolve.DescriptorUtils.isSubclass
 import org.jetbrains.kotlin.resolve.annotations.hasJvmStaticAnnotation
-import org.jetbrains.kotlin.resolve.calls.callUtil.getFirstArgumentExpression
-import org.jetbrains.kotlin.resolve.calls.callUtil.getResolvedCall
+import org.jetbrains.kotlin.resolve.calls.util.getFirstArgumentExpression
+import org.jetbrains.kotlin.resolve.calls.util.getResolvedCall
 import org.jetbrains.kotlin.resolve.calls.model.ResolvedCall
 import org.jetbrains.kotlin.resolve.descriptorUtil.builtIns
 import org.jetbrains.kotlin.resolve.jvm.AsmTypes
@@ -47,8 +43,6 @@ import org.jetbrains.kotlin.resolve.jvm.diagnostics.JvmDeclarationOrigin
 import org.jetbrains.kotlin.resolve.jvm.diagnostics.Synthetic
 import org.jetbrains.kotlin.resolve.jvm.jvmSignature.JvmMethodGenericSignature
 import org.jetbrains.kotlin.resolve.scopes.receivers.TransientReceiver
-import org.jetbrains.kotlin.serialization.deserialization.descriptors.DeserializedMemberDescriptor
-import org.jetbrains.kotlin.serialization.deserialization.descriptors.DeserializedMemberDescriptor.CoroutinesCompatibilityMode
 import org.jetbrains.kotlin.types.ErrorUtils
 import org.jetbrains.kotlin.types.KotlinType
 import org.jetbrains.kotlin.types.TypeSystemCommonBackendContext
@@ -62,18 +56,17 @@ import org.jetbrains.org.objectweb.asm.Opcodes.*
 import org.jetbrains.org.objectweb.asm.Type
 import org.jetbrains.org.objectweb.asm.commons.InstructionAdapter
 import org.jetbrains.org.objectweb.asm.commons.Method
-import org.jetbrains.org.objectweb.asm.tree.MethodNode
-import org.jetbrains.org.objectweb.asm.util.Textifier
-import org.jetbrains.org.objectweb.asm.util.TraceMethodVisitor
-import java.io.PrintWriter
-import java.io.StringWriter
+import org.jetbrains.org.objectweb.asm.tree.LabelNode
+import java.lang.Deprecated
 import java.util.*
+
+@JvmField
+internal val JAVA_LANG_DEPRECATED = Type.getType(Deprecated::class.java).descriptor
 
 fun generateIsCheck(
     v: InstructionAdapter,
     kotlinType: KotlinType,
-    asmType: Type,
-    isReleaseCoroutines: Boolean
+    asmType: Type
 ) {
     if (TypeUtils.isNullableType(kotlinType)) {
         val nope = Label()
@@ -84,7 +77,7 @@ fun generateIsCheck(
 
             ifnull(nope)
 
-            TypeIntrinsics.instanceOf(this, kotlinType, asmType, isReleaseCoroutines)
+            TypeIntrinsics.instanceOf(this, kotlinType, asmType)
 
             goTo(end)
 
@@ -95,7 +88,7 @@ fun generateIsCheck(
             mark(end)
         }
     } else {
-        TypeIntrinsics.instanceOf(v, kotlinType, asmType, isReleaseCoroutines)
+        TypeIntrinsics.instanceOf(v, kotlinType, asmType)
     }
 }
 
@@ -104,16 +97,16 @@ fun generateAsCast(
     kotlinType: KotlinType,
     asmType: Type,
     isSafe: Boolean,
-    languageVersionSettings: LanguageVersionSettings
+    unifiedNullChecks: Boolean,
 ) {
     if (!isSafe) {
         if (!TypeUtils.isNullableType(kotlinType)) {
-            generateNullCheckForNonSafeAs(v, kotlinType, languageVersionSettings)
+            generateNullCheckForNonSafeAs(v, kotlinType, unifiedNullChecks)
         }
     } else {
         with(v) {
             dup()
-            TypeIntrinsics.instanceOf(v, kotlinType, asmType, languageVersionSettings.isReleaseCoroutines())
+            TypeIntrinsics.instanceOf(v, kotlinType, asmType)
             val ok = Label()
             ifne(ok)
             pop()
@@ -128,15 +121,13 @@ fun generateAsCast(
 private fun generateNullCheckForNonSafeAs(
     v: InstructionAdapter,
     type: KotlinType,
-    languageVersionSettings: LanguageVersionSettings
+    unifiedNullChecks: Boolean,
 ) {
     with(v) {
         dup()
         val nonnull = Label()
         ifnonnull(nonnull)
-        val exceptionClass =
-            if (languageVersionSettings.apiVersion >= ApiVersion.KOTLIN_1_4) "java/lang/NullPointerException"
-            else "kotlin/TypeCastException"
+        val exceptionClass = if (unifiedNullChecks) "java/lang/NullPointerException" else "kotlin/TypeCastException"
         AsmUtil.genThrow(
             v,
             exceptionClass,
@@ -160,7 +151,7 @@ fun populateCompanionBackingFieldNamesToOuterContextIfNeeded(
         return
     }
 
-    if (!JvmAbi.isClassCompanionObjectWithBackingFieldsInOuter(descriptor)) {
+    if (!DescriptorsJvmAbiUtil.isClassCompanionObjectWithBackingFieldsInOuter(descriptor)) {
         return
     }
     val properties = companion.declarations.filterIsInstance<KtProperty>()
@@ -248,7 +239,7 @@ fun CallableDescriptor.isJvmStaticInObjectOrClassOrInterface(): Boolean =
         DescriptorUtils.isNonCompanionObject(it) ||
                 // This is necessary because for generation of @JvmStatic methods from companion of class A
                 // we create a synthesized descriptor containing in class A
-                DescriptorUtils.isClassOrEnumClass(it) || DescriptorUtils.isInterface(it)
+                DescriptorUtils.isClassOrEnumClass(it) || isJvmInterface(it)
     }
 
 fun CallableDescriptor.isJvmStaticInCompanionObject(): Boolean =
@@ -319,6 +310,11 @@ fun MemberDescriptor.isToArrayFromCollection(): Boolean {
 
     return isGenericToArray() || isNonGenericToArray()
 }
+
+val CallableDescriptor.arity: Int
+    get() = valueParameters.size +
+            (if (extensionReceiverParameter != null) 1 else 0) +
+            (if (dispatchReceiverParameter != null) 1 else 0)
 
 fun FqName.topLevelClassInternalName() = JvmClassName.byClassId(ClassId(parent(), shortName())).internalName
 fun FqName.topLevelClassAsmType(): Type = Type.getObjectType(topLevelClassInternalName())
@@ -391,13 +387,12 @@ fun TypeSystemCommonBackendContext.extractReificationArgument(initialType: Kotli
     while (type.isArrayOrNullableArray()) {
         arrayDepth++
         val argument = type.getArgument(0)
-        type =
-            if (argument.isStarProjection()) nullableAnyType()
-            else argument.getType()
+        if (argument.isStarProjection()) return null
+        type = argument.getType()
     }
 
     val typeParameter = type.typeConstructor().getTypeParameterClassifier() ?: return null
-
+    if (!typeParameter.isReified()) return null
     return Pair(typeParameter, ReificationArgument(typeParameter.getName().asString(), isNullable, arrayDepth))
 }
 
@@ -433,19 +428,6 @@ inline fun FrameMap.evaluateOnce(
     }
 }
 
-// Handy debugging routine. Print all instructions from methodNode.
-@TestOnly
-@Suppress("unused")
-fun MethodNode.textifyMethodNode(): String {
-    val text = Textifier()
-    val tmv = TraceMethodVisitor(text)
-    this.instructions.asSequence().forEach { it.accept(tmv) }
-    localVariables.forEach { text.visitLocalVariable(it.name, it.desc, it.signature, it.start.label, it.end.label, it.index) }
-    val sw = StringWriter()
-    text.print(PrintWriter(sw))
-    return "$sw"
-}
-
 fun KotlinType.isInlineClassTypeWithPrimitiveEquality(): Boolean {
     if (!isInlineClassType()) return false
 
@@ -456,14 +438,10 @@ fun KotlinType.isInlineClassTypeWithPrimitiveEquality(): Boolean {
     return false
 }
 
-fun CallableDescriptor.needsExperimentalCoroutinesWrapper() =
-    (this as? DeserializedMemberDescriptor)?.coroutinesExperimentalCompatibilityMode == CoroutinesCompatibilityMode.NEEDS_WRAPPER
-
 fun recordCallLabelForLambdaArgument(declaration: KtFunctionLiteral, bindingTrace: BindingTrace) {
     val labelName = getCallLabelForLambdaArgument(declaration, bindingTrace.bindingContext) ?: return
     val functionDescriptor = bindingTrace[BindingContext.FUNCTION, declaration] ?: return
     bindingTrace.record(CodegenBinding.CALL_LABEL_FOR_LAMBDA_ARGUMENT, functionDescriptor, labelName)
-
 }
 
 fun getCallLabelForLambdaArgument(declaration: KtFunctionLiteral, bindingContext: BindingContext): String? {
@@ -474,10 +452,18 @@ fun getCallLabelForLambdaArgument(declaration: KtFunctionLiteral, bindingContext
         lambdaExpressionParent.name?.let { return it }
     }
 
-    val lambdaArgument = lambdaExpression.parent as? KtLambdaArgument ?: return null
-    val callExpression = lambdaArgument.parent as? KtCallExpression ?: return null
-    val call = callExpression.getResolvedCall(bindingContext) ?: return null
+    val callExpression = when (val argument = lambdaExpression.parent) {
+        is KtLambdaArgument -> {
+            argument.parent as? KtCallExpression ?: return null
+        }
+        is KtValueArgument -> {
+            val valueArgumentList = argument.parent as? KtValueArgumentList ?: return null
+            valueArgumentList.parent as? KtCallExpression ?: return null
+        }
+        else -> return null
+    }
 
+    val call = callExpression.getResolvedCall(bindingContext) ?: return null
     return call.resultingDescriptor.name.asString()
 }
 
@@ -596,7 +582,7 @@ private fun generateLambdaForRunSuspend(
 
     lambdaBuilder.newField(
         JvmDeclarationOrigin.NO_ORIGIN,
-        ACC_PRIVATE or ACC_FINAL,
+        ACC_PRIVATE or ACC_FINAL or ACC_SYNTHETIC,
         "args",
         ARRAY_OF_STRINGS_TYPE.descriptor, null, null
     )
@@ -651,7 +637,7 @@ private fun generateLambdaForRunSuspend(
         }
 
         visitVarInsn(ALOAD, 1)
-        val continuationInternalName = state.languageVersionSettings.continuationAsmType().internalName
+        val continuationInternalName = CONTINUATION_ASM_TYPE.internalName
 
         visitTypeInsn(
             CHECKCAST,
@@ -668,8 +654,79 @@ private fun generateLambdaForRunSuspend(
         visitEnd()
     }
 
-    writeSyntheticClassMetadata(lambdaBuilder, state)
+    writeSyntheticClassMetadata(lambdaBuilder, state, false)
 
     lambdaBuilder.done()
     return lambdaBuilder.thisName
+}
+
+internal fun LabelNode.linkWithLabel(): LabelNode {
+    // Remember labelNode in label and vise versa.
+    // Before ASM 8 there was JB patch in MethodNode that makes such linking in constructor of LabelNode.
+    //
+    // protected LabelNode getLabelNode(final Label label) {
+    //    if (!(label.info instanceof LabelNode)) {
+    //      //label.info = new LabelNode(label); //[JB: needed for Coverage agent]
+    //      label.info = new LabelNode(); //ASM 8
+    //    }
+    //    return (LabelNode) label.info;
+    //  }
+    if (label.info == null) {
+        label.info = this
+    }
+    return this
+}
+
+fun linkedLabel(): Label = LabelNode().linkWithLabel().label
+
+// Strings in constant pool contain at most 2^16-1 = 65535 bytes.
+const val STRING_UTF8_ENCODING_BYTE_LIMIT: Int = 65535
+
+//Each CHAR could be encoded maximum in 3 bytes
+fun String.isDefinitelyFitEncodingLimit() = length <= STRING_UTF8_ENCODING_BYTE_LIMIT / 3
+
+fun splitStringConstant(value: String): List<String> {
+    return if (value.isDefinitelyFitEncodingLimit()) {
+        listOf(value)
+    } else {
+        val result = arrayListOf<String>()
+
+        // Split strings into parts, each of which satisfies JVM class file constant pool constraints.
+        // Note that even if we split surrogate pairs between parts, they will be joined on concatenation.
+        var accumulatedSize = 0
+        var charOffsetInString = 0
+        var lastStringBeginning = 0
+        val length = value.length
+        while (charOffsetInString < length) {
+            val charCode = value[charOffsetInString].code
+            val encodedCharSize = when {
+                charCode in 1..127 -> 1
+                charCode <= 2047 -> 2
+                else -> 3
+            }
+            if (accumulatedSize + encodedCharSize > STRING_UTF8_ENCODING_BYTE_LIMIT) {
+                result.add(value.substring(lastStringBeginning, charOffsetInString))
+                lastStringBeginning = charOffsetInString
+                accumulatedSize = 0
+            }
+            accumulatedSize += encodedCharSize
+            ++charOffsetInString
+        }
+        result.add(value.substring(lastStringBeginning, charOffsetInString))
+
+        result
+    }
+}
+
+fun String.encodedUTF8Size(): Int {
+    var result = 0
+    for (char in this) {
+        val charCode = char.code
+        when {
+            charCode in 1..127 -> result++
+            charCode <= 2047 -> result += 2
+            else -> result += 3
+        }
+    }
+    return result
 }

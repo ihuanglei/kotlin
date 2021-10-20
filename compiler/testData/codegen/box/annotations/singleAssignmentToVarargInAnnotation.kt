@@ -1,5 +1,5 @@
-// !LANGUAGE: -ProhibitAssigningSingleElementsToVarargsInNamedForm
 // IGNORE_BACKEND_FIR: JVM_IR
+// !LANGUAGE: -ProhibitAssigningSingleElementsToVarargsInNamedForm
 // TARGET_BACKEND: JVM
 
 // WITH_RUNTIME

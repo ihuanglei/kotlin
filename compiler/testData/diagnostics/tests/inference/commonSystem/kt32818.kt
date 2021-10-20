@@ -1,5 +1,8 @@
-// !WITH_NEW_INFERENCE
+// FIR_IDENTICAL
+// !DIAGNOSTICS: -UNUSED_VARIABLE
 
 fun <T : Any> nullable(): T? = null
 
-val value = nullable<Int>() <!NI;TYPE_MISMATCH!>?:<!> <!OI;TYPE_INFERENCE_EXPECTED_TYPE_MISMATCH!>nullable()<!>
+fun test() {
+    val value = nullable<Int>() ?: nullable()
+}

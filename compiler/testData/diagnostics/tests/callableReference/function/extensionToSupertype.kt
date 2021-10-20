@@ -1,4 +1,4 @@
-// !WITH_NEW_INFERENCE
+// FIR_IDENTICAL
 // !CHECK_TYPE
 // !DIAGNOSTICS: -UNUSED_PARAMETER
 
@@ -15,5 +15,5 @@ fun take(f: () -> Unit) {}
 fun test() {
     B::foo checkType { _<KFunction1<B, Unit>>() }
 
-    <!NONE_APPLICABLE!>take<!>(B::<!NI;DEBUG_INFO_MISSING_UNRESOLVED!>foo<!>)
+    <!NONE_APPLICABLE!>take<!>(B::foo)
 }

@@ -1,4 +1,5 @@
-// IGNORE_BACKEND_FIR: JVM_IR
+// IGNORE_BACKEND: WASM
+// WASM_MUTE_REASON: INLINE_ARRAY_CONSTRUCTOR
 typealias ArrayS = Array<String>
 
 fun testArray() {

@@ -14,7 +14,11 @@ import org.jetbrains.kotlin.codegen.forTestCompile.ForTestCompileRuntime
 import org.jetbrains.kotlin.descriptors.*
 import org.jetbrains.kotlin.descriptors.annotations.Annotations
 import org.jetbrains.kotlin.descriptors.impl.PackageFragmentDescriptorImpl
+import org.jetbrains.kotlin.descriptors.runtime.components.ReflectKotlinClass
+import org.jetbrains.kotlin.descriptors.runtime.components.RuntimeModuleData
+import org.jetbrains.kotlin.descriptors.runtime.structure.classId
 import org.jetbrains.kotlin.incremental.components.LookupLocation
+import org.jetbrains.kotlin.jvm.compiler.AbstractLoadJavaTest
 import org.jetbrains.kotlin.jvm.compiler.ExpectedLoadErrorsUtil
 import org.jetbrains.kotlin.jvm.compiler.LoadDescriptorUtil
 import org.jetbrains.kotlin.load.java.descriptors.JavaClassDescriptor
@@ -30,7 +34,8 @@ import org.jetbrains.kotlin.resolve.scopes.MemberScopeImpl
 import org.jetbrains.kotlin.test.*
 import org.jetbrains.kotlin.test.TestFiles.TestFileFactoryNoModules
 import org.jetbrains.kotlin.test.util.DescriptorValidator.ValidationVisitor.errorTypesForbidden
-import org.jetbrains.kotlin.test.util.RecursiveDescriptorComparator
+import org.jetbrains.kotlin.test.util.KtTestUtil
+import org.jetbrains.kotlin.test.util.RecursiveDescriptorComparatorAdaptor
 import org.jetbrains.kotlin.test.util.RecursiveDescriptorComparator.Configuration
 import org.jetbrains.kotlin.utils.Printer
 import org.jetbrains.kotlin.utils.sure
@@ -38,9 +43,6 @@ import java.io.File
 import java.net.URLClassLoader
 import java.util.*
 import java.util.regex.Pattern
-import org.jetbrains.kotlin.descriptors.runtime.components.ReflectKotlinClass
-import org.jetbrains.kotlin.descriptors.runtime.components.RuntimeModuleData
-import org.jetbrains.kotlin.descriptors.runtime.structure.classId
 
 abstract class AbstractJvmRuntimeDescriptorLoaderTest : TestCaseWithTmpdir() {
     companion object {
@@ -93,15 +95,15 @@ abstract class AbstractJvmRuntimeDescriptorLoaderTest : TestCaseWithTmpdir() {
 
         val differentResultFile = KotlinTestUtils.replaceExtension(file, "runtime.txt")
         if (differentResultFile.exists()) {
-            RecursiveDescriptorComparator.validateAndCompareDescriptorWithFile(actual, comparatorConfiguration, differentResultFile)
+            RecursiveDescriptorComparatorAdaptor.validateAndCompareDescriptorWithFile(actual, comparatorConfiguration, differentResultFile)
             return
         }
 
         val expected = LoadDescriptorUtil.loadTestPackageAndBindingContextFromJavaRoot(
-            tmpdir, testRootDisposable, jdkKind, ConfigurationKind.ALL, true, false, false, null
+            tmpdir, testRootDisposable, jdkKind, ConfigurationKind.ALL, true, false, false, false, null
         ).first
 
-        RecursiveDescriptorComparator.validateAndCompareDescriptors(expected, actual, comparatorConfiguration, null)
+        RecursiveDescriptorComparatorAdaptor.validateAndCompareDescriptors(expected, actual, comparatorConfiguration, null)
     }
 
     private fun DeclarationDescriptor.isJavaAnnotationConstructor() =
@@ -117,24 +119,26 @@ abstract class AbstractJvmRuntimeDescriptorLoaderTest : TestCaseWithTmpdir() {
                     fileName,
                     text,
                     object : TestFileFactoryNoModules<File>() {
-                        override fun create(fileName: String, text: String, directives: Map<String, String>): File {
+                        override fun create(fileName: String, text: String, directives: Directives): File {
                             val targetFile = File(tmpdir, fileName)
                             targetFile.writeText(adaptJavaSource(text))
                             return targetFile
                         }
-                    },
-                    ""
+                    }
                 )
-                LoadDescriptorUtil.compileJavaWithAnnotationsJar(sources, tmpdir)
+                LoadDescriptorUtil.compileJavaWithAnnotationsJar(sources, tmpdir, emptyList(), null, false)
             }
             fileName.endsWith(".kt") -> {
                 val environment = KotlinTestUtils.createEnvironmentWithJdkAndNullabilityAnnotationsFromIdea(
-                    myTestRootDisposable, ConfigurationKind.ALL, jdkKind
+                    testRootDisposable, ConfigurationKind.ALL, jdkKind
                 )
+
+                AbstractLoadJavaTest.updateConfigurationWithDirectives(file.readText(), environment.configuration)
+
                 for (root in environment.configuration.getList(CLIConfigurationKeys.CONTENT_ROOTS)) {
                     LOG.info("root: $root")
                 }
-                val ktFile = KotlinTestUtils.createFile(file.path, text, environment.project)
+                val ktFile = KtTestUtil.createFile(file.path, text, environment.project)
                 GenerationUtils.compileFileTo(ktFile, environment, tmpdir)
             }
         }
@@ -198,7 +202,7 @@ abstract class AbstractJvmRuntimeDescriptorLoaderTest : TestCaseWithTmpdir() {
             val list = ArrayList<MemberScope>(packageScopes.size + 1)
             list.add(ScopeWithClassifiers(classes))
             list.addAll(packageScopes)
-            scope = ChainedMemberScope("synthetic package view for test", list)
+            scope = ChainedMemberScope.create("synthetic package view for test", list)
         }
 
         override val fqName: FqName

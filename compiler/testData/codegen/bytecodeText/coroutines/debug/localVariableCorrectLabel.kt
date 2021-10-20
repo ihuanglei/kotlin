@@ -10,12 +10,16 @@ fun main(args: Array<String>) {
     println(s.toList())
 }
 
-@UseExperimental(ExperimentalTypeInference::class)
+@OptIn(ExperimentalTypeInference::class)
 @BuilderInference
 suspend fun SequenceScope<Int>.awaitSeq(): Int = 42
 
-// 1 LOCALVARIABLE a I L17 L.* 3
-// 1 LINENUMBER 8 L17
-// Adding ignore flags below the test since the test relies on line numbers.
-// IGNORE_BACKEND: JVM_IR
+// JVM_IR_TEMPLATES
+// 1 LINENUMBER 8 L13
+// 1 LOCALVARIABLE a I L[0-9]+ L4
 
+// JVM_TEMPLATES
+// 1 LINENUMBER 9 L18
+// 1 LOCALVARIABLE a I L[0-9]+ L18
+
+// IGNORE_BACKEND_FIR: JVM_IR

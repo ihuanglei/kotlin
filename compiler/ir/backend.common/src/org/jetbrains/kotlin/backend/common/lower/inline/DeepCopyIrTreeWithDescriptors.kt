@@ -5,15 +5,16 @@
 
 package org.jetbrains.kotlin.backend.common.lower.inline
 
-import org.jetbrains.kotlin.backend.common.CommonBackendContext
-import org.jetbrains.kotlin.backend.common.DescriptorsToIrRemapper
-import org.jetbrains.kotlin.backend.common.WrappedDescriptorPatcher
 import org.jetbrains.kotlin.ir.IrElement
 import org.jetbrains.kotlin.ir.declarations.IrDeclarationParent
 import org.jetbrains.kotlin.ir.declarations.IrTypeParametersContainer
+import org.jetbrains.kotlin.ir.declarations.copyAttributes
 import org.jetbrains.kotlin.ir.expressions.IrConstructorCall
+import org.jetbrains.kotlin.ir.expressions.IrTypeOperatorCall
+import org.jetbrains.kotlin.ir.expressions.impl.IrTypeOperatorCallImpl
 import org.jetbrains.kotlin.ir.symbols.*
 import org.jetbrains.kotlin.ir.types.*
+import org.jetbrains.kotlin.ir.types.impl.IrStarProjectionImpl
 import org.jetbrains.kotlin.ir.types.impl.buildSimpleType
 import org.jetbrains.kotlin.ir.types.impl.makeTypeProjection
 import org.jetbrains.kotlin.ir.util.*
@@ -21,7 +22,6 @@ import org.jetbrains.kotlin.ir.visitors.acceptVoid
 import org.jetbrains.kotlin.name.Name
 
 internal class DeepCopyIrTreeWithSymbolsForInliner(
-    val context: CommonBackendContext,
     val typeArguments: Map<IrTypeParameterSymbol, IrType?>?,
     val parent: IrDeclarationParent?
 ) {
@@ -35,9 +35,6 @@ internal class DeepCopyIrTreeWithSymbolsForInliner(
 
         // Copy IR.
         val result = irElement.transform(copier, data = null)
-
-        // Bind newly created IR with wrapped descriptors.
-        result.acceptVoid(WrappedDescriptorPatcher)
 
         result.patchDeclarationParents(parent)
         return result
@@ -70,16 +67,57 @@ internal class DeepCopyIrTreeWithSymbolsForInliner(
 
         override fun leaveScope() {}
 
-        private fun remapTypeArguments(arguments: List<IrTypeArgument>) =
+        private fun remapTypeArguments(
+            arguments: List<IrTypeArgument>,
+            erasedParameters: MutableSet<IrTypeParameterSymbol>?
+        ) =
             arguments.map { argument ->
-                (argument as? IrTypeProjection)?.let { makeTypeProjection(remapType(it.type), it.variance) }
+                (argument as? IrTypeProjection)?.let { proj ->
+                    remapTypeAndOptionallyErase(proj.type, erasedParameters)?.let { newType ->
+                        makeTypeProjection(newType, proj.variance)
+                    } ?: IrStarProjectionImpl
+                }
                     ?: argument
             }
 
-        override fun remapType(type: IrType): IrType {
+        override fun remapType(type: IrType) = remapTypeAndOptionallyErase(type, erase = false)
+
+        fun remapTypeAndOptionallyErase(type: IrType, erase: Boolean): IrType {
+            val erasedParams = if (erase) mutableSetOf<IrTypeParameterSymbol>() else null
+            return remapTypeAndOptionallyErase(type, erasedParams) ?: error("Cannot substitute type ${type.render()}")
+        }
+
+        private fun remapTypeAndOptionallyErase(type: IrType, erasedParameters: MutableSet<IrTypeParameterSymbol>?): IrType? {
             if (type !is IrSimpleType) return type
 
-            val substitutedType = typeArguments?.get(type.classifier)
+            val classifier = type.classifier
+            val substitutedType = typeArguments?.get(classifier)
+
+            // Erase non-reified type parameter if asked to.
+            if (erasedParameters != null && substitutedType != null && (classifier as? IrTypeParameterSymbol)?.owner?.isReified == false) {
+
+                if (classifier in erasedParameters) {
+                    return null
+                }
+
+                erasedParameters.add(classifier)
+
+                // Pick the (necessarily unique) non-interface upper bound if it exists.
+                val superTypes = classifier.owner.superTypes
+                val superClass = superTypes.firstOrNull {
+                    it.classOrNull?.owner?.isInterface == false
+                }
+
+                val upperBound = superClass ?: superTypes.first()
+
+                // TODO: Think about how to reduce complexity from k^N to N^k
+                val erasedUpperBound = remapTypeAndOptionallyErase(upperBound, erasedParameters)
+                    ?: error("Cannot erase upperbound ${upperBound.render()}")
+
+                erasedParameters.remove(classifier)
+
+                return if (type.hasQuestionMark) erasedUpperBound.makeNullable() else erasedUpperBound
+            }
 
             if (substitutedType is IrDynamicType) return substitutedType
 
@@ -92,8 +130,8 @@ internal class DeepCopyIrTreeWithSymbolsForInliner(
 
             return type.buildSimpleType {
                 kotlinType = null
-                classifier = symbolRemapper.getReferencedClassifier(type.classifier)
-                arguments = remapTypeArguments(type.arguments)
+                this.classifier = symbolRemapper.getReferencedClassifier(classifier)
+                arguments = remapTypeArguments(type.arguments, erasedParameters)
                 annotations = type.annotations.map { it.transform(copier, null) as IrConstructorCall }
             }
         }
@@ -117,7 +155,18 @@ internal class DeepCopyIrTreeWithSymbolsForInliner(
         }
     }
 
-    private val symbolRemapper = SymbolRemapperImpl(DescriptorsToIrRemapper)
-    private val copier =
-        DeepCopyIrTreeWithSymbols(symbolRemapper, InlinerTypeRemapper(symbolRemapper, typeArguments), InlinerSymbolRenamer())
+    private val symbolRemapper = SymbolRemapperImpl(NullDescriptorsRemapper)
+    private val typeRemapper = InlinerTypeRemapper(symbolRemapper, typeArguments)
+    private val copier = object : DeepCopyIrTreeWithSymbols(symbolRemapper, typeRemapper, InlinerSymbolRenamer()) {
+        private fun IrType.remapTypeAndErase() = typeRemapper.remapTypeAndOptionallyErase(this, erase = true)
+
+        override fun visitTypeOperator(expression: IrTypeOperatorCall) =
+            IrTypeOperatorCallImpl(
+                expression.startOffset, expression.endOffset,
+                expression.type.remapTypeAndErase(),
+                expression.operator,
+                expression.typeOperand.remapTypeAndErase(),
+                expression.argument.transform()
+            ).copyAttributes(expression)
+    }
 }

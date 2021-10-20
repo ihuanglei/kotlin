@@ -1,17 +1,22 @@
-// !LANGUAGE: +InlineClasses
-// IGNORE_BACKEND_FIR: JVM_IR
+// IGNORE_BACKEND: WASM
+// WASM_MUTE_REASON: STDLIB_TEXT
 // WITH_RUNTIME
-// KJS_WITH_FULL_RUNTIME
 
 import kotlin.test.*
 
-inline class TestUIntArrayW(val x: UIntArray)
+@Suppress("OPTIONAL_DECLARATION_USAGE_IN_NON_COMMON_SOURCE")
+@kotlin.jvm.JvmInline
+value class TestUIntArrayW(val x: UIntArray)
 
-inline class InlineCharArray(val x: CharArray) {
+@Suppress("OPTIONAL_DECLARATION_USAGE_IN_NON_COMMON_SOURCE")
+@kotlin.jvm.JvmInline
+value class InlineCharArray(val x: CharArray) {
     override fun toString(): String = x.contentToString()
 }
 
-inline class TestInlineCharArrayW(val x: InlineCharArray)
+@Suppress("OPTIONAL_DECLARATION_USAGE_IN_NON_COMMON_SOURCE")
+@kotlin.jvm.JvmInline
+value class TestInlineCharArrayW(val x: InlineCharArray)
 
 fun box(): String {
     val t1 = TestUIntArrayW(UIntArray(1)).toString()

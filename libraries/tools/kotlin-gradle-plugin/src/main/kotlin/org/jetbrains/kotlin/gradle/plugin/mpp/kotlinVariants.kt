@@ -10,12 +10,12 @@ import org.gradle.api.artifacts.*
 import org.gradle.api.component.ComponentWithCoordinates
 import org.gradle.api.component.ComponentWithVariants
 import org.gradle.api.internal.component.SoftwareComponentInternal
-import org.gradle.api.internal.component.UsageContext
 import org.gradle.api.publish.maven.MavenPublication
 import org.jetbrains.kotlin.gradle.plugin.KotlinCompilation
 import org.jetbrains.kotlin.gradle.plugin.KotlinTarget
 import org.jetbrains.kotlin.gradle.plugin.KotlinTargetComponent
 import org.jetbrains.kotlin.gradle.utils.dashSeparatedName
+import org.jetbrains.kotlin.gradle.utils.getValue
 import org.jetbrains.kotlin.gradle.utils.lowerCamelCaseName
 
 internal interface KotlinTargetComponentWithPublication : KotlinTargetComponent {
@@ -28,25 +28,25 @@ internal fun getCoordinatesFromPublicationDelegateAndProject(
     publication: MavenPublication?,
     project: Project,
     target: KotlinTarget?
-): ModuleVersionIdentifier =
-    object : ModuleVersionIdentifier {
-        private val moduleName: String
-            get() =
-                publication?.artifactId ?: dashSeparatedName(project.name, target?.name?.toLowerCase())
-
-        private val moduleGroup: String
-            get() =
-                publication?.groupId ?: project.group.toString()
+): ModuleVersionIdentifier {
+    val moduleNameProvider = project.provider { publication?.artifactId ?: dashSeparatedName(project.name, target?.name?.toLowerCase()) }
+    val moduleGroupProvider = project.provider { publication?.groupId ?: project.group.toString() }
+    val moduleVersionProvider = project.provider { publication?.version ?: project.version.toString() }
+    return object : ModuleVersionIdentifier {
+        private val moduleName: String by moduleNameProvider
+        private val moduleGroup: String by moduleGroupProvider
+        private val moduleVersion: String by moduleVersionProvider
 
         override fun getGroup() = moduleGroup
         override fun getName() = moduleName
-        override fun getVersion() = publication?.version ?: project.version.toString()
+        override fun getVersion() = moduleVersion
 
         override fun getModule(): ModuleIdentifier = object : ModuleIdentifier {
             override fun getGroup(): String = moduleGroup
             override fun getName(): String = moduleName
         }
     }
+}
 
 private interface KotlinTargetComponentWithCoordinatesAndPublication :
     KotlinTargetComponentWithPublication,
@@ -61,6 +61,8 @@ open class KotlinVariant(
 ) : KotlinTargetComponentWithPublication, SoftwareComponentInternal {
     var componentName: String? = null
 
+    var artifactTargetName: String = target.targetName
+
     final override val target: KotlinTarget
         get() = producingCompilation.target
 
@@ -68,8 +70,9 @@ open class KotlinVariant(
 
     override fun getName(): String = componentName ?: producingCompilation.target.targetName
 
-    override val publishable: Boolean
-        get() = target.publishable
+    override var publishable: Boolean = true
+    override val publishableOnCurrentHost: Boolean
+        get() = publishable && target.publishable
 
     override var sourcesArtifacts: Set<PublishArtifact> = emptySet()
         internal set
@@ -77,7 +80,7 @@ open class KotlinVariant(
     internal var defaultArtifactIdSuffix: String? = null
 
     override val defaultArtifactId: String
-        get() = dashSeparatedName(target.project.name, target.targetName.toLowerCase(), defaultArtifactIdSuffix)
+        get() = dashSeparatedName(target.project.name, artifactTargetName.toLowerCase(), defaultArtifactIdSuffix)
 
     override var publicationDelegate: MavenPublication? = null
 }
@@ -96,51 +99,22 @@ class KotlinVariantWithMetadataVariant(
     override fun getVariants() = metadataTarget.components
 }
 
-class KotlinVariantWithMetadataDependency(
-    producingCompilation: KotlinCompilation<*>,
-    val originalUsages: Set<DefaultKotlinUsageContext>,
-    private val metadataTarget: AbstractKotlinTarget
-) : KotlinVariantWithCoordinates(producingCompilation, originalUsages) {
-    override fun getUsages(): Set<KotlinUsageContext> = originalUsages.mapTo(mutableSetOf()) { usageContext ->
-        KotlinUsageContextWithAdditionalDependencies(usageContext, setOf(metadataDependency()))
-    }
-
-    private fun metadataDependency(): ModuleDependency {
-        val metadataComponent = metadataTarget.kotlinComponents.single() as KotlinTargetComponentWithPublication
-        val project = metadataTarget.project
-
-        // The metadata component may not be published, e.g. if the whole project is not published:
-        val metadataPublication: MavenPublication? = metadataComponent.publicationDelegate
-
-        val metadataGroupId = metadataPublication?.groupId ?: project.group
-        val metadataArtifactId = metadataPublication?.artifactId ?: metadataComponent.defaultArtifactId
-        val metadataVersion = metadataPublication?.version ?: project.version
-        return target.project.dependencies.module("$metadataGroupId:$metadataArtifactId:$metadataVersion") as ModuleDependency
-    }
-
-    class KotlinUsageContextWithAdditionalDependencies(
-        val parentUsageContext: DefaultKotlinUsageContext,
-        val additionalDependencies: Set<ModuleDependency>
-    ) : KotlinUsageContext by parentUsageContext {
-        override fun getDependencies() = parentUsageContext.dependencies + additionalDependencies
-
-        override fun getGlobalExcludes(): Set<ExcludeRule> = emptySet()
-    }
-}
-
 class JointAndroidKotlinTargetComponent(
     override val target: KotlinAndroidTarget,
     private val nestedVariants: Set<KotlinVariant>,
     val flavorNames: List<String>,
     override val sourcesArtifacts: Set<PublishArtifact>
-    ) : KotlinTargetComponentWithCoordinatesAndPublication, SoftwareComponentInternal {
+) : KotlinTargetComponentWithCoordinatesAndPublication, SoftwareComponentInternal {
 
-    override fun getUsages(): Set<KotlinUsageContext> = nestedVariants.flatMap { it.usages }.toSet()
+    override fun getUsages(): Set<KotlinUsageContext> = nestedVariants.filter { it.publishable }.flatMap { it.usages }.toSet()
 
     override fun getName(): String = lowerCamelCaseName(target.targetName, *flavorNames.toTypedArray())
 
     override val publishable: Boolean
-        get() = target.publishable
+        get() = nestedVariants.any { it.publishable }
+
+    override val publishableOnCurrentHost: Boolean
+        get() = publishable
 
     override val defaultArtifactId: String =
         dashSeparatedName(

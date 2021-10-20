@@ -5,46 +5,36 @@
 
 package org.jetbrains.kotlin.gradle.targets.js.npm
 
-import org.gradle.api.Project
-import org.gradle.api.artifacts.ResolvedArtifact
-import org.gradle.api.artifacts.ResolvedDependency
-import org.jetbrains.kotlin.gradle.internal.ProcessedFilesCache
-import org.jetbrains.kotlin.gradle.targets.js.nodejs.NodeJsRootExtension
+import org.gradle.api.file.FileSystemOperations
+import org.jetbrains.kotlin.gradle.utils.ArchiveOperationsCompat
+import org.jetbrains.kotlin.gradle.utils.FileSystemOperationsCompat
 import java.io.File
+import javax.inject.Inject
 
 /**
  * Cache for storing already created [GradleNodeModule]s
  */
-internal class GradleNodeModulesCache(val nodeJs: NodeJsRootExtension) : AutoCloseable {
-    companion object {
-        const val STATE_FILE_NAME = ".visited"
-    }
+internal abstract class GradleNodeModulesCache : AbstractNodeModulesCache() {
 
-    val project: Project get() = nodeJs.rootProject
-    internal val dir = nodeJs.nodeModulesGradleCacheDir
-    private val cache = ProcessedFilesCache(project, dir, STATE_FILE_NAME, "9")
+    // TODO: replace by injected service org.gradle.api.file.FileSystemOperations once min support Gradle is 6.2
+    // https://github.com/gradle/gradle/commit/d02b9d84c08dba64775fb9581e3280f88d319a21
+    @Transient
+    lateinit var fs: FileSystemOperationsCompat
 
-    @Synchronized
-    fun get(
-        dependency: ResolvedDependency,
-        artifact: ResolvedArtifact
-    ): GradleNodeModule? = cache.getOrCompute(artifact.file) {
-        buildImportedPackage(dependency, artifact)
-    }?.let {
-        GradleNodeModule(it)
-    }
+    override val type: String
+        get() = "gradle"
 
-    private fun buildImportedPackage(
-        dependency: ResolvedDependency,
-        artifact: ResolvedArtifact
+    // TODO: replace by injected service org.gradle.api.file.ArchiveOperations once min supported Gradle is 6.6
+    @Transient
+    lateinit var archiveOperations: ArchiveOperationsCompat
+
+    override fun buildImportedPackage(
+        name: String,
+        version: String,
+        file: File
     ): File? {
-        val module = GradleNodeModuleBuilder(project, dependency, listOf(artifact), this)
+        val module = GradleNodeModuleBuilder(fs, archiveOperations, name, version, listOf(file), parameters.cacheDir.get().asFile)
         module.visitArtifacts()
         return module.rebuild()
-    }
-
-    @Synchronized
-    override fun close() {
-        cache.close()
     }
 }

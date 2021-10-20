@@ -1,10 +1,10 @@
-// !USE_EXPERIMENTAL: kotlin.Experimental
+// !OPT_IN: kotlin.RequiresOptIn
 // !DIAGNOSTICS: -UNUSED_VARIABLE
 // FILE: api.kt
 
 package api
 
-@Experimental(Experimental.Level.WARNING)
+@RequiresOptIn(level = RequiresOptIn.Level.WARNING)
 annotation class ExperimentalAPI
 
 @ExperimentalAPI
@@ -19,12 +19,12 @@ fun use() {
     function()
 }
 
-<!EXPERIMENTAL_API_USAGE!>function<!>()
-<!EXPERIMENTAL_API_USAGE!>use<!>()
+<!OPT_IN_USAGE!>function<!>()
+<!OPT_IN_USAGE!>use<!>()
 
 // FILE: usage-use.kts
 
-@file:UseExperimental(ExperimentalAPI::class)
+@file:OptIn(ExperimentalAPI::class)
 import api.*
 
 fun use() {
@@ -39,8 +39,8 @@ use()
 import api.*
 
 fun use() {
-    <!EXPERIMENTAL_API_USAGE!>function<!>()
+    <!OPT_IN_USAGE!>function<!>()
 }
 
-<!EXPERIMENTAL_API_USAGE!>function<!>()
+<!OPT_IN_USAGE!>function<!>()
 use()

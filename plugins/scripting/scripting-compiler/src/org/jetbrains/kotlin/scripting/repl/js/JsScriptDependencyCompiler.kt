@@ -11,21 +11,25 @@ import org.jetbrains.kotlin.config.LanguageVersionSettingsImpl
 import org.jetbrains.kotlin.descriptors.ModuleDescriptor
 import org.jetbrains.kotlin.descriptors.PackageFragmentProvider
 import org.jetbrains.kotlin.descriptors.impl.ModuleDescriptorImpl
+import org.jetbrains.kotlin.descriptors.konan.kotlinLibrary
+import org.jetbrains.kotlin.ir.ObsoleteDescriptorBasedAPI
 import org.jetbrains.kotlin.ir.backend.js.JsIrBackendContext
-import org.jetbrains.kotlin.ir.backend.js.emptyLoggingContext
 import org.jetbrains.kotlin.ir.backend.js.generateJsCode
 import org.jetbrains.kotlin.ir.backend.js.lower.serialization.ir.JsIrLinker
-import org.jetbrains.kotlin.ir.backend.js.lower.serialization.ir.JsMangler
 import org.jetbrains.kotlin.ir.backend.js.utils.NameTables
-import org.jetbrains.kotlin.ir.declarations.impl.IrModuleFragmentImpl
-import org.jetbrains.kotlin.ir.descriptors.IrBuiltIns
-import org.jetbrains.kotlin.ir.util.*
+import org.jetbrains.kotlin.ir.descriptors.IrBuiltInsOverDescriptors
+import org.jetbrains.kotlin.ir.util.ExternalDependenciesGenerator
+import org.jetbrains.kotlin.ir.util.IrMessageLogger
+import org.jetbrains.kotlin.ir.util.SymbolTable
+import org.jetbrains.kotlin.ir.util.patchDeclarationParents
 import org.jetbrains.kotlin.js.config.JSConfigurationKeys
 import org.jetbrains.kotlin.name.Name
+import org.jetbrains.kotlin.psi2ir.generators.TypeTranslatorImpl
 import org.jetbrains.kotlin.serialization.js.ModuleKind
 import org.jetbrains.kotlin.storage.LockBasedStorageManager
 
 // Transforms klib into js code in script-friendly way
+@OptIn(ObsoleteDescriptorBasedAPI::class)
 class JsScriptDependencyCompiler(
     private val configuration: CompilerConfiguration,
     private val nameTables: NameTables,
@@ -34,6 +38,7 @@ class JsScriptDependencyCompiler(
     fun compile(dependencies: List<ModuleDescriptor>): String {
         val builtIns: KotlinBuiltIns = dependencies.single { it.allDependencyModules.isEmpty() }.builtIns
         val languageVersionSettings = LanguageVersionSettingsImpl.DEFAULT
+        val messageLogger = configuration[IrMessageLogger.IR_MESSAGE_LOGGER] ?: IrMessageLogger.None
         val moduleName = Name.special("<script-dependencies>")
         val storageManager = LockBasedStorageManager.NO_LOCKS
         val moduleDescriptor = ModuleDescriptorImpl(moduleName, storageManager, builtIns, null).also {
@@ -41,18 +46,18 @@ class JsScriptDependencyCompiler(
             it.initialize(PackageFragmentProvider.Empty)
         }
 
-        val typeTranslator = TypeTranslator(symbolTable, languageVersionSettings, moduleDescriptor.builtIns).also {
-            it.constantValueGenerator = ConstantValueGenerator(moduleDescriptor, symbolTable)
-        }
+        val typeTranslator = TypeTranslatorImpl(symbolTable, languageVersionSettings, moduleDescriptor)
+        val irBuiltIns = IrBuiltInsOverDescriptors(builtIns, typeTranslator, symbolTable)
+        val jsLinker = JsIrLinker(null, messageLogger, irBuiltIns, symbolTable, null)
 
-        val irBuiltIns = IrBuiltIns(builtIns, typeTranslator, symbolTable)
-        val jsLinker = JsIrLinker(moduleDescriptor, JsMangler, emptyLoggingContext, irBuiltIns, symbolTable)
+        val irDependencies = dependencies.map { jsLinker.deserializeFullModule(it, it.kotlinLibrary) }
+        val moduleFragment = irDependencies.last()
+        val irProviders = listOf(jsLinker)
 
-        val moduleFragment = IrModuleFragmentImpl(moduleDescriptor, irBuiltIns)
-        val irDependencies = dependencies.map { jsLinker.deserializeFullModule(it) }
-        val irProviders = generateTypicalIrProviderList(moduleDescriptor, irBuiltIns, symbolTable, deserializer = jsLinker)
+        jsLinker.init(null, emptyList())
 
-        ExternalDependenciesGenerator(symbolTable, irProviders).generateUnboundSymbolsAsDependencies()
+        ExternalDependenciesGenerator(symbolTable, irProviders)
+            .generateUnboundSymbolsAsDependencies()
         moduleFragment.patchDeclarationParents()
 
         val backendContext = JsIrBackendContext(
@@ -65,10 +70,12 @@ class JsScriptDependencyCompiler(
             true
         )
 
-        ExternalDependenciesGenerator(symbolTable, irProviders).generateUnboundSymbolsAsDependencies()
+        ExternalDependenciesGenerator(symbolTable, irProviders)
+            .generateUnboundSymbolsAsDependencies()
         moduleFragment.patchDeclarationParents()
+        jsLinker.postProcess()
 
-        moduleFragment.files += irDependencies.flatMap { it.files }
+        moduleFragment.files += irDependencies.filter { it !== moduleFragment }.flatMap { it.files }
 
         configuration.put(JSConfigurationKeys.MODULE_KIND, ModuleKind.PLAIN)
 

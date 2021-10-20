@@ -1,8 +1,8 @@
-// IGNORE_BACKEND_FIR: JVM_IR
 // WITH_RUNTIME
-// CHECK_CASES_COUNT: function=bar1_u51tkt$ count=3
-// CHECK_IF_COUNT: function=bar1_u51tkt$ count=0
-// CHECK_CASES_COUNT: function=A$bar2$lambda count=3
+// CHECK_CASES_COUNT: function=bar1_u51tkt$ count=3 TARGET_BACKENDS=JS
+// CHECK_IF_COUNT: function=bar1_u51tkt$ count=0 TARGET_BACKENDS=JS
+// CHECK_CASES_COUNT: function=A$bar2$lambda count=3 TARGET_BACKENDS=JS
+// CHECK_CASES_COUNT: function=A$bar2$lambda count=0 IGNORED_BACKENDS=JS
 // CHECK_IF_COUNT: function=A$bar2$lambda count=0
 
 import kotlin.test.assertEquals

@@ -10,26 +10,29 @@ package org.jetbrains.kotlin.daemon.experimental
 import com.intellij.openapi.util.Disposer
 import com.intellij.openapi.vfs.impl.ZipHandler
 import com.intellij.openapi.vfs.impl.jar.CoreJarFileSystem
+import io.ktor.network.sockets.*
 import kotlinx.coroutines.*
 import kotlinx.coroutines.channels.Channel
 import kotlinx.coroutines.channels.actor
 import kotlinx.coroutines.channels.consumeEach
 import org.jetbrains.kotlin.cli.common.CLICompiler
-import org.jetbrains.kotlin.cli.common.ExitCode
-import org.jetbrains.kotlin.cli.common.arguments.K2JSCompilerArguments
-import org.jetbrains.kotlin.cli.common.arguments.K2JVMCompilerArguments
-import org.jetbrains.kotlin.cli.common.messages.MessageCollector
+import org.jetbrains.kotlin.cli.common.CompilerSystemProperties
 import org.jetbrains.kotlin.cli.common.repl.ReplCheckResult
 import org.jetbrains.kotlin.cli.common.repl.ReplCodeLine
 import org.jetbrains.kotlin.cli.common.repl.ReplCompileResult
 import org.jetbrains.kotlin.cli.js.K2JSCompiler
 import org.jetbrains.kotlin.cli.jvm.K2JVMCompiler
 import org.jetbrains.kotlin.cli.jvm.compiler.KotlinCoreEnvironment
+import org.jetbrains.kotlin.cli.jvm.compiler.jarfs.FastJarFileSystem
 import org.jetbrains.kotlin.cli.metadata.K2MetadataCompiler
+import org.jetbrains.kotlin.config.KotlinCompilerVersion
 import org.jetbrains.kotlin.config.Services
 import org.jetbrains.kotlin.daemon.CompileServiceImplBase
 import org.jetbrains.kotlin.daemon.CompilerSelector
+import org.jetbrains.kotlin.daemon.EventManager
 import org.jetbrains.kotlin.daemon.common.*
+import org.jetbrains.kotlin.daemon.common.experimental.*
+import org.jetbrains.kotlin.daemon.common.experimental.socketInfrastructure.*
 import org.jetbrains.kotlin.daemon.experimental.CompileServiceTaskScheduler.*
 import org.jetbrains.kotlin.daemon.nowSeconds
 import org.jetbrains.kotlin.daemon.report.experimental.CompileServicesFacadeMessageCollector
@@ -45,12 +48,6 @@ import java.util.concurrent.TimeUnit
 import java.util.logging.Level
 import java.util.logging.Logger
 import kotlin.concurrent.schedule
-import org.jetbrains.kotlin.daemon.common.experimental.socketInfrastructure.*
-import org.jetbrains.kotlin.daemon.common.experimental.*
-import io.ktor.network.sockets.*
-import org.jetbrains.kotlin.cli.common.KOTLIN_COMPILER_ENVIRONMENT_KEEPALIVE_PROPERTY
-import org.jetbrains.kotlin.daemon.EventManager
-import org.jetbrains.kotlin.daemon.report.DaemonMessageReporter
 
 // TODO: this classes should replace their non-experimental versions eventually.
 
@@ -79,6 +76,7 @@ private class CompileServiceTaskScheduler(log: Logger) {
 
     fun isShutdownActionInProgress() = shutdownActionInProgress
 
+    @OptIn(ObsoleteCoroutinesApi::class, ExperimentalCoroutinesApi::class)
     private val queriesActor = GlobalScope.actor<CompileServiceTask>(capacity = Channel.UNLIMITED) {
         var currentTaskId = 0
         var shutdownTask: ExclusiveTask? = null
@@ -179,10 +177,10 @@ class CompileServiceServerSideImpl(
     } ?: false
 
     override suspend fun serverHandshake(input: ByteReadChannelWrapper, output: ByteWriteChannelWrapper, log: Logger): Boolean {
-        return tryAcquireHandshakeMessage(input, log) && trySendHandshakeMessage(output, log)
+        return tryAcquireHandshakeMessage(input) && trySendHandshakeMessage(output)
     }
 
-    private lateinit var scheduler: CompileServiceTaskScheduler
+    private var scheduler: CompileServiceTaskScheduler
 
     constructor(
         serverSocket: ServerSocketWrapper,
@@ -231,6 +229,15 @@ class CompileServiceServerSideImpl(
     override suspend fun getDaemonInfo(): CompileService.CallResult<String> =
         ifAlive(minAliveness = Aliveness.Dying) {
             CompileService.CallResult.Good("Kotlin daemon on socketPort $port")
+        }
+
+    override suspend fun getKotlinVersion(): CompileService.CallResult<String> =
+        ifAlive(minAliveness = Aliveness.Dying) {
+            try {
+                CompileService.CallResult.Good(KotlinCompilerVersion.VERSION)
+            } catch (e: Exception) {
+                CompileService.CallResult.Error("Unknown Kotlin version")
+            }
         }
 
     override suspend fun getDaemonOptions(): CompileService.CallResult<DaemonOptions> = ifAlive {
@@ -406,7 +413,7 @@ class CompileServiceServerSideImpl(
         scheduler = CompileServiceTaskScheduler(log)
 
         // assuming logically synchronized
-        System.setProperty(KOTLIN_COMPILER_ENVIRONMENT_KEEPALIVE_PROPERTY, "true")
+        CompilerSystemProperties.KOTLIN_COMPILER_ENVIRONMENT_KEEPALIVE_PROPERTY.value = "true"
 
         // TODO UNCOMMENT THIS : this.toRMIServer(daemonOptions, compilerId) // also create RMI server in order to support old clients
 //        rmiServer = this.toRMIServer(daemonOptions, compilerId)
@@ -500,7 +507,7 @@ class CompileServiceServerSideImpl(
                     }
                     .thenBy(FileAgeComparator()) { it.runFile }
                     .thenBy { it.daemon.serverPort }
-                aliveWithOpts.maxWith(comparator)?.let { bestDaemonWithMetadata ->
+                aliveWithOpts.maxWithOrNull(comparator)?.let { bestDaemonWithMetadata ->
                     val fattestOpts = bestDaemonWithMetadata.jvmOptions
                     if (fattestOpts memorywiseFitsInto daemonJVMOptions && FileAgeComparator().compare(
                             bestDaemonWithMetadata.runFile,
@@ -655,7 +662,7 @@ class CompileServiceServerSideImpl(
         if (facade.hasIncrementalCaches()) {
             builder.register(
                 IncrementalCompilationComponents::class.java,
-                RemoteIncrementalCompilationComponentsClient(facade, eventManager, rpcProfiler)
+                RemoteIncrementalCompilationComponentsClient(facade, rpcProfiler)
             )
         }
         if (facade.hasLookupTracker()) {

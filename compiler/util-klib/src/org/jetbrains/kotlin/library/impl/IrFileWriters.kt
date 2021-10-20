@@ -6,6 +6,7 @@
 package org.jetbrains.kotlin.library.impl
 
 import org.jetbrains.kotlin.library.SerializedDeclaration
+import org.jetbrains.kotlin.library.encodings.WobblyTF8
 import java.io.ByteArrayOutputStream
 import java.io.DataOutput
 import java.io.DataOutputStream
@@ -62,6 +63,32 @@ class IrMemoryArrayWriter(private val data: List<ByteArray>) : IrMemoryWriter() 
     }
 }
 
+class IrMemoryStringWriter(private val data: List<String>) : IrMemoryWriter() {
+    override fun writeData(dataOutput: DataOutput) {
+        dataOutput.writeInt(data.size)
+
+        val transformedData = data.map(WobblyTF8::encode)
+
+        transformedData.forEach { dataOutput.writeInt(it.size) }
+        transformedData.forEach { dataOutput.write(it) }
+    }
+}
+
+class IrMemoryIntArrayWriter(private val data: List<Int>) : IrMemoryWriter() {
+    override fun writeData(dataOutput: DataOutput) {
+        dataOutput.writeInt(data.size)
+
+        data.forEach { dataOutput.writeInt(it) }
+    }
+}
+
+class IrMemoryLongArrayWriter(private val data: List<Long>) : IrMemoryWriter() {
+    override fun writeData(dataOutput: DataOutput) {
+        dataOutput.writeInt(data.size)
+
+        data.forEach { dataOutput.writeLong(it) }
+    }
+}
 
 class IrByteArrayWriter(private val data: List<ByteArray>) : IrFileWriter() {
     override fun writeData(dataOutput: DataOutput) {
@@ -91,7 +118,7 @@ class IrTableWriter(private val data: List<Pair<Long, ByteArray>>) : IrFileWrite
 
 class IrDeclarationWriter(private val declarations: List<SerializedDeclaration>) : IrFileWriter() {
 
-    private val SINGLE_INDEX_RECORD_SIZE = Long.SIZE_BYTES + 2 * Int.SIZE_BYTES
+    private val SINGLE_INDEX_RECORD_SIZE = 3 * Int.SIZE_BYTES
     private val INDEX_HEADER_SIZE = Int.SIZE_BYTES
 
     override fun writeData(dataOutput: DataOutput) {
@@ -100,7 +127,7 @@ class IrDeclarationWriter(private val declarations: List<SerializedDeclaration>)
         var dataOffset = INDEX_HEADER_SIZE + SINGLE_INDEX_RECORD_SIZE * declarations.size
 
         for (d in declarations) {
-            dataOutput.writeLong(d.id)
+            dataOutput.writeInt(d.id)
             dataOutput.writeInt(dataOffset)
             dataOutput.writeInt(d.size)
             dataOffset += d.size
@@ -115,7 +142,7 @@ class IrDeclarationWriter(private val declarations: List<SerializedDeclaration>)
 
 class IrMemoryDeclarationWriter(private val declarations: List<SerializedDeclaration>) : IrMemoryWriter() {
 
-    private val SINGLE_INDEX_RECORD_SIZE = Long.SIZE_BYTES + 2 * Int.SIZE_BYTES
+    private val SINGLE_INDEX_RECORD_SIZE = 3 * Int.SIZE_BYTES
     private val INDEX_HEADER_SIZE = Int.SIZE_BYTES
 
     override fun writeData(dataOutput: DataOutput) {
@@ -124,7 +151,7 @@ class IrMemoryDeclarationWriter(private val declarations: List<SerializedDeclara
         var dataOffset = INDEX_HEADER_SIZE + SINGLE_INDEX_RECORD_SIZE * declarations.size
 
         for (d in declarations) {
-            dataOutput.writeLong(d.id)
+            dataOutput.writeInt(d.id)
             dataOutput.writeInt(dataOffset)
             dataOutput.writeInt(d.size)
             dataOffset += d.size

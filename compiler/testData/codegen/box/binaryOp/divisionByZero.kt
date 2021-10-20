@@ -1,7 +1,9 @@
-// IGNORE_BACKEND_FIR: JVM_IR
 // IGNORE_BACKEND: JS_IR
+// IGNORE_BACKEND: JS_IR_ES6
 // IGNORE_BACKEND: JS
-// reason - no error from division by zero in JS
+// IGNORE_BACKEND: WASM
+// WASM_MUTE_REASON: IGNORED_IN_JS
+// reason - no error from division by zero in JS or WASM
 
 fun expectFail(f: () -> Unit): Nothing? {
     try {

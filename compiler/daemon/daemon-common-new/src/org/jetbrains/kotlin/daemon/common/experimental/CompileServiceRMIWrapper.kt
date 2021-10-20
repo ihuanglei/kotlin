@@ -8,10 +8,8 @@ package org.jetbrains.kotlin.daemon.common.experimental
 import kotlinx.coroutines.runBlocking
 import org.jetbrains.kotlin.cli.common.repl.ReplCodeLine
 import org.jetbrains.kotlin.daemon.common.*
-import org.jetbrains.kotlin.daemon.common.LoopbackNetworkInterface
 import org.jetbrains.kotlin.daemon.common.experimental.socketInfrastructure.Client
 import org.jetbrains.kotlin.daemon.common.experimental.socketInfrastructure.DefaultClientRMIWrapper
-import org.jetbrains.kotlin.daemon.common.*
 import java.io.File
 import java.io.Serializable
 import java.rmi.NoSuchObjectException
@@ -46,6 +44,10 @@ class CompileServiceRMIWrapper(val server: CompileServiceServerSide, daemonOptio
         server.getDaemonInfo()
     }
 
+    override fun getKotlinVersion() = runBlocking {
+        server.getKotlinVersion()
+    }
+
     override fun getDaemonJVMOptions() = runBlocking {
         server.getDaemonJVMOptions()
     }
@@ -74,6 +76,7 @@ class CompileServiceRMIWrapper(val server: CompileServiceServerSide, daemonOptio
         server.scheduleShutdown(graceful)
     }
 
+    @Suppress("OverridingDeprecatedMember", "DEPRECATION", "OVERRIDE_DEPRECATION")
     override fun remoteCompile(
         sessionId: Int,
         targetPlatform: CompileService.TargetPlatform,
@@ -85,6 +88,7 @@ class CompileServiceRMIWrapper(val server: CompileServiceServerSide, daemonOptio
         operationsTracer: RemoteOperationsTracer?
     ) = deprecated()
 
+    @Suppress("OverridingDeprecatedMember", "DEPRECATION", "OVERRIDE_DEPRECATION")
     override fun remoteIncrementalCompile(
         sessionId: Int,
         targetPlatform: CompileService.TargetPlatform,
@@ -123,6 +127,7 @@ class CompileServiceRMIWrapper(val server: CompileServiceServerSide, daemonOptio
         server.clearJarCache()
     }
 
+    @Suppress("OverridingDeprecatedMember", "DEPRECATION", "OVERRIDE_DEPRECATION")
     override fun leaseReplSession(
         aliveFlagPath: String?,
         targetPlatform: CompileService.TargetPlatform,
@@ -142,14 +147,17 @@ class CompileServiceRMIWrapper(val server: CompileServiceServerSide, daemonOptio
         server.releaseReplSession(sessionId)
     }
 
+    @Deprecated("The usages should be replaced with `replCheck` method", ReplaceWith("replCheck"))
     override fun remoteReplLineCheck(sessionId: Int, codeLine: ReplCodeLine) = deprecated()
 
+    @Deprecated("The usages should be replaced with `replCompile` method", ReplaceWith("replCompile"))
     override fun remoteReplLineCompile(
         sessionId: Int,
         codeLine: ReplCodeLine,
         history: List<ReplCodeLine>?
     ) = deprecated()
 
+    @Deprecated("Evaluation on daemon is not supported")
     override fun remoteReplLineEval(
         sessionId: Int,
         codeLine: ReplCodeLine,
@@ -216,7 +224,7 @@ class CompileServiceRMIWrapper(val server: CompileServiceServerSide, daemonOptio
             runFileDir,
             makeRunFilenameString(
                 timestamp = "%tFT%<tH-%<tM-%<tS.%<tLZ".format(Calendar.getInstance(TimeZone.getTimeZone("Z"))),
-                digest = compilerId.compilerClasspath.map { File(it).absolutePath }.distinctStringsDigest().toHexString(),
+                digest = compilerId.digest(),
                 port = port.toString()
             )
         )

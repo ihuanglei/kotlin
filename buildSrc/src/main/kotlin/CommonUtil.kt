@@ -6,11 +6,13 @@ import org.gradle.api.Project
 import org.gradle.api.Task
 import org.gradle.api.file.CopySourceSpec
 import org.gradle.api.file.SourceDirectorySet
-import org.gradle.api.plugins.JavaPluginConvention
+import org.gradle.api.plugins.JavaPluginExtension
+import org.gradle.api.tasks.JavaExec
 import org.gradle.api.tasks.SourceSet
-import org.gradle.api.tasks.SourceSetContainer
 import org.gradle.api.tasks.SourceSetOutput
+import org.gradle.api.tasks.bundling.AbstractArchiveTask
 import org.gradle.kotlin.dsl.*
+import proguard.gradle.ProGuardTask
 import java.io.File
 import java.util.concurrent.Callable
 
@@ -52,10 +54,12 @@ var Project.javaHome: String?
         extra["javaHome"] = v
     }
 
-fun Project.generator(fqName: String, sourceSet: SourceSet? = null) = smartJavaExec {
+fun Project.generator(fqName: String, sourceSet: SourceSet? = null, configure: JavaExec.() -> Unit = {}) = smartJavaExec {
     classpath = (sourceSet ?: testSourceSet).runtimeClasspath
-    main = fqName
+    mainClass.set(fqName)
     workingDir = rootDir
+    systemProperty("line.separator", "\n")
+    configure()
 }
 
 fun Project.getBooleanProperty(name: String): Boolean? = this.findProperty(name)?.let {
@@ -66,6 +70,23 @@ fun Project.getBooleanProperty(name: String): Boolean? = this.findProperty(name)
 
 inline fun CopySourceSpec.from(crossinline filesProvider: () -> Any?): CopySourceSpec = from(Callable { filesProvider() })
 
-fun Project.javaPluginConvention(): JavaPluginConvention = the()
+fun Project.javaPluginExtension(): JavaPluginExtension = extensions.getByType()
 
-fun Project.findJavaPluginConvention(): JavaPluginConvention? = convention.findByType() ?: convention.findPlugin()
+fun Project.findJavaPluginExtension(): JavaPluginExtension? = extensions.findByType()
+
+fun JavaExec.pathRelativeToWorkingDir(file: File): String = file.relativeTo(workingDir).invariantSeparatorsPath
+
+fun Task.singleOutputFile(): File = when (this) {
+    is AbstractArchiveTask -> archiveFile.get().asFile
+    is ProGuardTask -> project.file(outJarFiles.single()!!)
+    else -> outputs.files.singleFile
+}
+
+val Project.isConfigurationCacheDisabled
+    get() = (gradle.startParameter as? org.gradle.api.internal.StartParameterInternal)?.configurationCache?.get() != true
+
+val Project.isIdeaActive
+    get() = providers.systemProperty("idea.active").forUseAtConfigurationTime().isPresent
+
+val Project.intellijCommunityDir: File
+    get() = rootDir.resolve("intellij/community").takeIf { it.isDirectory } ?: rootDir.resolve("intellij")

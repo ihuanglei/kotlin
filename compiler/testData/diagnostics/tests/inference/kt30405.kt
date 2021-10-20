@@ -1,4 +1,4 @@
-// !WITH_NEW_INFERENCE
+// FIR_IDENTICAL
 // !LANGUAGE: +ExpectedTypeFromCast
 // !CHECK_TYPE
 // Issue: KT-30405

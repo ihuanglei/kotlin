@@ -20,6 +20,12 @@ import A3 = JS_TESTS.foo.A3;
 import _valCustom = JS_TESTS.foo._valCustom;
 import _valCustomWithField = JS_TESTS.foo._valCustomWithField;
 import A4 = JS_TESTS.foo.A4;
+import O = JS_TESTS.foo.O;
+import takesO = JS_TESTS.foo.takesO;
+import KT_37829 = JS_TESTS.foo.KT_37829;
+import TestSealed = JS_TESTS.foo.TestSealed;
+import TestAbstract = JS_TESTS.foo.TestAbstract;
+import TestDataClass = JS_TESTS.foo.TestDataClass;
 
 function assert(condition: boolean) {
     if (!condition) {
@@ -85,6 +91,24 @@ function box(): string {
     assert(a4._varCustomWithField === 10);
     a4._varCustomWithField = 10;
     assert(a4._varCustomWithField === 1000);
+
+    assert(O.x === 10);
+    assert(O.foo() === 20);
+    assert(takesO(O) === 30);
+
+    assert(KT_37829.Companion.x == 10);
+
+    assert(new TestSealed.AA().name == "AA");
+    assert(new TestSealed.AA().bar() == "bar");
+    assert(new TestSealed.BB().name == "BB");
+    assert(new TestSealed.BB().baz() == "baz");
+
+    assert(new TestAbstract.AA().name == "AA");
+    assert(new TestAbstract.AA().bar() == "bar");
+    assert(new TestAbstract.BB().name == "BB");
+    assert(new TestAbstract.BB().baz() == "baz");
+
+    assert(new TestDataClass.Nested().prop == "hello");
 
     return "OK";
 }

@@ -19,10 +19,14 @@ fun Project.smartJavaExec(configure: JavaExec.() -> Unit) = tasks.creating(JavaE
 fun JavaExec.passClasspathInJar() {
     val jarTask = project.task("${name}WriteClassPath", Jar::class) {
         val classpath = classpath
-        val main = main
+        val main = mainClass.get()
         dependsOn(classpath)
         inputs.files(classpath)
         inputs.property("main", main)
+
+        archiveFileName.set("$main.${this@passClasspathInJar.name}.classpath.container.jar")
+        destinationDirectory.set(temporaryDir)
+
         doFirst {
             val classPathString = classpath.joinToString(" ") { project.file(it).toURI().toString() }
             manifest {
@@ -34,16 +38,11 @@ fun JavaExec.passClasspathInJar() {
                 )
             }
         }
-        archiveName = "$main.${this@passClasspathInJar.name}.classpath.container.$extension"
-        destinationDir = temporaryDir
     }
 
     dependsOn(jarTask)
 
-    doFirst {
-        main = "-jar"
-
-        classpath = project.files()
-        args = listOf(jarTask.outputs.files.singleFile.path) + args.orEmpty()
-    }
+    mainClass.set("-jar")
+    classpath = project.files()
+    args = listOf(jarTask.outputs.files.singleFile.path) + args.orEmpty()
 }

@@ -1,3 +1,4 @@
+// IR_DIFFERENCE
 // LOCAL_VARIABLE_TABLE
 
 fun String.foo(count: Int) {

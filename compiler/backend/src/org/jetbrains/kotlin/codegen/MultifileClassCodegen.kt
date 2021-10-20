@@ -16,7 +16,6 @@
 
 package org.jetbrains.kotlin.codegen
 
-import com.intellij.openapi.application.ApplicationManager
 import com.intellij.openapi.progress.ProcessCanceledException
 import org.jetbrains.kotlin.backend.common.CodegenUtil
 import org.jetbrains.kotlin.codegen.context.FieldOwnerContext
@@ -25,20 +24,23 @@ import org.jetbrains.kotlin.codegen.state.GenerationState
 import org.jetbrains.kotlin.config.IncrementalCompilation
 import org.jetbrains.kotlin.config.JvmAnalysisFlags
 import org.jetbrains.kotlin.descriptors.*
-import org.jetbrains.kotlin.diagnostics.DiagnosticUtils
 import org.jetbrains.kotlin.fileClasses.JvmFileClassUtil
 import org.jetbrains.kotlin.load.java.JvmAnnotationNames
 import org.jetbrains.kotlin.load.kotlin.header.KotlinClassHeader
 import org.jetbrains.kotlin.load.kotlin.incremental.IncrementalPackageFragmentProvider
 import org.jetbrains.kotlin.name.FqName
+import org.jetbrains.kotlin.name.JvmNames.JVM_SYNTHETIC_ANNOTATION_FQ_NAME
 import org.jetbrains.kotlin.progress.ProgressIndicatorAndCompilationCanceledStatus
 import org.jetbrains.kotlin.psi.KtClassOrObject
 import org.jetbrains.kotlin.psi.KtFile
 import org.jetbrains.kotlin.psi.KtTypeAlias
 import org.jetbrains.kotlin.resolve.BindingContext
+import org.jetbrains.kotlin.resolve.DescriptorUtils
 import org.jetbrains.kotlin.resolve.MemberComparator
+import org.jetbrains.kotlin.resolve.descriptorUtil.annotationClass
 import org.jetbrains.kotlin.resolve.jvm.AsmTypes
 import org.jetbrains.kotlin.resolve.jvm.JvmClassName
+import org.jetbrains.kotlin.resolve.jvm.diagnostics.ErrorsJvm
 import org.jetbrains.kotlin.resolve.jvm.diagnostics.MultifileClass
 import org.jetbrains.kotlin.resolve.jvm.diagnostics.MultifileClassPart
 import org.jetbrains.kotlin.resolve.jvm.diagnostics.OtherOrigin
@@ -54,7 +56,8 @@ import org.jetbrains.org.objectweb.asm.Opcodes
 import org.jetbrains.org.objectweb.asm.Type
 
 interface MultifileClassCodegen {
-    fun generate(errorHandler: CompilationErrorHandler)
+    fun generate()
+
     fun generateClassOrObject(classOrObject: KtClassOrObject, packagePartContext: FieldOwnerContext<PackageFragmentDescriptor>)
 }
 
@@ -126,8 +129,19 @@ class MultifileClassCodegenImpl(
         val superClassForFacade = if (shouldGeneratePartHierarchy) partInternalNamesSorted.last() else J_L_OBJECT
 
         state.factory.newVisitor(MultifileClass(files.firstOrNull(), actualPackageFragment), facadeClassType, files).apply {
+            var attributes = FACADE_CLASS_ATTRIBUTES
+
+            val nonJvmSyntheticParts = files.filterNot { it.isJvmSynthetic() }
+            if (nonJvmSyntheticParts.isEmpty()) {
+                attributes = attributes or Opcodes.ACC_SYNTHETIC
+            } else if (nonJvmSyntheticParts.size < files.size) {
+                for (part in nonJvmSyntheticParts) {
+                    state.diagnostics.report(ErrorsJvm.NOT_ALL_MULTIFILE_CLASS_PARTS_ARE_JVM_SYNTHETIC.on(part.packageDirective ?: part))
+                }
+            }
+
             defineClass(
-                singleSourceFile, state.classFileVersion, FACADE_CLASS_ATTRIBUTES,
+                singleSourceFile, state.classFileVersion, attributes,
                 facadeClassType.internalName, null, superClassForFacade, emptyArray()
             )
             if (singleSourceFile != null) {
@@ -147,10 +161,17 @@ class MultifileClassCodegenImpl(
         }
     }
 
-    override fun generate(errorHandler: CompilationErrorHandler) {
+    private fun KtFile.isJvmSynthetic(): Boolean {
+        return annotationEntries.any { entry ->
+            val descriptor = state.bindingContext[BindingContext.ANNOTATION, entry]
+            descriptor?.annotationClass?.let(DescriptorUtils::getFqNameSafe) == JVM_SYNTHETIC_ANNOTATION_FQ_NAME
+        }
+    }
+
+    override fun generate() {
         assert(delegateGenerationTasks.isEmpty()) { "generate() is called twice for facade class $facadeFqName" }
 
-        generateCodeForSourceFiles(errorHandler)
+        generateCodeForSourceFiles()
 
         generateDelegatesToPreviouslyCompiledParts()
 
@@ -161,7 +182,7 @@ class MultifileClassCodegenImpl(
         done()
     }
 
-    private fun generateCodeForSourceFiles(errorHandler: CompilationErrorHandler) {
+    private fun generateCodeForSourceFiles() {
         for (file in files) {
             ProgressIndicatorAndCompilationCanceledStatus.checkCanceled()
             try {
@@ -170,11 +191,7 @@ class MultifileClassCodegenImpl(
             } catch (e: ProcessCanceledException) {
                 throw e
             } catch (e: Throwable) {
-                errorHandler.reportException(e, file.virtualFile?.url ?: "no file")
-                DiagnosticUtils.throwIfRunningOnServer(e)
-                if (ApplicationManager.getApplication().isInternal) {
-                    e.printStackTrace()
-                }
+                CodegenUtil.reportBackendException(e, "multi-file class part code generation", file.virtualFile?.url)
             }
         }
     }
@@ -229,8 +246,8 @@ class MultifileClassCodegenImpl(
     }
 
     private fun shouldGenerateInFacade(descriptor: MemberDescriptor): Boolean {
-        if (Visibilities.isPrivate(descriptor.visibility)) return false
-        if (AsmUtil.getVisibilityAccessFlag(descriptor) == Opcodes.ACC_PRIVATE) return false
+        if (DescriptorVisibilities.isPrivate(descriptor.visibility)) return false
+        if (DescriptorAsmUtil.getVisibilityAccessFlag(descriptor) == Opcodes.ACC_PRIVATE) return false
 
         if (!state.classBuilderMode.generateBodies) return true
 
@@ -287,7 +304,7 @@ class MultifileClassCodegenImpl(
     }
 
     object DelegateToCompiledMemberGenerationStrategy : FunctionGenerationStrategy() {
-        override fun skipNotNullAssertionsForParameters(): kotlin.Boolean {
+        override fun skipNotNullAssertionsForParameters(): Boolean {
             throw IllegalStateException("shouldn't be called")
         }
 
@@ -374,7 +391,7 @@ class MultifileClassCodegenImpl(
             facadeClassType: Type,
             kotlinPackageFqName: FqName
         ) {
-            writeKotlinMetadata(classBuilder, state, KotlinClassHeader.Kind.MULTIFILE_CLASS, flags) { av ->
+            writeKotlinMetadata(classBuilder, state, KotlinClassHeader.Kind.MULTIFILE_CLASS, false, flags) { av ->
                 val arv = av.visitArray(JvmAnnotationNames.METADATA_DATA_FIELD_NAME)
                 for (internalName in partInternalNames) {
                     arv.visit(null, internalName)

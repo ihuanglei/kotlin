@@ -1,11 +1,13 @@
-// !USE_EXPERIMENTAL: kotlin.Experimental
+// FIR_IDENTICAL
+// !OPT_IN: kotlin.RequiresOptIn
 
 package test.abc
 
-@Experimental
+@RequiresOptIn
+@Retention(AnnotationRetention.BINARY)
 annotation class E
 
-@UseExperimental(test.abc.E::class)
+@OptIn(test.abc.E::class)
 fun f() {}
 
 @test.abc.E

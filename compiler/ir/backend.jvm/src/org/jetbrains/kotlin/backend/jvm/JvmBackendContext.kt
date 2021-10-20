@@ -1,131 +1,152 @@
 /*
- * Copyright 2010-2019 JetBrains s.r.o. and Kotlin Programming Language contributors.
+ * Copyright 2010-2020 JetBrains s.r.o. and Kotlin Programming Language contributors.
  * Use of this source code is governed by the Apache 2.0 license that can be found in the license/LICENSE.txt file.
  */
 
 package org.jetbrains.kotlin.backend.jvm
 
 import org.jetbrains.kotlin.backend.common.CommonBackendContext
+import org.jetbrains.kotlin.backend.common.DefaultMapping
+import org.jetbrains.kotlin.backend.common.Mapping
 import org.jetbrains.kotlin.backend.common.ir.Ir
-import org.jetbrains.kotlin.backend.common.lower.irThrow
 import org.jetbrains.kotlin.backend.common.phaser.PhaseConfig
+import org.jetbrains.kotlin.backend.common.psi.PsiErrorBuilder
+import org.jetbrains.kotlin.backend.jvm.caches.BridgeLoweringCache
+import org.jetbrains.kotlin.backend.jvm.caches.CollectionStubComputer
+import org.jetbrains.kotlin.backend.jvm.codegen.ClassCodegen
 import org.jetbrains.kotlin.backend.jvm.codegen.IrTypeMapper
 import org.jetbrains.kotlin.backend.jvm.codegen.MethodSignatureMapper
-import org.jetbrains.kotlin.backend.jvm.codegen.createFakeContinuation
-import org.jetbrains.kotlin.backend.jvm.descriptors.JvmDeclarationFactory
-import org.jetbrains.kotlin.backend.jvm.descriptors.JvmSharedVariablesManager
 import org.jetbrains.kotlin.backend.jvm.intrinsics.IrIntrinsicMethods
-import org.jetbrains.kotlin.backend.jvm.lower.inlineclasses.InlineClassAbi
-import org.jetbrains.kotlin.backend.jvm.lower.inlineclasses.MemoizedInlineClassReplacements
-import org.jetbrains.kotlin.codegen.ClassBuilder
-import org.jetbrains.kotlin.codegen.inline.NameGenerator
 import org.jetbrains.kotlin.codegen.state.GenerationState
-import org.jetbrains.kotlin.descriptors.ClassConstructorDescriptor
 import org.jetbrains.kotlin.descriptors.ClassDescriptor
-import org.jetbrains.kotlin.descriptors.FunctionDescriptor
 import org.jetbrains.kotlin.descriptors.TypeParameterDescriptor
+import org.jetbrains.kotlin.ir.IrBuiltIns
 import org.jetbrains.kotlin.ir.IrElement
 import org.jetbrains.kotlin.ir.builders.IrBuilderWithScope
 import org.jetbrains.kotlin.ir.builders.irBlock
-import org.jetbrains.kotlin.ir.builders.irNull
 import org.jetbrains.kotlin.ir.declarations.*
-import org.jetbrains.kotlin.ir.descriptors.IrBuiltIns
+import org.jetbrains.kotlin.ir.declarations.impl.IrFactoryImpl
 import org.jetbrains.kotlin.ir.expressions.IrExpression
+import org.jetbrains.kotlin.ir.expressions.IrFunctionReference
+import org.jetbrains.kotlin.ir.expressions.IrStatementOrigin
 import org.jetbrains.kotlin.ir.symbols.*
 import org.jetbrains.kotlin.ir.types.IrType
-import org.jetbrains.kotlin.ir.util.ReferenceSymbolTable
+import org.jetbrains.kotlin.ir.types.IrTypeSystemContext
+import org.jetbrains.kotlin.ir.types.defaultType
 import org.jetbrains.kotlin.ir.util.SymbolTable
 import org.jetbrains.kotlin.name.FqName
-import org.jetbrains.kotlin.name.Name
-import org.jetbrains.kotlin.psi2ir.PsiSourceManager
 import org.jetbrains.kotlin.resolve.jvm.JvmClassName
 import org.jetbrains.org.objectweb.asm.Type
+import java.util.concurrent.ConcurrentHashMap
 
 class JvmBackendContext(
     val state: GenerationState,
-    val psiSourceManager: PsiSourceManager,
     override val irBuiltIns: IrBuiltIns,
     irModuleFragment: IrModuleFragment,
-    symbolTable: SymbolTable,
+    val symbolTable: SymbolTable,
     val phaseConfig: PhaseConfig,
+    val generatorExtensions: JvmGeneratorExtensions,
+    val backendExtension: JvmBackendExtension,
+    val irSerializer: JvmIrSerializer?,
+    val notifyCodegenStart: () -> Unit
+) : CommonBackendContext {
     // If the JVM fqname of a class differs from what is implied by its parent, e.g. if it's a file class
     // annotated with @JvmPackageName, the correct name is recorded here.
-    internal val classNameOverride: MutableMap<IrClass, JvmClassName>
-) : CommonBackendContext {
-    override val transformedFunction: MutableMap<IrFunctionSymbol, IrSimpleFunctionSymbol>
-        get() = TODO("not implemented")
+    val classNameOverride: MutableMap<IrClass, JvmClassName>
+        get() = generatorExtensions.classNameOverride
+
+    override val irFactory: IrFactory = IrFactoryImpl
+
     override val scriptMode: Boolean = false
-    override val lateinitNullableFields = mutableMapOf<IrField, IrField>()
 
     override val builtIns = state.module.builtIns
+    override val typeSystem: IrTypeSystemContext = JvmIrTypeSystemContext(irBuiltIns)
     val typeMapper = IrTypeMapper(this)
     val methodSignatureMapper = MethodSignatureMapper(this)
 
-    override val declarationFactory: JvmDeclarationFactory = JvmDeclarationFactory(methodSignatureMapper)
-    override val sharedVariablesManager = JvmSharedVariablesManager(state.module, builtIns, irBuiltIns)
+    val innerClassesSupport = JvmInnerClassesSupport(irFactory)
+    val cachedDeclarations = JvmCachedDeclarations(
+        this, generatorExtensions.cachedFields
+    )
 
-    private val symbolTable = symbolTable.lazyWrapper
+    override val mapping: Mapping = DefaultMapping()
+
+    val psiErrorBuilder = PsiErrorBuilder(state.diagnostics)
+
     override val ir = JvmIr(irModuleFragment, this.symbolTable)
 
-    val irIntrinsics = IrIntrinsicMethods(irBuiltIns, ir.symbols)
+    override val sharedVariablesManager = JvmSharedVariablesManager(state.module, ir.symbols, irBuiltIns, irFactory)
 
-    private val localClassType = mutableMapOf<IrAttributeContainer, Type>()
+    val irIntrinsics by lazy { IrIntrinsicMethods(irBuiltIns, ir.symbols) }
 
-    internal fun getLocalClassType(container: IrAttributeContainer): Type? =
+    private val localClassType = ConcurrentHashMap<IrAttributeContainer, Type>()
+
+    fun getLocalClassType(container: IrAttributeContainer): Type? =
         localClassType[container.attributeOwnerId]
 
-    internal fun putLocalClassType(container: IrAttributeContainer, value: Type) {
+    fun putLocalClassType(container: IrAttributeContainer, value: Type) {
         localClassType[container.attributeOwnerId] = value
     }
 
-    internal val customEnclosingFunction = mutableMapOf<IrAttributeContainer, IrFunction>()
+    val isEnclosedInConstructor = ConcurrentHashMap.newKeySet<IrAttributeContainer>()
 
-    // TODO cache these at ClassCodegen level. Currently, sharing this map between classes in a module is required
-    //      because IrSourceCompilerForInline constructs a new (Fake)ClassCodegen for every call to
-    //      an inline function in the same module. Thus, if two inline functions happen to have the same name
-    //      and call a third inline function that has an anonymous object, the one which is called last
-    //      will overwrite the other's regenerated copy. (Or don't recompile the inline function for every call.)
-    internal val regeneratedObjectNameGenerators = mutableMapOf<Pair<IrClass, Name>, NameGenerator>()
+    internal val classCodegens = ConcurrentHashMap<IrClass, ClassCodegen>()
 
-    internal val localDelegatedProperties = mutableMapOf<IrClass, List<IrLocalDelegatedPropertySymbol>>()
+    val localDelegatedProperties = ConcurrentHashMap<IrAttributeContainer, List<IrLocalDelegatedPropertySymbol>>()
 
-    internal val multifileFacadesToAdd = mutableMapOf<JvmClassName, MutableList<IrClass>>()
-    internal val multifileFacadeForPart = mutableMapOf<IrClass, JvmClassName>()
-    internal val multifileFacadeMemberToPartMember = mutableMapOf<IrFunction, IrFunction>()
+    val multifileFacadesToAdd = mutableMapOf<JvmClassName, MutableList<IrClass>>()
+    val multifileFacadeForPart = mutableMapOf<IrClass, JvmClassName>()
+    val multifileFacadeClassForPart = mutableMapOf<IrClass, IrClass>()
+    val multifileFacadeMemberToPartMember = mutableMapOf<IrSimpleFunction, IrSimpleFunction>()
 
-    override var inVerbosePhase: Boolean = false
+    val hiddenConstructors = ConcurrentHashMap<IrConstructor, IrConstructor>()
+
+    val collectionStubComputer = CollectionStubComputer(this)
+
+    private val overridesWithoutStubs = HashMap<IrSimpleFunction, List<IrSimpleFunctionSymbol>>()
+
+    fun recordOverridesWithoutStubs(function: IrSimpleFunction) {
+        overridesWithoutStubs[function] = function.overriddenSymbols.toList()
+    }
+
+    fun getOverridesWithoutStubs(function: IrSimpleFunction): List<IrSimpleFunctionSymbol> =
+        overridesWithoutStubs.getOrElse(function) { function.overriddenSymbols }
+
+    val bridgeLoweringCache = BridgeLoweringCache(this)
+    val functionsWithSpecialBridges: MutableSet<IrFunction> = ConcurrentHashMap.newKeySet()
+
+    override var inVerbosePhase: Boolean = false // TODO: needs parallelizing
 
     override val configuration get() = state.configuration
 
     override val internalPackageFqn = FqName("kotlin.jvm")
 
-    val suspendFunctionContinuations = mutableMapOf<IrFunction, IrClass>()
-    val suspendLambdaToOriginalFunctionMap = mutableMapOf<IrClass, IrFunction>()
-    val continuationClassBuilders = mutableMapOf<IrClass, ClassBuilder>()
-    val suspendFunctionOriginalToView = mutableMapOf<IrFunction, IrFunction>()
-    val suspendFunctionViewToOriginal = mutableMapOf<IrFunction, IrFunction>()
-    val fakeContinuation: IrExpression = createFakeContinuation(this)
+    val suspendLambdaToOriginalFunctionMap = ConcurrentHashMap<IrFunctionReference, IrFunction>()
+    val suspendFunctionOriginalToView = ConcurrentHashMap<IrSimpleFunction, IrSimpleFunction>()
 
-    val staticDefaultStubs = mutableMapOf<IrFunctionSymbol, IrFunction>()
+    val staticDefaultStubs = ConcurrentHashMap<IrSimpleFunctionSymbol, IrSimpleFunction>()
 
-    val inlineClassReplacements = MemoizedInlineClassReplacements()
+    val inlineClassReplacements = MemoizedInlineClassReplacements(state.functionsWithInlineClassReturnTypesMangled, irFactory, this)
 
-    internal fun recordSuspendFunctionView(function: IrFunction, view: IrFunction) {
-        suspendFunctionOriginalToView[function] = view
-        suspendFunctionViewToOriginal[view] = function
+    val continuationClassesVarsCountByType: MutableMap<IrAttributeContainer, Map<Type, Int>> = hashMapOf()
+
+    val inlineMethodGenerationLock = Any()
+
+    val directInvokedLambdas = mutableListOf<IrAttributeContainer>()
+
+    val publicAbiSymbols = mutableSetOf<IrClassSymbol>()
+
+    init {
+        state.mapInlineClass = { descriptor ->
+            typeMapper.mapType(referenceClass(descriptor).defaultType)
+        }
     }
 
     internal fun referenceClass(descriptor: ClassDescriptor): IrClassSymbol =
-        symbolTable.referenceClass(descriptor)
+        symbolTable.lazyWrapper.referenceClass(descriptor)
 
     internal fun referenceTypeParameter(descriptor: TypeParameterDescriptor): IrTypeParameterSymbol =
-        symbolTable.referenceTypeParameter(descriptor)
-
-    internal fun referenceFunction(descriptor: FunctionDescriptor): IrFunctionSymbol =
-        if (descriptor is ClassConstructorDescriptor)
-            symbolTable.referenceConstructor(descriptor)
-        else
-            symbolTable.referenceSimpleFunction(descriptor)
+        symbolTable.lazyWrapper.referenceTypeParameter(descriptor)
 
     override fun log(message: () -> String) {
         /*TODO*/
@@ -142,12 +163,70 @@ class JvmBackendContext(
     override fun throwUninitializedPropertyAccessException(builder: IrBuilderWithScope, name: String): IrExpression =
         builder.irBlock {
             +super.throwUninitializedPropertyAccessException(builder, name)
-            +irThrow(irNull())
         }
+
+    override fun handleDeepCopy(
+        fileSymbolMap: MutableMap<IrFileSymbol, IrFileSymbol>,
+        classSymbolMap: MutableMap<IrClassSymbol, IrClassSymbol>,
+        functionSymbolMap: MutableMap<IrSimpleFunctionSymbol, IrSimpleFunctionSymbol>
+    ) {
+        val oldClassesWithNameOverride = classNameOverride.keys.toList()
+        for (klass in oldClassesWithNameOverride) {
+            classSymbolMap[klass.symbol]?.let { newSymbol ->
+                classNameOverride[newSymbol.owner] = classNameOverride[klass]!!
+            }
+        }
+        for (multifileFacade in multifileFacadesToAdd) {
+            val oldPartClasses = multifileFacade.value
+            val newPartClasses = oldPartClasses.map { classSymbolMap[it.symbol]?.owner ?: it }
+            multifileFacade.setValue(newPartClasses.toMutableList())
+        }
+
+        for ((staticReplacement, original) in inlineClassReplacements.originalFunctionForStaticReplacement) {
+            if (staticReplacement !is IrSimpleFunction) continue
+            val newOriginal = functionSymbolMap[original.symbol]?.owner ?: continue
+            val newStaticReplacement = inlineClassReplacements.getReplacementFunction(newOriginal) ?: continue
+            functionSymbolMap[staticReplacement.symbol] = newStaticReplacement.symbol
+        }
+
+        for ((methodReplacement, original) in inlineClassReplacements.originalFunctionForMethodReplacement) {
+            if (methodReplacement !is IrSimpleFunction) continue
+            val newOriginal = functionSymbolMap[original.symbol]?.owner ?: continue
+            val newMethodReplacement = inlineClassReplacements.getReplacementFunction(newOriginal) ?: continue
+            functionSymbolMap[methodReplacement.symbol] = newMethodReplacement.symbol
+        }
+
+        for ((original, suspendView) in suspendFunctionOriginalToView) {
+            val newOriginal = functionSymbolMap[original.symbol]?.owner ?: continue
+            val newSuspendView = suspendFunctionOriginalToView[newOriginal] ?: continue
+            functionSymbolMap[suspendView.symbol] = newSuspendView.symbol
+        }
+
+        for ((nonStaticDefaultSymbol, staticDefault) in staticDefaultStubs) {
+            val staticDefaultSymbol = staticDefault.symbol
+            val newNonStaticDefaultSymbol = functionSymbolMap[nonStaticDefaultSymbol] ?: continue
+            val newStaticDefaultSymbol = staticDefaultStubs[newNonStaticDefaultSymbol]?.symbol ?: continue
+            functionSymbolMap[staticDefaultSymbol] = newStaticDefaultSymbol
+        }
+
+        super.handleDeepCopy(fileSymbolMap, classSymbolMap, functionSymbolMap)
+    }
+
+    override val preferJavaLikeCounterLoop: Boolean
+        get() = true
+
+    override val optimizeLoopsOverUnsignedArrays: Boolean
+        get() = true
+
+    override val doWhileCounterLoopOrigin: IrStatementOrigin
+        get() = JvmLoweredStatementOrigin.DO_WHILE_COUNTER_LOOP
+
+    override val optimizeNullChecksUsingKotlinNullability: Boolean
+        get() = false
 
     inner class JvmIr(
         irModuleFragment: IrModuleFragment,
-        symbolTable: ReferenceSymbolTable
+        symbolTable: SymbolTable
     ) : Ir<JvmBackendContext>(this, irModuleFragment) {
         override val symbols = JvmSymbols(this@JvmBackendContext, symbolTable)
 

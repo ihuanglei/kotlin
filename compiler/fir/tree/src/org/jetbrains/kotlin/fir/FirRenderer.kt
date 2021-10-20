@@ -5,41 +5,118 @@
 
 package org.jetbrains.kotlin.fir
 
-import org.jetbrains.kotlin.builtins.functions.BuiltInFictitiousFunctionClassFactory
-import org.jetbrains.kotlin.builtins.functions.FunctionClassDescriptor
+import org.jetbrains.kotlin.descriptors.ClassKind
+import org.jetbrains.kotlin.descriptors.EffectiveVisibility
 import org.jetbrains.kotlin.descriptors.Visibilities
 import org.jetbrains.kotlin.descriptors.Visibility
 import org.jetbrains.kotlin.descriptors.annotations.AnnotationUseSiteTarget
+import org.jetbrains.kotlin.fir.contracts.*
+import org.jetbrains.kotlin.fir.contracts.description.ConeContractRenderer
+import org.jetbrains.kotlin.fir.contracts.impl.FirEmptyContractDescription
 import org.jetbrains.kotlin.fir.declarations.*
+import org.jetbrains.kotlin.fir.declarations.utils.*
 import org.jetbrains.kotlin.fir.expressions.*
-import org.jetbrains.kotlin.fir.expressions.impl.FirElseIfTrueCondition
-import org.jetbrains.kotlin.fir.expressions.impl.FirExpressionStub
-import org.jetbrains.kotlin.fir.expressions.impl.FirNoReceiverExpression
-import org.jetbrains.kotlin.fir.expressions.impl.FirUnitExpression
+import org.jetbrains.kotlin.fir.expressions.impl.*
 import org.jetbrains.kotlin.fir.references.*
-import org.jetbrains.kotlin.fir.symbols.AbstractFirBasedSymbol
 import org.jetbrains.kotlin.fir.symbols.ConeClassLikeLookupTag
-import org.jetbrains.kotlin.fir.symbols.StandardClassIds
-import org.jetbrains.kotlin.fir.symbols.impl.FirCallableSymbol
-import org.jetbrains.kotlin.fir.symbols.impl.FirClassLikeSymbol
-import org.jetbrains.kotlin.fir.symbols.impl.FirNamedFunctionSymbol
-import org.jetbrains.kotlin.fir.symbols.impl.FirPropertySymbol
+import org.jetbrains.kotlin.fir.symbols.FirBasedSymbol
+import org.jetbrains.kotlin.fir.symbols.impl.*
 import org.jetbrains.kotlin.fir.types.*
 import org.jetbrains.kotlin.fir.visitors.FirVisitorVoid
+import org.jetbrains.kotlin.name.Name
 import org.jetbrains.kotlin.name.SpecialNames
+import org.jetbrains.kotlin.name.StandardClassIds
 import org.jetbrains.kotlin.types.Variance
+import org.jetbrains.kotlin.util.capitalizeDecapitalize.toLowerCaseAsciiOnly
 import org.jetbrains.kotlin.utils.Printer
 import org.jetbrains.kotlin.utils.addToStdlib.safeAs
+import java.util.*
+import kotlin.reflect.KClass
 
-fun FirElement.renderWithType(): String = buildString {
+fun FirElement.renderWithType(mode: FirRenderer.RenderMode = FirRenderer.RenderMode.Normal): String = buildString {
     append(this@renderWithType)
     append(": ")
-    this@renderWithType.accept(FirRenderer(this))
+    this@renderWithType.accept(FirRenderer(this, mode))
 }
 
-fun FirElement.render(): String = buildString { this@render.accept(FirRenderer(this)) }
+fun FirElement.render(mode: FirRenderer.RenderMode = FirRenderer.RenderMode.Normal): String =
+    buildString { this@render.accept(FirRenderer(this, mode)) }
 
-class FirRenderer(builder: StringBuilder) : FirVisitorVoid() {
+open class FirRenderer(builder: StringBuilder, protected val mode: RenderMode = RenderMode.Normal) : FirVisitorVoid() {
+    companion object {
+        private val visibilitiesToRenderEffectiveSet = setOf(
+            Visibilities.Private, Visibilities.PrivateToThis, Visibilities.Internal,
+            Visibilities.Protected, Visibilities.Public, Visibilities.Local
+        )
+    }
+
+    data class RenderMode(
+        val renderLambdaBodies: Boolean,
+        val renderCallArguments: Boolean,
+        val renderCallableFqNames: Boolean,
+        val renderDeclarationResolvePhase: Boolean,
+        val renderAnnotation: Boolean,
+        val renderBodies: Boolean = true,
+        val renderPropertyAccessors: Boolean = true,
+        val renderDeclarationAttributes: Boolean = false,
+        val renderDeclarationOrigin: Boolean = false,
+        val renderPackageDirective: Boolean = false,
+    ) {
+        companion object {
+            val Normal = RenderMode(
+                renderLambdaBodies = true,
+                renderCallArguments = true,
+                renderCallableFqNames = false,
+                renderDeclarationResolvePhase = false,
+                renderAnnotation = true,
+            )
+
+            val WithFqNames = RenderMode(
+                renderLambdaBodies = true,
+                renderCallArguments = true,
+                renderCallableFqNames = true,
+                renderDeclarationResolvePhase = false,
+                renderAnnotation = true,
+            )
+
+            val WithFqNamesExceptAnnotationAndBody = RenderMode(
+                renderLambdaBodies = true,
+                renderCallArguments = true,
+                renderCallableFqNames = true,
+                renderDeclarationResolvePhase = false,
+                renderAnnotation = false,
+                renderBodies = false,
+            )
+
+            val WithResolvePhases = RenderMode(
+                renderLambdaBodies = true,
+                renderCallArguments = true,
+                renderCallableFqNames = false,
+                renderDeclarationResolvePhase = true,
+                renderAnnotation = true,
+            )
+
+            val NoBodies = RenderMode(
+                renderLambdaBodies = false,
+                renderCallArguments = false,
+                renderCallableFqNames = false,
+                renderDeclarationResolvePhase = false,
+                renderAnnotation = false,
+                renderBodies = false,
+                renderPropertyAccessors = false,
+            )
+
+            val WithDeclarationAttributes = RenderMode(
+                renderLambdaBodies = true,
+                renderCallArguments = true,
+                renderCallableFqNames = false,
+                renderDeclarationResolvePhase = false,
+                renderAnnotation = true,
+                renderDeclarationAttributes = true,
+            )
+        }
+    }
+
     private val printer = Printer(builder)
 
     private var lineBeginning = true
@@ -91,6 +168,16 @@ class FirRenderer(builder: StringBuilder) : FirVisitorVoid() {
         }
     }
 
+    private fun List<FirElement>.renderSeparatedWithNewlines() {
+        for ((index, element) in this.withIndex()) {
+            if (index > 0) {
+                print(",")
+                newLine()
+            }
+            element.accept(this@FirRenderer)
+        }
+    }
+
     private fun List<ConeKotlinType>.renderTypesSeparated() {
         for ((index, element) in this.withIndex()) {
             if (index > 0) {
@@ -107,9 +194,14 @@ class FirRenderer(builder: StringBuilder) : FirVisitorVoid() {
         print(")")
     }
 
-    private fun List<FirAnnotationCall>.renderAnnotations() {
+    fun renderAnnotations(annotationContainer: FirAnnotationContainer) {
+        annotationContainer.annotations.renderAnnotations()
+    }
+
+    private fun List<FirAnnotation>.renderAnnotations() {
+        if (!mode.renderAnnotation) return
         for (annotation in this) {
-            visitAnnotationCall(annotation)
+            visitAnnotation(annotation)
         }
     }
 
@@ -122,39 +214,64 @@ class FirRenderer(builder: StringBuilder) : FirVisitorVoid() {
         }
     }
 
-    override fun <F : FirCallableDeclaration<F>> visitCallableDeclaration(callableDeclaration: FirCallableDeclaration<F>) {
-        if (callableDeclaration is FirMemberDeclaration) {
-            visitMemberDeclaration(callableDeclaration)
-        } else {
-            callableDeclaration.annotations.renderAnnotations()
-            visitTypedDeclaration(callableDeclaration)
-        }
+    override fun visitCallableDeclaration(callableDeclaration: FirCallableDeclaration) {
+        callableDeclaration.annotations.renderAnnotations()
+        visitMemberDeclaration(callableDeclaration)
         val receiverType = callableDeclaration.receiverTypeRef
         print(" ")
         if (receiverType != null) {
             receiverType.accept(this)
             print(".")
         }
-        if (callableDeclaration is FirNamedDeclaration) {
-            print(callableDeclaration.name)
+        when (callableDeclaration) {
+            is FirSimpleFunction -> {
+                if (!mode.renderCallableFqNames) {
+                    print(callableDeclaration.name)
+                } else {
+                    print(callableDeclaration.symbol.callableId)
+                }
+            }
+            is FirVariable -> {
+                if (!mode.renderCallableFqNames) {
+                    print(callableDeclaration.name)
+                } else {
+                    print(callableDeclaration.symbol.callableId)
+                }
+            }
+            else -> {}
         }
 
-        if (callableDeclaration is FirFunction<*>) {
+        if (callableDeclaration is FirFunction) {
             callableDeclaration.valueParameters.renderParameters()
         }
         print(": ")
         callableDeclaration.returnTypeRef.accept(this)
+        callableDeclaration.renderContractDescription()
     }
 
-    private fun Visibility.asString() =
-        when (this) {
-            Visibilities.UNKNOWN -> "public?"
+    private fun FirDeclaration.renderContractDescription() {
+        val contractDescription = (this as? FirContractDescriptionOwner)?.contractDescription ?: return
+        pushIndent()
+        contractDescription.accept(this@FirRenderer)
+        popIndent()
+    }
+
+    private fun Visibility.asString(effectiveVisibility: EffectiveVisibility? = null): String {
+        val itself = when (this) {
+            Visibilities.Unknown -> return "public?"
             else -> toString()
         }
+        if (effectiveVisibility == null) return itself
+        val effectiveAsVisibility = effectiveVisibility.toVisibility()
+        if (effectiveAsVisibility == this) return itself
+        if (effectiveAsVisibility == Visibilities.Private && this == Visibilities.PrivateToThis) return itself
+        if (this !in visibilitiesToRenderEffectiveSet) return itself
+        return itself + "[${effectiveVisibility.name}]"
+    }
 
     private fun FirMemberDeclaration.modalityAsString(): String {
-        return modality?.name?.toLowerCase() ?: run {
-            if (this is FirCallableMemberDeclaration<*> && this.isOverride) {
+        return modality?.name?.toLowerCaseAsciiOnly() ?: run {
+            if (this is FirCallableDeclaration && this.isOverride) {
                 "open?"
             } else {
                 "final?"
@@ -162,7 +279,7 @@ class FirRenderer(builder: StringBuilder) : FirVisitorVoid() {
         }
     }
 
-    private fun List<FirTypeParameter>.renderTypeParameters() {
+    private fun List<FirTypeParameterRef>.renderTypeParameters() {
         if (isNotEmpty()) {
             print("<")
             renderSeparated()
@@ -178,10 +295,16 @@ class FirRenderer(builder: StringBuilder) : FirVisitorVoid() {
         }
     }
 
+    override fun visitTypeParameterRef(typeParameterRef: FirTypeParameterRef) {
+        typeParameterRef.symbol.fir.accept(this)
+    }
+
     override fun visitMemberDeclaration(memberDeclaration: FirMemberDeclaration) {
-        memberDeclaration.annotations.renderAnnotations()
         if (memberDeclaration !is FirProperty || !memberDeclaration.isLocal) {
-            print(memberDeclaration.visibility.asString() + " " + memberDeclaration.modalityAsString() + " ")
+            // we can't access session.effectiveVisibilityResolver from here!
+            // print(memberDeclaration.visibility.asString(memberDeclaration.getEffectiveVisibility(...)) + " ")
+            print(memberDeclaration.visibility.asString() + " ")
+            print(memberDeclaration.modalityAsString() + " ")
         }
         if (memberDeclaration.isExpect) {
             print("expect ")
@@ -189,77 +312,84 @@ class FirRenderer(builder: StringBuilder) : FirVisitorVoid() {
         if (memberDeclaration.isActual) {
             print("actual ")
         }
-        if (memberDeclaration is FirCallableMemberDeclaration<*>) {
-            if (memberDeclaration.isOverride) {
-                print("override ")
-            }
-            if (memberDeclaration.isStatic) {
-                print("static ")
-            }
+        if (memberDeclaration.isExternal) {
+            print("external ")
         }
-        if (memberDeclaration is FirRegularClass) {
-            if (memberDeclaration.isInner) {
-                print("inner ")
-            }
-            if (memberDeclaration.isCompanion) {
-                print("companion ")
-            }
-            if (memberDeclaration.isData) {
-                print("data ")
-            }
-            if (memberDeclaration.isInline) {
-                print("inline ")
-            }
-        } else if (memberDeclaration is FirSimpleFunction) {
-            if (memberDeclaration.isOperator) {
-                print("operator ")
-            }
-            if (memberDeclaration.isInfix) {
-                print("infix ")
-            }
-            if (memberDeclaration.isInline) {
-                print("inline ")
-            }
-            if (memberDeclaration.isTailRec) {
-                print("tailrec ")
-            }
-            if (memberDeclaration.isExternal) {
-                print("external ")
-            }
-            if (memberDeclaration.isSuspend) {
-                print("suspend ")
-            }
-        } else if (memberDeclaration is FirProperty) {
-            if (memberDeclaration.isConst) {
-                print("const ")
-            }
-            if (memberDeclaration.isLateInit) {
-                print("lateinit ")
-            }
+        if (memberDeclaration.isOverride) {
+            print("override ")
+        }
+        if (memberDeclaration.isStatic) {
+            print("static ")
+        }
+        if (memberDeclaration.isInner) {
+            print("inner ")
         }
 
-        visitNamedDeclaration(memberDeclaration)
-    }
+        // `companion/data/fun` modifiers are only valid for FirRegularClass, but we render them to make sure they are not
+        // incorrectly loaded for other declarations during deserialization.
+        if (memberDeclaration.status.isCompanion) {
+            print("companion ")
+        }
+        if (memberDeclaration.status.isData) {
+            print("data ")
+        }
+        // All Java interfaces are considered `fun` (functional interfaces) for resolution purposes
+        // (see JavaSymbolProvider.createFirJavaClass). Don't render `fun` for Java interfaces; it's not a modifier in Java.
+        val isJavaInterface =
+            memberDeclaration is FirRegularClass && memberDeclaration.classKind == ClassKind.INTERFACE && memberDeclaration.isJava
+        if (memberDeclaration.status.isFun && !isJavaInterface) {
+            print("fun ")
+        }
 
-    override fun visitNamedDeclaration(namedDeclaration: FirNamedDeclaration) {
-        visitDeclaration(namedDeclaration)
-        if (namedDeclaration !is FirCallableDeclaration<*>) { // Handled by visitCallableDeclaration
-            print(" " + namedDeclaration.name)
-            if (namedDeclaration is FirTypeParametersOwner) {
-                namedDeclaration.typeParameters.renderTypeParameters()
+        if (memberDeclaration.isInline) {
+            print("inline ")
+        }
+        if (memberDeclaration.isOperator) {
+            print("operator ")
+        }
+        if (memberDeclaration.isInfix) {
+            print("infix ")
+        }
+        if (memberDeclaration.isTailRec) {
+            print("tailrec ")
+        }
+        if (memberDeclaration.isSuspend) {
+            print("suspend ")
+        }
+        if (memberDeclaration.isConst) {
+            print("const ")
+        }
+        if (memberDeclaration.isLateInit) {
+            print("lateinit ")
+        }
+
+        visitDeclaration(memberDeclaration as FirDeclaration)
+        when (memberDeclaration) {
+            is FirClassLikeDeclaration -> {
+                if (memberDeclaration is FirRegularClass) {
+                    print(" " + memberDeclaration.name)
+                }
+                if (memberDeclaration is FirTypeAlias) {
+                    print(" " + memberDeclaration.name)
+                }
+                memberDeclaration.typeParameters.renderTypeParameters()
             }
-        } else if (namedDeclaration is FirMemberDeclaration) {
-            if (namedDeclaration.typeParameters.isNotEmpty()) {
-                print(" ")
-                namedDeclaration.typeParameters.renderTypeParameters()
+            is FirCallableDeclaration -> {
+                // Name is handled by visitCallableDeclaration
+                if (memberDeclaration.typeParameters.isNotEmpty()) {
+                    print(" ")
+                    memberDeclaration.typeParameters.renderTypeParameters()
+                }
             }
+            else -> {}
         }
     }
 
     override fun visitDeclaration(declaration: FirDeclaration) {
+        declaration.renderDeclarationData()
         print(
             when (declaration) {
-                is FirRegularClass -> declaration.classKind.name.toLowerCase().replace("_", " ")
+                is FirRegularClass -> declaration.classKind.name.toLowerCaseAsciiOnly().replace("_", " ")
                 is FirTypeAlias -> "typealias"
                 is FirSimpleFunction -> "fun"
                 is FirProperty -> {
@@ -267,17 +397,52 @@ class FirRenderer(builder: StringBuilder) : FirVisitorVoid() {
                     prefix + if (declaration.isVal) "val" else "var"
                 }
                 is FirField -> "field"
+                is FirEnumEntry -> "enum entry"
                 else -> "unknown"
             }
         )
     }
 
-    override fun visitEnumEntry(enumEntry: FirEnumEntry) {
-        visitRegularClass(enumEntry)
+    private fun FirDeclaration.renderDeclarationData() {
+        renderDeclarationResolvePhaseIfNeeded()
+        renderDeclarationAttributesIfNeeded()
+        renderDeclarationOriginIfNeeded()
+    }
+
+    private fun FirDeclaration.renderDeclarationResolvePhaseIfNeeded() {
+        if (mode.renderDeclarationResolvePhase) {
+            print("[${resolvePhase}] ")
+        }
+    }
+
+    private fun FirDeclaration.renderDeclarationAttributesIfNeeded() {
+        if (mode.renderDeclarationAttributes && attributes.isNotEmpty()) {
+            val attributes = getAttributesWithValues().mapNotNull { (klass, value) ->
+                value?.let { klass.simpleName to value.renderAsDeclarationAttributeValue() }
+            }.joinToString { (name, value) -> "$name=$value" }
+            print("[$attributes] ")
+        }
+    }
+
+    private fun FirDeclaration.renderDeclarationOriginIfNeeded() {
+        if (mode.renderDeclarationOrigin) {
+            print("[$origin] ")
+        }
+    }
+
+    private fun FirDeclaration.getAttributesWithValues(): List<Pair<KClass<out FirDeclarationDataKey>, Any?>> {
+        val attributesMap = FirDeclarationDataRegistry.allValuesThreadUnsafeForRendering()
+        return attributesMap.entries.sortedBy { it.key.simpleName }.map { (klass, index) -> klass to attributes[index] }
+    }
+
+    private fun Any.renderAsDeclarationAttributeValue() = when (this) {
+        is FirCallableSymbol<*> -> callableId.toString()
+        is FirClassLikeSymbol<*> -> classId.asString()
+        else -> toString()
     }
 
 
-    private fun List<FirDeclaration>.renderDeclarations() {
+    protected fun List<FirDeclaration>.renderDeclarations() {
         renderInBraces {
             for (declaration in this) {
                 declaration.accept(this@FirRenderer)
@@ -286,12 +451,12 @@ class FirRenderer(builder: StringBuilder) : FirVisitorVoid() {
         }
     }
 
-    fun renderInBraces(f: () -> Unit) {
-        println(" {")
+    fun renderInBraces(leftBrace: String = "{", rightBrace: String = "}", f: () -> Unit) {
+        println(" $leftBrace")
         pushIndent()
         f()
         popIndent()
-        println("}")
+        println(rightBrace)
     }
 
     fun renderSupertypes(regularClass: FirRegularClass) {
@@ -302,13 +467,26 @@ class FirRenderer(builder: StringBuilder) : FirVisitorVoid() {
     }
 
     override fun visitRegularClass(regularClass: FirRegularClass) {
+        regularClass.annotations.renderAnnotations()
         visitMemberDeclaration(regularClass)
         renderSupertypes(regularClass)
+        renderClassDeclarations(regularClass)
+    }
+
+    protected open fun renderClassDeclarations(regularClass: FirRegularClass) {
         regularClass.declarations.renderDeclarations()
     }
 
-    override fun visitSealedClass(sealedClass: FirSealedClass) {
-        visitRegularClass(sealedClass)
+    override fun visitEnumEntry(enumEntry: FirEnumEntry) {
+        visitCallableDeclaration(enumEntry)
+        enumEntry.initializer?.let {
+            print(" = ")
+            it.accept(this)
+        }
+    }
+
+    override fun visitAnonymousObjectExpression(anonymousObjectExpression: FirAnonymousObjectExpression) {
+        anonymousObjectExpression.anonymousObject.accept(this)
     }
 
     override fun visitAnonymousObject(anonymousObject: FirAnonymousObject) {
@@ -318,7 +496,7 @@ class FirRenderer(builder: StringBuilder) : FirVisitorVoid() {
         anonymousObject.declarations.renderDeclarations()
     }
 
-    override fun <F : FirVariable<F>> visitVariable(variable: FirVariable<F>) {
+    override fun visitVariable(variable: FirVariable) {
         visitCallableDeclaration(variable)
         variable.initializer?.let {
             print(" = ")
@@ -338,8 +516,15 @@ class FirRenderer(builder: StringBuilder) : FirVisitorVoid() {
     override fun visitProperty(property: FirProperty) {
         visitVariable(property)
         if (property.isLocal) return
+        if (!mode.renderPropertyAccessors) return
         println()
         pushIndent()
+
+        if (property.hasExplicitBackingField) {
+            property.backingField?.accept(this)
+            println()
+        }
+
         property.getter?.accept(this)
         if (property.getter?.body == null) {
             println()
@@ -353,6 +538,17 @@ class FirRenderer(builder: StringBuilder) : FirVisitorVoid() {
         popIndent()
     }
 
+    override fun visitBackingField(backingField: FirBackingField) {
+        print(backingField.visibility.asString() + " ")
+        print("<explicit backing field>: ")
+        backingField.returnTypeRef.accept(this)
+
+        backingField.initializer?.let {
+            print(" = ")
+            it.accept(this)
+        }
+    }
+
     override fun visitSimpleFunction(simpleFunction: FirSimpleFunction) {
         visitCallableDeclaration(simpleFunction)
         simpleFunction.body?.renderBody()
@@ -363,7 +559,22 @@ class FirRenderer(builder: StringBuilder) : FirVisitorVoid() {
 
     override fun visitConstructor(constructor: FirConstructor) {
         constructor.annotations.renderAnnotations()
-        print(constructor.visibility.asString() + " constructor")
+        // we can't access session.effectiveVisibilityResolver from here!
+        // print(constructor.visibility.asString(constructor.getEffectiveVisibility(...)) + " ")
+        print(constructor.visibility.asString() + " ")
+        if (constructor.isExpect) {
+            print("expect ")
+        }
+        if (constructor.isActual) {
+            print("actual ")
+        }
+        constructor.renderDeclarationData()
+
+        constructor.dispatchReceiverType?.let {
+            print(it.render())
+            print(".")
+        }
+        print("constructor")
         constructor.typeParameters.renderTypeParameters()
         constructor.valueParameters.renderParameters()
         print(": ")
@@ -384,16 +595,25 @@ class FirRenderer(builder: StringBuilder) : FirVisitorVoid() {
     }
 
     override fun visitPropertyAccessor(propertyAccessor: FirPropertyAccessor) {
+        propertyAccessor.renderDeclarationData()
         propertyAccessor.annotations.renderAnnotations()
         print(propertyAccessor.visibility.asString() + " ")
+        print(if (propertyAccessor.isInline) "inline " else "")
+        print(if (propertyAccessor.isExternal) "external " else "")
         print(if (propertyAccessor.isGetter) "get" else "set")
         propertyAccessor.valueParameters.renderParameters()
         print(": ")
         propertyAccessor.returnTypeRef.accept(this)
+        propertyAccessor.renderContractDescription()
         propertyAccessor.body?.renderBody()
     }
 
+    override fun visitAnonymousFunctionExpression(anonymousFunctionExpression: FirAnonymousFunctionExpression) {
+        visitAnonymousFunction(anonymousFunctionExpression.anonymousFunction)
+    }
+
     override fun visitAnonymousFunction(anonymousFunction: FirAnonymousFunction) {
+        anonymousFunction.renderDeclarationData()
         anonymousFunction.annotations.renderAnnotations()
         val label = anonymousFunction.label
         if (label != null) {
@@ -406,16 +626,26 @@ class FirRenderer(builder: StringBuilder) : FirVisitorVoid() {
             print(".")
         }
         print("<anonymous>")
+        if (anonymousFunction.valueParameters.isEmpty() &&
+            anonymousFunction.hasExplicitParameterList &&
+            anonymousFunction.returnTypeRef is FirImplicitTypeRef
+        ) {
+            print("(<no-parameters>)")
+        }
         anonymousFunction.valueParameters.renderParameters()
         print(": ")
         anonymousFunction.returnTypeRef.accept(this)
+        print(" <inline=${anonymousFunction.inlineStatus}")
         if (anonymousFunction.invocationKind != null) {
-            print(" <kind=${anonymousFunction.invocationKind}> ")
+            print(", kind=${anonymousFunction.invocationKind}")
         }
-        anonymousFunction.body?.renderBody()
+        print("> ")
+        if (mode.renderLambdaBodies) {
+            anonymousFunction.body?.renderBody()
+        }
     }
 
-    override fun <F : FirFunction<F>> visitFunction(function: FirFunction<F>) {
+    override fun visitFunction(function: FirFunction) {
         function.valueParameters.renderParameters()
         visitDeclaration(function)
         function.body?.renderBody()
@@ -427,10 +657,16 @@ class FirRenderer(builder: StringBuilder) : FirVisitorVoid() {
     }
 
     private fun FirBlock.renderBody(additionalStatements: List<FirStatement> = emptyList()) {
-        renderInBraces {
-            for (statement in additionalStatements + statements) {
-                statement.accept(this@FirRenderer)
-                println()
+        if (!mode.renderBodies) return
+        when (this) {
+            is FirLazyBlock -> {
+                println(" { LAZY_BLOCK }")
+            }
+            else -> renderInBraces {
+                for (statement in additionalStatements + statements) {
+                    statement.accept(this@FirRenderer)
+                    println()
+                }
             }
         }
     }
@@ -468,11 +704,23 @@ class FirRenderer(builder: StringBuilder) : FirVisitorVoid() {
         }
     }
 
+    override fun visitSafeCallExpression(safeCallExpression: FirSafeCallExpression) {
+        safeCallExpression.receiver.accept(this)
+        print("?.{ ")
+        safeCallExpression.regularQualifiedAccess.accept(this)
+        print(" }")
+    }
+
+    override fun visitCheckedSafeCallSubject(checkedSafeCallSubject: FirCheckedSafeCallSubject) {
+        print("\$subj\$")
+    }
+
     override fun visitTypedDeclaration(typedDeclaration: FirTypedDeclaration) {
         visitDeclaration(typedDeclaration)
     }
 
     override fun visitValueParameter(valueParameter: FirValueParameter) {
+        valueParameter.renderDeclarationData()
         valueParameter.annotations.renderAnnotations()
         if (valueParameter.isCrossinline) {
             print("crossinline ")
@@ -498,7 +746,11 @@ class FirRenderer(builder: StringBuilder) : FirVisitorVoid() {
     }
 
     override fun visitStatement(statement: FirStatement) {
-        visitElement(statement)
+        if (statement is FirStubStatement) {
+            print("[StubStatement]")
+        } else {
+            visitElement(statement)
+        }
     }
 
     override fun visitReturnExpression(returnExpression: FirReturnExpression) {
@@ -589,12 +841,28 @@ class FirRenderer(builder: StringBuilder) : FirVisitorVoid() {
         whileLoop.block.accept(this)
     }
 
+    private val loopJumpStack = Stack<FirLoopJump>()
+
     override fun visitLoopJump(loopJump: FirLoopJump) {
+        if (loopJumpStack.contains(loopJump)) {
+            // For example,
+            //   do {
+            //     ...
+            //   } while(
+            //       when (...) {
+            //         ... -> break
+            //       }
+            //   )
+            // That `break` condition is `when` expression, and while visiting its branch result, we will see the same `break` again.
+            return
+        }
+        loopJumpStack.push(loopJump)
         val target = loopJump.target
         val labeledElement = target.labeledElement
         print("@@@[")
         labeledElement.condition.accept(this)
         print("] ")
+        loopJumpStack.pop()
     }
 
     override fun visitBreakExpression(breakExpression: FirBreakExpression) {
@@ -610,10 +878,13 @@ class FirRenderer(builder: StringBuilder) : FirVisitorVoid() {
     }
 
     override fun visitExpression(expression: FirExpression) {
-        expression.annotations.renderAnnotations()
+        if (expression !is FirLazyExpression) {
+            expression.annotations.renderAnnotations()
+        }
         print(
             when (expression) {
                 is FirExpressionStub -> "STUB"
+                is FirLazyExpression -> "LAZY_EXPRESSION"
                 is FirUnitExpression -> "Unit"
                 is FirElseIfTrueCondition -> "else"
                 is FirNoReceiverExpression -> ""
@@ -624,7 +895,19 @@ class FirRenderer(builder: StringBuilder) : FirVisitorVoid() {
 
     override fun <T> visitConstExpression(constExpression: FirConstExpression<T>) {
         constExpression.annotations.renderAnnotations()
-        print("${constExpression.kind}(${constExpression.value})")
+        val kind = constExpression.kind
+        val value = constExpression.value
+        print("$kind(")
+        if (value !is Char) {
+            print(value.toString())
+        } else {
+            if (value.code in 32..127) {
+                print(value)
+            } else {
+                print(value.code)
+            }
+        }
+        print(")")
     }
 
     override fun visitWrappedDelegateExpression(wrappedDelegateExpression: FirWrappedDelegateExpression) {
@@ -652,9 +935,21 @@ class FirRenderer(builder: StringBuilder) : FirVisitorVoid() {
         lambdaArgumentExpression.expression.accept(this)
     }
 
+    override fun visitVarargArgumentsExpression(varargArgumentsExpression: FirVarargArgumentsExpression) {
+        print("vararg(")
+        varargArgumentsExpression.arguments.renderSeparated()
+        print(")")
+    }
+
     override fun visitCall(call: FirCall) {
         print("(")
-        call.arguments.renderSeparated()
+        if (mode.renderCallArguments) {
+            call.arguments.renderSeparated()
+        } else {
+            if (call.arguments.isNotEmpty()) {
+                print("...")
+            }
+        }
         print(")")
     }
 
@@ -674,21 +969,60 @@ class FirRenderer(builder: StringBuilder) : FirVisitorVoid() {
     }
 
     override fun visitAnnotationCall(annotationCall: FirAnnotationCall) {
+        visitAnnotation(annotationCall)
+    }
+
+    override fun visitAnnotation(annotation: FirAnnotation) {
         print("@")
-        annotationCall.useSiteTarget?.let {
+        annotation.useSiteTarget?.let {
             print(it.name)
             print(":")
         }
-        annotationCall.annotationTypeRef.accept(this)
-        visitCall(annotationCall)
-        if (annotationCall.useSiteTarget == AnnotationUseSiteTarget.FILE) {
+        annotation.annotationTypeRef.accept(this)
+        when (annotation) {
+            is FirAnnotationCall -> if (annotation.calleeReference.let { it is FirResolvedNamedReference || it is FirErrorNamedReference }) {
+                annotation.renderArgumentMapping()
+            } else {
+                visitCall(annotation)
+            }
+            else -> annotation.renderArgumentMapping()
+        }
+        if (annotation.useSiteTarget == AnnotationUseSiteTarget.FILE) {
             println()
         } else {
             print(" ")
         }
     }
 
+    private fun FirAnnotation.renderArgumentMapping() {
+        print("(")
+        if (mode.renderCallArguments) {
+            argumentMapping.mapping.renderSeparated()
+        } else {
+            if (argumentMapping.mapping.isNotEmpty()) {
+                print("...")
+            }
+        }
+        print(")")
+    }
+
+    private fun Map<Name, FirElement>.renderSeparated() {
+        for ((index, element) in this.entries.withIndex()) {
+            val (name, argument) = element
+            if (index > 0) {
+                print(", ")
+            }
+            print("$name = ")
+            argument.accept(this@FirRenderer)
+        }
+    }
+
     override fun visitDelegatedConstructorCall(delegatedConstructorCall: FirDelegatedConstructorCall) {
+        val dispatchReceiver = delegatedConstructorCall.dispatchReceiver
+        if (dispatchReceiver !is FirNoReceiverExpression) {
+            dispatchReceiver.accept(this)
+            print(".")
+        }
         if (delegatedConstructorCall.isSuper) {
             print("super<")
         } else if (delegatedConstructorCall.isThis) {
@@ -704,14 +1038,8 @@ class FirRenderer(builder: StringBuilder) : FirVisitorVoid() {
         visitElement(typeRef)
     }
 
-    override fun visitDelegatedTypeRef(delegatedTypeRef: FirDelegatedTypeRef) {
-        delegatedTypeRef.typeRef.accept(this)
-        print(" by ")
-        delegatedTypeRef.delegate?.accept(this)
-    }
-
     override fun visitErrorTypeRef(errorTypeRef: FirErrorTypeRef) {
-        visitTypeRef(errorTypeRef)
+        errorTypeRef.annotations.renderAnnotations()
         print("<ERROR TYPE REF: ${errorTypeRef.diagnostic.reason}>")
     }
 
@@ -732,7 +1060,11 @@ class FirRenderer(builder: StringBuilder) : FirVisitorVoid() {
     }
 
     override fun visitFunctionTypeRef(functionTypeRef: FirFunctionTypeRef) {
+        functionTypeRef.annotations.dropExtensionFunctionAnnotation().renderAnnotations()
         print("( ")
+        if (functionTypeRef.isSuspend) {
+            print("suspend ")
+        }
         functionTypeRef.receiverTypeRef?.let {
             it.accept(this)
             print(".")
@@ -746,36 +1078,28 @@ class FirRenderer(builder: StringBuilder) : FirVisitorVoid() {
 
     override fun visitResolvedTypeRef(resolvedTypeRef: FirResolvedTypeRef) {
         val kind = resolvedTypeRef.functionTypeKind
-        val annotations = if (kind.withPrettyRender()) {
-            resolvedTypeRef.annotations.dropExtensionFunctionAnnotation()
-        } else {
-            resolvedTypeRef.annotations
-        }
-        annotations.renderAnnotations()
         print("R|")
         val coneType = resolvedTypeRef.type
-        print(coneType.renderFunctionType(kind, resolvedTypeRef.isExtensionFunctionType()))
+        print(coneType.renderFunctionType(kind, resolvedTypeRef.annotations.any {
+            it.isExtensionFunctionAnnotationCall
+        }))
         print("|")
     }
 
-    private val FirResolvedTypeRef.functionTypeKind: FunctionClassDescriptor.Kind?
-        get() {
-            val classId = (type as? ConeClassLikeType)?.lookupTag?.classId ?: return null
-            return BuiltInFictitiousFunctionClassFactory.getFunctionalClassKind(
-                classId.shortClassName.asString(), classId.packageFqName
-            )
-        }
-
     override fun visitUserTypeRef(userTypeRef: FirUserTypeRef) {
         userTypeRef.annotations.renderAnnotations()
+        if (userTypeRef.customRenderer) {
+            print(userTypeRef.toString())
+            return
+        }
         for ((index, qualifier) in userTypeRef.qualifier.withIndex()) {
             if (index != 0) {
                 print(".")
             }
             print(qualifier.name)
-            if (qualifier.typeArguments.isNotEmpty()) {
+            if (qualifier.typeArgumentList.typeArguments.isNotEmpty()) {
                 print("<")
-                qualifier.typeArguments.renderSeparated()
+                qualifier.typeArgumentList.typeArguments.renderSeparated()
                 print(">")
             }
         }
@@ -795,7 +1119,7 @@ class FirRenderer(builder: StringBuilder) : FirVisitorVoid() {
         print("*")
     }
 
-    private fun AbstractFirBasedSymbol<*>.render(): String {
+    private fun FirBasedSymbol<*>.render(): String {
         return when (this) {
             is FirCallableSymbol<*> -> callableId.toString()
             is FirClassLikeSymbol<*> -> classId.toString()
@@ -806,17 +1130,15 @@ class FirRenderer(builder: StringBuilder) : FirVisitorVoid() {
     override fun visitNamedReference(namedReference: FirNamedReference) {
         val symbol = namedReference.candidateSymbol
         when {
-            symbol != null -> {
-                print("R?C|${symbol.render()}|")
-            }
             namedReference is FirErrorNamedReference -> print("<${namedReference.diagnostic.reason}>#")
+            symbol != null -> print("R?C|${symbol.render()}|")
             else -> print("${namedReference.name}#")
         }
     }
 
     override fun visitBackingFieldReference(backingFieldReference: FirBackingFieldReference) {
         print("F|")
-        print(backingFieldReference.resolvedSymbol.callableId)
+        print(backingFieldReference.resolvedSymbol.fir.propertySymbol.callableId)
         print("|")
     }
 
@@ -829,17 +1151,13 @@ class FirRenderer(builder: StringBuilder) : FirVisitorVoid() {
     override fun visitResolvedNamedReference(resolvedNamedReference: FirResolvedNamedReference) {
         print("R|")
         val symbol = resolvedNamedReference.resolvedSymbol
-        val isFakeOverride = when (symbol) {
-            is FirNamedFunctionSymbol -> symbol.isFakeOverride
-            is FirPropertySymbol -> symbol.isFakeOverride
-            else -> false
+        val isSubstitutionOverride = (symbol.fir as? FirCallableDeclaration)?.isSubstitutionOverride == true
+
+        if (isSubstitutionOverride) {
+            print("SubstitutionOverride<")
         }
 
-        if (isFakeOverride) {
-            print("FakeOverride<")
-        }
-        print(symbol.render())
-
+        print(symbol.unwrapIntersectionOverrides().render())
 
         if (resolvedNamedReference is FirResolvedCallableReference) {
             if (resolvedNamedReference.inferredTypeArguments.isNotEmpty()) {
@@ -851,7 +1169,7 @@ class FirRenderer(builder: StringBuilder) : FirVisitorVoid() {
             }
         }
 
-        if (isFakeOverride) {
+        if (isSubstitutionOverride) {
             when (symbol) {
                 is FirNamedFunctionSymbol -> {
                     print(": ")
@@ -865,6 +1183,11 @@ class FirRenderer(builder: StringBuilder) : FirVisitorVoid() {
             print(">")
         }
         print("|")
+    }
+
+    private fun FirBasedSymbol<*>.unwrapIntersectionOverrides(): FirBasedSymbol<*> {
+        (this as? FirCallableSymbol<*>)?.baseForIntersectionOverride?.let { return it.unwrapIntersectionOverrides() }
+        return this
     }
 
     override fun visitResolvedCallableReference(resolvedCallableReference: FirResolvedCallableReference) {
@@ -886,6 +1209,9 @@ class FirRenderer(builder: StringBuilder) : FirVisitorVoid() {
         print("super<")
         superReference.superTypeRef.accept(this)
         print(">")
+        superReference.labelName?.let {
+            print("@$it#")
+        }
     }
 
     override fun visitQualifiedAccess(qualifiedAccess: FirQualifiedAccess) {
@@ -915,17 +1241,27 @@ class FirRenderer(builder: StringBuilder) : FirVisitorVoid() {
             }
         }
         if (hasSomeReceiver) {
-            if (qualifiedAccess.safe) {
-                print("?.")
-            } else {
-                print(".")
-            }
+            print(".")
         }
+    }
+
+    override fun visitCheckNotNullCall(checkNotNullCall: FirCheckNotNullCall) {
+        checkNotNullCall.argument.accept(this)
+        print("!!")
+    }
+
+    override fun visitElvisExpression(elvisExpression: FirElvisExpression) {
+        elvisExpression.lhs.accept(this)
+        print(" ?: ")
+        elvisExpression.rhs.accept(this)
     }
 
     override fun visitCallableReferenceAccess(callableReferenceAccess: FirCallableReferenceAccess) {
         callableReferenceAccess.annotations.renderAnnotations()
         callableReferenceAccess.explicitReceiver?.accept(this)
+        if (callableReferenceAccess.hasQuestionMarkAtLHS && callableReferenceAccess.explicitReceiver !is FirResolvedQualifier) {
+            print("?")
+        }
         print("::")
         callableReferenceAccess.calleeReference.accept(this)
     }
@@ -935,6 +1271,10 @@ class FirRenderer(builder: StringBuilder) : FirVisitorVoid() {
         visitQualifiedAccess(qualifiedAccessExpression)
         qualifiedAccessExpression.calleeReference.accept(this)
         qualifiedAccessExpression.typeArguments.renderTypeArguments()
+    }
+
+    override fun visitPropertyAccessExpression(propertyAccessExpression: FirPropertyAccessExpression) {
+        visitQualifiedAccessExpression(propertyAccessExpression)
     }
 
     override fun visitThisReceiverExpression(thisReceiverExpression: FirThisReceiverExpression) {
@@ -959,14 +1299,11 @@ class FirRenderer(builder: StringBuilder) : FirVisitorVoid() {
         visitAssignment(FirOperation.ASSIGN, variableAssignment.rValue)
     }
 
-    override fun visitArraySetCall(arraySetCall: FirArraySetCall) {
-        arraySetCall.annotations.renderAnnotations()
-        visitQualifiedAccess(arraySetCall)
-        arraySetCall.lValue.accept(this)
-        print("[")
-        arraySetCall.indexes.renderSeparated()
-        print("] ")
-        visitAssignment(arraySetCall.operation, arraySetCall.rValue)
+    override fun visitAugmentedArraySetCall(augmentedArraySetCall: FirAugmentedArraySetCall) {
+        augmentedArraySetCall.annotations.renderAnnotations()
+        print("ArraySet:[")
+        augmentedArraySetCall.assignCall.accept(this)
+        print("]")
     }
 
     override fun visitFunctionCall(functionCall: FirFunctionCall) {
@@ -977,20 +1314,34 @@ class FirRenderer(builder: StringBuilder) : FirVisitorVoid() {
         visitCall(functionCall)
     }
 
-    override fun visitOperatorCall(operatorCall: FirOperatorCall) {
-        operatorCall.annotations.renderAnnotations()
-        print(operatorCall.operation.operator)
-        if (operatorCall is FirTypeOperatorCall) {
-            print("/")
-            operatorCall.conversionTypeRef.accept(this)
-        }
-        visitCall(operatorCall)
+    override fun visitImplicitInvokeCall(implicitInvokeCall: FirImplicitInvokeCall) {
+        visitFunctionCall(implicitInvokeCall)
+    }
+
+    override fun visitComparisonExpression(comparisonExpression: FirComparisonExpression) {
+        print("CMP(${comparisonExpression.operation.operator}, ")
+        comparisonExpression.compareToCall.accept(this)
+        print(")")
+    }
+
+    override fun visitAssignmentOperatorStatement(assignmentOperatorStatement: FirAssignmentOperatorStatement) {
+        assignmentOperatorStatement.annotations.renderAnnotations()
+        print(assignmentOperatorStatement.operation.operator)
+        print("(")
+        assignmentOperatorStatement.leftArgument.accept(this@FirRenderer)
+        print(", ")
+        assignmentOperatorStatement.rightArgument.accept(this@FirRenderer)
+        print(")")
+    }
+
+    override fun visitEqualityOperatorCall(equalityOperatorCall: FirEqualityOperatorCall) {
+        equalityOperatorCall.annotations.renderAnnotations()
+        print(equalityOperatorCall.operation.operator)
+        visitCall(equalityOperatorCall)
     }
 
     override fun visitComponentCall(componentCall: FirComponentCall) {
-        componentCall.annotations.renderAnnotations()
-        componentCall.explicitReceiver.accept(this)
-        print(".component${componentCall.componentIndex}()")
+        visitFunctionCall(componentCall)
     }
 
     override fun visitGetClassCall(getClassCall: FirGetClassCall) {
@@ -1031,6 +1382,9 @@ class FirRenderer(builder: StringBuilder) : FirVisitorVoid() {
         } else {
             print(resolvedQualifier.packageFqName.asString().replace(".", "/"))
         }
+        if (resolvedQualifier.isNullableLHSForCallableReference) {
+            print("?")
+        }
         print("|")
     }
 
@@ -1042,5 +1396,56 @@ class FirRenderer(builder: StringBuilder) : FirVisitorVoid() {
 
     override fun visitErrorNamedReference(errorNamedReference: FirErrorNamedReference) {
         visitNamedReference(errorNamedReference)
+    }
+
+    override fun visitLegacyRawContractDescription(legacyRawContractDescription: FirLegacyRawContractDescription) {
+        newLine()
+        print("[Contract description]")
+        renderInBraces("<", ">") {
+            legacyRawContractDescription.contractCall.accept(this)
+            newLine()
+        }
+    }
+
+    override fun visitRawContractDescription(rawContractDescription: FirRawContractDescription) {
+        newLine()
+        print("[Contract description]")
+        renderInBraces("<", ">") {
+            rawContractDescription.rawEffects.renderSeparatedWithNewlines()
+            newLine()
+        }
+    }
+
+    override fun visitEffectDeclaration(effectDeclaration: FirEffectDeclaration) {
+        newLine()
+        print("[Effect declaration]")
+        renderInBraces("<", ">") {
+            println(buildString { effectDeclaration.effect.accept(ConeContractRenderer(this), null) })
+        }
+    }
+
+    override fun visitResolvedContractDescription(resolvedContractDescription: FirResolvedContractDescription) {
+        newLine()
+        println("[R|Contract description]")
+        renderInBraces("<", ">") {
+            resolvedContractDescription.effects
+                .map { it.effect }
+                .forEach {
+                    println(buildString { it.accept(ConeContractRenderer(this), null) })
+                }
+        }
+    }
+
+    override fun visitContractDescription(contractDescription: FirContractDescription) {
+        require(contractDescription is FirEmptyContractDescription)
+    }
+
+    override fun visitPackageDirective(packageDirective: FirPackageDirective) {
+        if (mode.renderPackageDirective) {
+            if (!packageDirective.packageFqName.isRoot) {
+                println("package ${packageDirective.packageFqName.asString()}")
+                println()
+            }
+        }
     }
 }

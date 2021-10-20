@@ -5,44 +5,79 @@
 
 package org.jetbrains.kotlin.backend.common.lower
 
-import org.jetbrains.kotlin.backend.common.BackendContext
-import org.jetbrains.kotlin.backend.common.FileLoweringPass
-import org.jetbrains.kotlin.backend.common.IrElementTransformerVoidWithContext
-import org.jetbrains.kotlin.backend.common.ScopeWithIr
+import org.jetbrains.kotlin.backend.common.*
 import org.jetbrains.kotlin.backend.common.ir.addChild
+import org.jetbrains.kotlin.backend.common.ir.setDeclarationsParent
 import org.jetbrains.kotlin.ir.IrStatement
-import org.jetbrains.kotlin.ir.declarations.IrClass
-import org.jetbrains.kotlin.ir.declarations.IrDeclarationContainer
-import org.jetbrains.kotlin.ir.declarations.IrFile
-import org.jetbrains.kotlin.ir.declarations.IrScript
+import org.jetbrains.kotlin.ir.declarations.*
+import org.jetbrains.kotlin.ir.expressions.IrBody
+import org.jetbrains.kotlin.ir.expressions.IrStatementContainer
 import org.jetbrains.kotlin.ir.expressions.impl.IrCompositeImpl
 
 //This lower takes part of old LocalDeclarationLowering job to pop up local classes from functions
-open class LocalClassPopupLowering(val context: BackendContext) : FileLoweringPass {
+open class LocalClassPopupLowering(
+    val context: BackendContext,
+    val recordExtractedLocalClasses: BackendContext.(IrClass) -> Unit = {},
+) : BodyLoweringPass {
     override fun lower(irFile: IrFile) {
-        val extractedLocalClasses = arrayListOf<Pair<IrClass, IrDeclarationContainer>>()
+        runOnFilePostfix(irFile, withLocalDeclarations = true, allowDeclarationModification = true)
+    }
 
-        irFile.transform(object : IrElementTransformerVoidWithContext() {
+    private data class ExtractedLocalClass(
+        val local: IrClass, val newContainer: IrDeclarationParent, val extractedUnder: IrStatement?
+    )
+
+    override fun lower(irBody: IrBody, container: IrDeclaration) {
+        val extractedLocalClasses = arrayListOf<ExtractedLocalClass>()
+
+        irBody.transform(object : IrElementTransformerVoidWithContext() {
 
             override fun visitClassNew(declaration: IrClass): IrStatement {
-                val newDeclaration = super.visitClassNew(declaration)
-                if (newDeclaration !is IrClass) return newDeclaration
+                val currentScope =
+                    if (allScopes.size > 1) allScopes[allScopes.lastIndex - 1] else createScope(container as IrSymbolOwner)
+                if (!shouldPopUp(declaration, currentScope)) return declaration
 
-                val currentScope = allScopes[allScopes.lastIndex - 1]
-                if (!shouldPopUp(declaration, currentScope)) return newDeclaration
+                var extractedUnder: IrStatement? = declaration
+                var newContainer = declaration.parent
+                while (newContainer is IrDeclaration && newContainer !is IrClass && newContainer !is IrScript) {
+                    extractedUnder = newContainer
+                    newContainer = newContainer.parent
+                }
+                when (newContainer) {
+                    is IrStatementContainer -> {
+                        // TODO: check if it is the correct behavior
+                        if (extractedUnder == declaration) {
+                            extractedUnder = (newContainer.statements.indexOf(extractedUnder) + 1)
+                                .takeIf { it > 0 && it < newContainer.statements.size }
+                                ?.let { newContainer.statements[it] }
+                        }
+                        extractedLocalClasses.add(ExtractedLocalClass(declaration, newContainer, extractedUnder))
+                    }
+                    is IrDeclarationContainer -> extractedLocalClasses.add(ExtractedLocalClass(declaration, newContainer, extractedUnder))
+                    else -> error("Inexpected container type $newContainer")
+                }
 
-                val newContainer = allScopes.asReversed().drop(1/*skip self*/).firstOrNull {
-                    //find first class local or not;
-                    // to reproduce original LocalDeclarationLowering behaviour add: '&& !it.irElement.isLocal' condition
-                    it.irElement is IrClass || it.irElement is IrScript
-                }?.irElement?.let { it as? IrClass ?: it as? IrScript } ?: currentFile
-                extractedLocalClasses.add(newDeclaration to newContainer)
                 return IrCompositeImpl(declaration.startOffset, declaration.endOffset, context.irBuiltIns.unitType)
             }
         }, null)
 
-        for ((local, newContainer) in extractedLocalClasses) {
-            newContainer.addChild(local)
+        for ((local, newContainer, extractedUnder) in extractedLocalClasses) {
+            when (newContainer) {
+                is IrStatementContainer -> {
+                    val insertIndex = extractedUnder?.let { newContainer.statements.indexOf(it) } ?: -1
+                    if (insertIndex >= 0) {
+                        newContainer.statements.add(insertIndex, local)
+                    } else {
+                        newContainer.statements.add(local)
+                    }
+                    local.setDeclarationsParent(newContainer)
+                }
+                is IrDeclarationContainer -> {
+                    newContainer.addChild(local)
+                }
+                else -> error("Inexpected container type $newContainer")
+            }
+            context.recordExtractedLocalClasses(local)
         }
     }
 

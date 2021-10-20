@@ -1,3 +1,8 @@
+import java.util.stream.Collectors
+import com.github.jengelman.gradle.plugins.shadow.transformers.Transformer
+import com.github.jengelman.gradle.plugins.shadow.transformers.TransformerContext
+import shadow.org.apache.tools.zip.ZipEntry
+import shadow.org.apache.tools.zip.ZipOutputStream
 
 description = "Kotlin Compiler (embeddable)"
 
@@ -6,15 +11,26 @@ plugins {
 }
 
 val testCompilationClasspath by configurations.creating
+val testCompilerClasspath by configurations.creating {
+    isCanBeConsumed = false
+    extendsFrom(configurations["runtimeElements"])
+    attributes {
+        attribute(Usage.USAGE_ATTRIBUTE, objects.named(Usage.JAVA_RUNTIME))
+        attribute(Category.CATEGORY_ATTRIBUTE, objects.named(Category.LIBRARY))
+    }
+}
 
 dependencies {
-    runtime(kotlinStdlib())
-    runtime(project(":kotlin-script-runtime"))
-    runtime(project(":kotlin-reflect"))
-    runtime(project(":kotlin-daemon-embeddable"))
-    runtime(commonDep("org.jetbrains.intellij.deps", "trove4j"))
-    testCompile(commonDep("junit:junit"))
-    testCompile(project(":kotlin-test:kotlin-test-junit"))
+    runtimeOnly(kotlinStdlib())
+    runtimeOnly(project(":kotlin-script-runtime"))
+    runtimeOnly(project(":kotlin-reflect"))
+    runtimeOnly(project(":kotlin-daemon-embeddable"))
+    runtimeOnly(commonDep("org.jetbrains.intellij.deps", "trove4j"))
+    Platform[203].orHigher {
+        runtimeOnly(commonDep("net.java.dev.jna", "jna"))
+    }
+    testApi(commonDep("junit:junit"))
+    testApi(project(":kotlin-test:kotlin-test-junit"))
     testCompilationClasspath(kotlinStdlib())
 }
 
@@ -25,12 +41,11 @@ sourceSets {
 
 publish()
 
-noDefaultJar()
-
 // dummy is used for rewriting dependencies to the shaded packages in the embeddable compiler
 compilerDummyJar(compilerDummyForDependenciesRewriting("compilerDummy") {
-    classifier = "dummy"
+    archiveClassifier.set("dummy")
 })
+
 
 val runtimeJar = runtimeJar(embeddableCompiler()) {
     exclude("com/sun/jna/**")
@@ -43,11 +58,12 @@ javadocJar()
 
 projectTest {
     dependsOn(runtimeJar)
+    val testCompilerClasspathProvider = project.provider { testCompilerClasspath.asPath }
+    val testCompilationClasspathProvider = project.provider { testCompilationClasspath.asPath }
+    val runtimeJarPathProvider = project.provider { runtimeJar.get().outputs.files.asPath }
     doFirst {
-        val runtimeJarConfig = configurations["runtimeJar"]
-        val runtimeConfig = configurations["runtime"]
-        systemProperty("compilerClasspath", "${runtimeJarConfig.allArtifacts.files.files.first().path}${File.pathSeparator}${runtimeConfig.asPath}")
-        systemProperty("compilationClasspath", testCompilationClasspath.asPath)
+        systemProperty("compilerClasspath", "${runtimeJarPathProvider.get()}${File.pathSeparator}${testCompilerClasspathProvider.get()}")
+        systemProperty("compilationClasspath", testCompilationClasspathProvider.get())
     }
 }
 

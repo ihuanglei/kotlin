@@ -13,6 +13,7 @@ import org.jetbrains.kotlin.descriptors.deserialization.PlatformDependentDeclara
 import org.jetbrains.kotlin.incremental.components.LookupTracker
 import org.jetbrains.kotlin.load.kotlin.KotlinClassFinder
 import org.jetbrains.kotlin.name.FqName
+import org.jetbrains.kotlin.resolve.sam.SamConversionResolver
 import org.jetbrains.kotlin.serialization.deserialization.*
 import org.jetbrains.kotlin.serialization.deserialization.builtins.BuiltInSerializerProtocol
 import org.jetbrains.kotlin.serialization.deserialization.builtins.BuiltInsPackageFragmentImpl
@@ -27,7 +28,8 @@ class JvmBuiltInsPackageFragmentProvider(
     additionalClassPartsProvider: AdditionalClassPartsProvider,
     platformDependentDeclarationFilter: PlatformDependentDeclarationFilter,
     deserializationConfiguration: DeserializationConfiguration,
-    kotlinTypeChecker: NewKotlinTypeChecker
+    kotlinTypeChecker: NewKotlinTypeChecker,
+    samConversionResolver: SamConversionResolver
 ) : AbstractDeserializedPackageFragmentProvider(storageManager, finder, moduleDescriptor) {
     init {
         components = DeserializationComponents(
@@ -49,7 +51,8 @@ class JvmBuiltInsPackageFragmentProvider(
             ContractDeserializer.DEFAULT,
             additionalClassPartsProvider, platformDependentDeclarationFilter,
             BuiltInSerializerProtocol.extensionRegistry,
-            kotlinTypeChecker
+            kotlinTypeChecker,
+            samConversionResolver
         )
     }
 
@@ -57,4 +60,8 @@ class JvmBuiltInsPackageFragmentProvider(
         finder.findBuiltInsData(fqName)?.let { inputStream ->
             BuiltInsPackageFragmentImpl.create(fqName, storageManager, moduleDescriptor, inputStream, isFallback = false)
         }
+
+    companion object {
+        const val DOT_BUILTINS_METADATA_FILE_EXTENSION = ".kotlin_builtins"
+    }
 }

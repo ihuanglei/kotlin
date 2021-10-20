@@ -34,12 +34,15 @@ class TestStdlibWithDxTest {
     }
 
     private fun doTest(file: File) {
+        val files = mutableListOf<Pair<ByteArray, String>>();
         ZipInputStream(FileInputStream(file)).use { zip ->
             for (entry in generateSequence { zip.nextEntry }) {
                 if (entry.name.endsWith(".class") && !entry.name.startsWith("META-INF/")) {
-                    DxChecker.checkFileWithDx(zip.readBytes(), entry.name)
+                    val bytes = zip.readBytes()
+                    files.add(Pair(bytes, entry.name))
                 }
             }
         }
+        D8Checker.checkFilesWithD8(files)
     }
 }

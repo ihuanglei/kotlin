@@ -1,3 +1,14 @@
+// IGNORE_BACKEND_FIR: JVM_IR
+
+// IMPORTANT!
+// Please, when your changes cause failures in bytecodeText tests for 'for' loops,
+// examine the resulting bytecode shape carefully.
+// Range and progression-based loops generated with Kotlin compiler should be
+// as close as possible to Java counter loops ('for (int i = a; i < b; ++i) { ... }').
+// Otherwise it may result in performance regression due to missing HotSpot optimizations.
+// Run Kotlin compiler benchmarks (https://github.com/Kotlin/kotlin-benchmarks)
+// with compiler built from your changes if you are not sure.
+
 const val M = Int.MIN_VALUE
 
 fun f(a: Int): Int {
@@ -8,8 +19,8 @@ fun f(a: Int): Int {
     return n
 }
 
-// For "until" progressions in JVM IR, there is a check that the range is not empty: upper bound != MIN_VALUE.
-// When the upper bound == const MIN_VALUE, the backend can eliminate the entire loop as dead code.
+// JVM non-IR uses while.
+// JVM IR uses if + do-while.
 
 // 0 iterator
 // 0 getStart
@@ -17,10 +28,13 @@ fun f(a: Int): Int {
 // 0 getFirst
 // 0 getLast
 // 0 getStep
-// 0 LINENUMBER 7
 
-// JVM_TEMPLATES
+// 1 IF_ICMPGE
 // 1 IF
 
 // JVM_IR_TEMPLATES
-// 0 IF
+// 3 ILOAD
+// 2 ISTORE
+// 0 IADD
+// 0 ISUB
+// 2 IINC

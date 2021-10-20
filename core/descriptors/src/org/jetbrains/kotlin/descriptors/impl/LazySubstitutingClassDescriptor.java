@@ -224,7 +224,7 @@ public class LazySubstitutingClassDescriptor extends ModuleAwareClassDescriptor 
 
     @NotNull
     @Override
-    public Visibility getVisibility() {
+    public DescriptorVisibility getVisibility() {
         return original.getVisibility();
     }
 
@@ -241,6 +241,16 @@ public class LazySubstitutingClassDescriptor extends ModuleAwareClassDescriptor 
     @Override
     public boolean isInline() {
         return original.isInline();
+    }
+
+    @Override
+    public boolean isFun() {
+        return original.isFun();
+    }
+
+    @Override
+    public boolean isValue() {
+        return original.isValue();
     }
 
     @Override
@@ -302,5 +312,41 @@ public class LazySubstitutingClassDescriptor extends ModuleAwareClassDescriptor 
     @Override
     public Collection<ClassDescriptor> getSealedSubclasses() {
         return original.getSealedSubclasses();
+    }
+
+    @Nullable
+    @Override
+    public InlineClassRepresentation<SimpleType> getInlineClassRepresentation() {
+        InlineClassRepresentation<SimpleType> representation = original.getInlineClassRepresentation();
+        //noinspection ConstantConditions
+        return representation == null ? null : new InlineClassRepresentation<SimpleType>(
+                representation.getUnderlyingPropertyName(),
+                substituteSimpleType(getInlineClassRepresentation().getUnderlyingType())
+        );
+    }
+
+    @Nullable
+    @Override
+    public SimpleType getDefaultFunctionTypeForSamInterface() {
+        return substituteSimpleType(original.getDefaultFunctionTypeForSamInterface());
+    }
+
+    @Nullable
+    private SimpleType substituteSimpleType(@Nullable SimpleType type) {
+        if (type == null || originalSubstitutor.isEmpty()) return type;
+
+        TypeSubstitutor substitutor = getSubstitutor();
+        KotlinType substitutedType = substitutor.substitute(type, Variance.INVARIANT);
+
+        assert substitutedType instanceof SimpleType :
+                "Substitution for SimpleType should also be a SimpleType, but it is " + substitutedType + "\n" +
+                "Unsubstituted: " + type;
+
+        return (SimpleType) substitutedType;
+    }
+
+    @Override
+    public boolean isDefinitelyNotSamInterface() {
+        return original.isDefinitelyNotSamInterface();
     }
 }

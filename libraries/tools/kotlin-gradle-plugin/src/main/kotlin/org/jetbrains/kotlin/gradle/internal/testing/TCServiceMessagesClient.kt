@@ -1,6 +1,6 @@
 /*
- * Copyright 2010-2019 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license
- * that can be found in the license/LICENSE.txt file.
+ * Copyright 2010-2020 JetBrains s.r.o. and Kotlin Programming Language contributors.
+ * Use of this source code is governed by the Apache 2.0 license that can be found in the license/LICENSE.txt file.
  */
 
 package org.jetbrains.kotlin.gradle.internal.testing
@@ -13,8 +13,11 @@ import org.gradle.api.tasks.testing.TestOutputEvent.Destination.StdOut
 import org.gradle.api.tasks.testing.TestResult
 import org.gradle.api.tasks.testing.TestResult.ResultType.*
 import org.gradle.internal.operations.OperationIdentifier
+import org.gradle.process.internal.ExecHandle
+import org.jetbrains.kotlin.gradle.internal.LogType
 import org.jetbrains.kotlin.gradle.logging.kotlinDebug
 import org.jetbrains.kotlin.gradle.testing.KotlinTestFailure
+import org.jetbrains.kotlin.gradle.utils.LegacyTestDescriptorInternal
 import org.slf4j.Logger
 import java.text.ParseException
 
@@ -25,7 +28,8 @@ data class TCServiceMessagesClientSettings(
     val treatFailedTestOutputAsStacktrace: Boolean = false,
     val stackTraceParser: (String) -> ParsedStackTrace? = { null },
     val ignoreOutOfRootNodes: Boolean = false,
-    val ignoreLineEndingAfterMessage: Boolean = true
+    val ignoreLineEndingAfterMessage: Boolean = true,
+    val escapeTCMessagesInLog: Boolean = false
 )
 
 internal open class TCServiceMessagesClient(
@@ -50,8 +54,21 @@ internal open class TCServiceMessagesClient(
         log.error("Failed to parse test process messages: \"$text\"", e)
     }
 
+    internal open fun testFailedMessage(execHandle: ExecHandle, exitValue: Int): String =
+        "$execHandle exited with errors (exit code: $exitValue)"
+
     override fun serviceMessage(message: ServiceMessage) {
-        log.kotlinDebug { "TCSM: $message" }
+
+        // If a user uses TeamCity, this log may be treated by TC as an actual service message.
+        // So, escape logged messages if the corresponding setting is specified.
+        log.kotlinDebug {
+            val messageString = if (settings.escapeTCMessagesInLog) {
+                message.toString().replaceFirst("^##teamcity\\[".toRegex(), "##TC[")
+            } else {
+                message.toString()
+            }
+            "TCSM: $messageString"
+        }
 
         when (message) {
             is TestSuiteStarted -> open(message.ts, SuiteNode(requireLeafGroup(), getSuiteName(message)))
@@ -70,6 +87,7 @@ internal open class TCServiceMessagesClient(
                 }
             }
             is TestSuiteFinished -> close(message.ts, getSuiteName(message))
+            is Message -> printNonTestOutput(message.text, LogType.byValueOrNull(message.attributes["type"]))
             else -> Unit
         }
 
@@ -99,7 +117,7 @@ internal open class TCServiceMessagesClient(
         afterMessage = false
     }
 
-    protected open fun printNonTestOutput(text: String) {
+    protected open fun printNonTestOutput(text: String, type: LogType? = null) {
         print(text)
     }
 
@@ -372,12 +390,12 @@ internal open class TCServiceMessagesClient(
     }
 
     inner class RootNode(val ownerBuildOperationId: OperationIdentifier) : GroupNode(null, settings.rootNodeName) {
-        override val descriptor: TestDescriptorInternal = object : DefaultTestSuiteDescriptor(settings.rootNodeName, localId) {
-            override fun getOwnerBuildOperationId(): Any? = this@RootNode.ownerBuildOperationId
-            override fun getParent(): TestDescriptorInternal? = null
-            override fun isRoot(): Boolean = true
-            override fun toString(): String = name
-        }
+        override val descriptor: TestDescriptorInternal =
+            object : DefaultTestSuiteDescriptor(settings.rootNodeName, localId), LegacyTestDescriptorInternal {
+                override fun getOwnerBuildOperationId(): Any? = this@RootNode.ownerBuildOperationId
+                override fun getParent(): TestDescriptorInternal? = null
+                override fun toString(): String = name
+            }
 
         override fun requireReportingNode(): TestDescriptorInternal = descriptor
 
@@ -419,8 +437,9 @@ internal open class TCServiceMessagesClient(
             val reportingParent = parents.last() as RootNode
             this.reportingParent = reportingParent
 
-            descriptor = object : DefaultTestSuiteDescriptor(id, fullName) {
+            descriptor = object : DefaultTestSuiteDescriptor(id, fullName), LegacyTestDescriptorInternal {
                 override fun getDisplayName(): String = fullNameWithoutRoot
+                override fun getClassName(): String? = fullNameWithoutRoot
                 override fun getOwnerBuildOperationId(): Any? = rootOperationId
                 override fun getParent(): TestDescriptorInternal = reportingParent.descriptor
                 override fun toString(): String = displayName
@@ -464,7 +483,7 @@ internal open class TCServiceMessagesClient(
         private val parentDescriptor = (this@TestNode.parent as GroupNode).requireReportingNode()
 
         override val descriptor: TestDescriptorInternal =
-            object : DefaultTestDescriptor(id, className, methodName, classDisplayName, displayName) {
+            object : DefaultTestDescriptor(id, className, methodName, classDisplayName, displayName), LegacyTestDescriptorInternal {
                 override fun getOwnerBuildOperationId(): Any? = rootOperationId
                 override fun getParent(): TestDescriptorInternal = parentDescriptor
             }

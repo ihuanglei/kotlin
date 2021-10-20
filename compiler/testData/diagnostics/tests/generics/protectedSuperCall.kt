@@ -1,4 +1,4 @@
-// !WITH_NEW_INFERENCE
+// !DIAGNOSTICS: -UNUSED_PARAMETER
 // FILE: GA.kt
 
 package test.x

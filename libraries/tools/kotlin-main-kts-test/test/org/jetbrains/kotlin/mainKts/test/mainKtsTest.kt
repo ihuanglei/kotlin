@@ -4,33 +4,44 @@
  */
 package org.jetbrains.kotlin.mainKts.test
 
+import org.jetbrains.kotlin.mainKts.COMPILED_SCRIPTS_CACHE_DIR_PROPERTY
+import org.jetbrains.kotlin.mainKts.impl.Directories
 import org.jetbrains.kotlin.mainKts.MainKtsScript
+import org.jetbrains.kotlin.mainKts.SCRIPT_FILE_LOCATION_DEFAULT_VARIABLE_NAME
+import org.jetbrains.kotlin.scripting.compiler.plugin.assertTrue
 import org.junit.Assert
+import org.junit.Assert.assertEquals
 import org.junit.Test
 import java.io.*
+import java.util.*
 import kotlin.script.experimental.api.*
 import kotlin.script.experimental.host.toScriptSource
 import kotlin.script.experimental.jvm.baseClassLoader
 import kotlin.script.experimental.jvm.jvm
 import kotlin.script.experimental.jvmhost.BasicJvmScriptingHost
-import kotlin.script.experimental.jvmhost.createJvmCompilationConfigurationFromTemplate
+import kotlin.script.experimental.jvmhost.createJvmScriptDefinitionFromTemplate
 
-fun evalFile(scriptFile: File): ResultWithDiagnostics<EvaluationResult> {
+fun evalFile(scriptFile: File, cacheDir: File? = null): ResultWithDiagnostics<EvaluationResult> =
+    withProperty(COMPILED_SCRIPTS_CACHE_DIR_PROPERTY, cacheDir?.absolutePath ?: "") {
+        val scriptDefinition = createJvmScriptDefinitionFromTemplate<MainKtsScript>(
+            evaluation = {
+                jvm {
+                    baseClassLoader(null)
+                }
+                constructorArgs(emptyArray<String>())
+                enableScriptsInstancesSharing()
+            }
+        )
 
-    val scriptDefinition = createJvmCompilationConfigurationFromTemplate<MainKtsScript>()
-
-    val evaluationEnv = ScriptEvaluationConfiguration {
-        jvm {
-            baseClassLoader(null)
-        }
-        constructorArgs(emptyArray<String>())
-        enableScriptsInstancesSharing()
+        BasicJvmScriptingHost().eval(
+            scriptFile.toScriptSource(), scriptDefinition.compilationConfiguration, scriptDefinition.evaluationConfiguration
+        )
     }
 
-    return BasicJvmScriptingHost().eval(scriptFile.toScriptSource(), scriptDefinition, evaluationEnv)
-}
 
 const val TEST_DATA_ROOT = "libraries/tools/kotlin-main-kts-test/testData"
+val OUT_FROM_IMPORT_TEST = listOf("Hi from common", "Hi from middle", "Hi from main", "sharedVar == 5")
+
 
 class MainKtsTest {
 
@@ -38,6 +49,29 @@ class MainKtsTest {
     fun testResolveJunit() {
         val res = evalFile(File("$TEST_DATA_ROOT/hello-resolve-junit.main.kts"))
         assertSucceeded(res)
+    }
+
+    @Test
+    fun testResolveHamcrestViaJunit() {
+        val resOk = evalFile(File("$TEST_DATA_ROOT/resolve-hamcrest-via-junit.main.kts"))
+        assertSucceeded(resOk)
+
+        val resErr = evalFile(File("$TEST_DATA_ROOT/resolve-error-hamcrest-via-junit.main.kts"))
+        Assert.assertTrue(
+            resErr is ResultWithDiagnostics.Failure &&
+                    resErr.reports.any { it.message == "Unresolved reference: hamcrest" }
+        )
+    }
+
+    @Test
+    fun testResolveRuntimeDeps() {
+        val resOk = evalFile(File("$TEST_DATA_ROOT/resolve-with-runtime.main.kts"))
+        assertSucceeded(resOk)
+
+        val resultValue = resOk.valueOrThrow().returnValue
+        assertTrue(resultValue is ResultValue.Value) { "Result value should be of type Value" }
+        val value = (resultValue as ResultValue.Value).value!!
+        assertEquals("MimeTypedResult", value::class.simpleName)
     }
 
 //    @Test
@@ -85,7 +119,19 @@ class MainKtsTest {
             assertSucceeded(res)
         }.lines()
 
-        Assert.assertEquals(listOf("Hi from common", "Hi from middle", "sharedVar == 5"), out)
+        Assert.assertEquals(OUT_FROM_IMPORT_TEST, out)
+    }
+
+    @Test
+    fun testDuplicateImportError() {
+        val res = evalFile(File("$TEST_DATA_ROOT/import-duplicate-test.main.kts"))
+        assertFailed("Duplicate imports:", res)
+    }
+
+    @Test
+    fun testCyclicImportError() {
+        val res = evalFile(File("$TEST_DATA_ROOT/import-cycle-1.main.kts"))
+        assertFailed("Unable to handle recursive script dependencies", res)
     }
 
     @Test
@@ -100,6 +146,65 @@ class MainKtsTest {
         Assert.assertEquals(listOf("Hi from sub", "Hi from super", "Hi from random"), out)
     }
 
+    @Test
+    fun testScriptFileLocationDefaultVariable() {
+        val resOk = evalFile(File("$TEST_DATA_ROOT/script-file-location-default.main.kts"))
+        assertSucceeded(resOk)
+        val resultValue = resOk.valueOrThrow().returnValue
+        assertTrue(resultValue is ResultValue.Value) { "Result value should be of type Value" }
+        val value = (resultValue as ResultValue.Value).value!!
+        assertEquals("String", value::class.simpleName)
+        val expectedPathSuffix = "libraries/tools/kotlin-main-kts-test/testData/script-file-location-default.main.kts"
+        val actualPath = (value as String).replace("\\", "/")
+        assertTrue(actualPath.endsWith(expectedPathSuffix)) { "Script file path does not end with expected path" }
+    }
+
+    @Test
+    fun testScriptFileLocationCustomizedVariable() {
+        val resOk = evalFile(File("$TEST_DATA_ROOT/script-file-location-customized.main.kts"))
+        assertSucceeded(resOk)
+        val resultValue = resOk.valueOrThrow().returnValue
+        assertTrue(resultValue is ResultValue.Value) { "Result value should be of type Value" }
+        val value = (resultValue as ResultValue.Value).value!!
+        assertEquals("String", value::class.simpleName)
+        val expectedPathSuffix = "libraries/tools/kotlin-main-kts-test/testData/script-file-location-customized.main.kts"
+        val actualPath = (value as String).replace("\\", "/")
+        assertTrue(actualPath.endsWith(expectedPathSuffix)) { "Script file path does not end with expected path" }
+    }
+
+    @Test
+    fun testScriptFileLocationWithImportedScript() {
+        val resOk = evalFile(File("$TEST_DATA_ROOT/script-file-location-with-imported-file.main.kts"))
+        assertSucceeded(resOk)
+        val resultValue = resOk.valueOrThrow().returnValue
+        assertTrue(resultValue is ResultValue.Value) { "Result value should be of type Value" }
+        val value = (resultValue as ResultValue.Value).value!!
+        assertEquals("Array", value::class.simpleName)
+        val expectedSelfPathSuffix = "libraries/tools/kotlin-main-kts-test/testData/script-file-location-with-imported-file.main.kts"
+        val expectedImportedPathSuffix = "libraries/tools/kotlin-main-kts-test/testData/script-file-location-helper-imported-file.main.kts"
+        val actualPathSelf = (value as Array<*>)[0].toString().replace("\\", "/")
+        val actualPathImported = value[1].toString().replace("\\", "/")
+        assertTrue(actualPathSelf.endsWith(expectedSelfPathSuffix)) { "Script file path does not end with expected path" }
+        assertTrue(actualPathImported.endsWith(expectedImportedPathSuffix)) { "Script file path does not end with expected path" }
+    }
+
+    @Test
+    fun testScriptFileLocationDefaultVariableNotAvailableIfScriptFileVariableCustomized() {
+        val resFailed = evalFile(File("$TEST_DATA_ROOT/script-file-location-customized-default-not-available.main.kts"))
+        assertFailed("Unresolved reference: $SCRIPT_FILE_LOCATION_DEFAULT_VARIABLE_NAME", resFailed)
+    }
+
+    @Test
+    fun testScriptFileLocationDefaultVariableRedefinition() {
+        val resOk = evalFile(File("$TEST_DATA_ROOT/script-file-location-redefine-variable.kts"))
+        assertSucceeded(resOk)
+        val resultValue = resOk.valueOrThrow().returnValue
+        assertTrue(resultValue is ResultValue.Value) { "Result value should be of type Value" }
+        val value = (resultValue as ResultValue.Value).value!!
+        assertEquals("String", value::class.simpleName)
+        assertEquals("success", value)
+    }
+
     private fun assertIsJava6Bytecode(res: ResultWithDiagnostics<EvaluationResult>) {
         val scriptClassResource = res.valueOrThrow().returnValue.scriptClass!!.java.run {
             getResource("$simpleName.class")
@@ -108,6 +213,7 @@ class MainKtsTest {
         DataInputStream(ByteArrayInputStream(scriptClassResource.readBytes())).use { stream ->
             val header = stream.readInt()
             if (0xCAFEBABE.toInt() != header) throw IOException("Invalid header class header: $header")
+            @Suppress("UNUSED_VARIABLE")
             val minor = stream.readUnsignedShort()
             val major = stream.readUnsignedShort()
             Assert.assertTrue(major == 50)
@@ -129,6 +235,98 @@ class MainKtsTest {
             res is ResultWithDiagnostics.Failure && res.reports.any { it.message.contains("$expectedError") }
         )
     }
+
+    private fun evalSuccessWithOut(scriptFile: File, cacheDir: File? = null): List<String> =
+        captureOut {
+            val res = evalFile(scriptFile, cacheDir)
+            assertSucceeded(res)
+        }.lines()
+}
+
+class CacheDirectoryDetectorTest {
+    private val temp = "/test-temp-dir"
+    private val home = "/test-home-dir"
+    private val localAppData = "C:\\test-local-app-data"
+    private val xdgCache = "/test-xdg-cache-dir"
+
+    @Test
+    fun `Windows uses local app data dir`() {
+        setOSName("Windows 10")
+        assertCacheDir(localAppData)
+    }
+
+    @Test
+    fun `Windows falls back to temp dir when no app data dir`() {
+        setOSName("Windows 10")
+        environment.remove("LOCALAPPDATA")
+        assertCacheDir(temp)
+    }
+
+    @Test
+    fun `OS X uses user cache dir`() {
+        setOSName("Mac OS X")
+        assertCacheDir("$home/Library/Caches")
+    }
+
+    @Test
+    fun `Linux uses XDG cache dir`() {
+        setOSName("Linux")
+        assertCacheDir(xdgCache)
+    }
+
+    @Test
+    fun `Linux falls back to dot cache when no XDG dir`() {
+        setOSName("Linux")
+        environment.remove("XDG_CACHE_HOME")
+        assertCacheDir("$home/.cache")
+    }
+
+    @Test
+    fun `FreeBSD uses XDG cache dir`() {
+        setOSName("FreeBSD")
+        assertCacheDir(xdgCache)
+    }
+
+    @Test
+    fun `FreeBSD falls back to dot cache when no XDG dir`() {
+        setOSName("FreeBSD")
+        environment.remove("XDG_CACHE_HOME")
+        assertCacheDir("$home/.cache")
+    }
+
+    @Test
+    fun `Unknown OS uses dot cache`() {
+        setOSName("")
+        assertCacheDir("$home/.cache")
+    }
+
+    @Test
+    fun `Unknown OS and unknown home directory gives null`() {
+        setOSName("")
+        systemProperties.setProperty("user.home", "")
+        assertCacheDir(null)
+    }
+
+    private fun setOSName(name: String?) {
+        systemProperties.setProperty("os.name", name)
+    }
+
+    private fun assertCacheDir(path: String?) {
+        val file = path?.let(::File)
+        Assert.assertEquals(file, directories.cache)
+    }
+
+    private val systemProperties = Properties().apply {
+        setProperty("java.io.tmpdir", temp)
+        setProperty("user.home", home)
+    }
+
+    private val environment = mutableMapOf(
+        "LOCALAPPDATA" to localAppData,
+        "XDG_CACHE_HOME" to xdgCache
+    )
+
+    private val directories = Directories(systemProperties, environment)
 }
 
 internal fun captureOut(body: () -> Unit): String {
@@ -142,4 +340,16 @@ internal fun captureOut(body: () -> Unit): String {
         System.setOut(prevOut)
     }
     return outStream.toString().trim()
+}
+
+internal fun <T> withProperty(name: String, value: String?, body: () -> T): T {
+    val prevCacheDir = System.getProperty(name)
+    if (value == null) System.clearProperty(name)
+    else System.setProperty(name, value)
+    try {
+        return body()
+    } finally {
+        if (prevCacheDir == null) System.clearProperty(name)
+        else System.setProperty(name, prevCacheDir)
+    }
 }

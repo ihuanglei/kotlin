@@ -1,4 +1,6 @@
-// !LANGUAGE: +NewInference +SamConversionPerArgument +SamConversionForKotlinFunctions
+// FIR_IDENTICAL
+// TARGET_BACKEND: JVM
+// !LANGUAGE: +NewInference +SamConversionPerArgument +SamConversionForKotlinFunctions +ProhibitVarargAsArrayAfterSamArgument
 // FILE: samConversionInGenericConstructorCall_NI.kt
 fun test3(
     f1: (String) -> String,

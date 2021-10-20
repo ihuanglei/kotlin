@@ -16,7 +16,10 @@
 
 package org.jetbrains.kotlin.contracts.model
 
+import org.jetbrains.kotlin.builtins.KotlinBuiltIns
 import org.jetbrains.kotlin.contracts.model.visitors.Reducer
+import org.jetbrains.kotlin.resolve.calls.inference.components.EmptySubstitutor
+import org.jetbrains.kotlin.resolve.calls.inference.components.NewTypeSubstitutor
 
 /**
  * An abstraction of effect-generating nature of some computation.
@@ -27,13 +30,28 @@ import org.jetbrains.kotlin.contracts.model.visitors.Reducer
  * values, it takes effects and returns effects.
  */
 interface Functor {
-    fun invokeWithArguments(arguments: List<Computation>, reducer: Reducer): List<ESEffect>
+    fun invokeWithArguments(arguments: List<Computation>, typeSubstitution: ESTypeSubstitution, reducer: Reducer): List<ESEffect>
 }
 
 
 abstract class AbstractFunctor : Functor {
-    override fun invokeWithArguments(arguments: List<Computation>, reducer: Reducer): List<ESEffect> =
-        reducer.reduceEffects(doInvocation(arguments, reducer))
+    override fun invokeWithArguments(arguments: List<Computation>, typeSubstitution: ESTypeSubstitution, reducer: Reducer): List<ESEffect> =
+        reducer.reduceEffects(doInvocation(arguments, typeSubstitution, reducer))
 
-    protected abstract fun doInvocation(arguments: List<Computation>, reducer: Reducer): List<ESEffect>
+    protected abstract fun doInvocation(
+        arguments: List<Computation>,
+        typeSubstitution: ESTypeSubstitution,
+        reducer: Reducer
+    ): List<ESEffect>
+}
+
+class ESTypeSubstitution(
+    val substitutor: NewTypeSubstitutor,
+    val builtIns: KotlinBuiltIns
+) {
+    companion object {
+        fun empty(builtIns: KotlinBuiltIns): ESTypeSubstitution {
+            return ESTypeSubstitution(EmptySubstitutor, builtIns)
+        }
+    }
 }

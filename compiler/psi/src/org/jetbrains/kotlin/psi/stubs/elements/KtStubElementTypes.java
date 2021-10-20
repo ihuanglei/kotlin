@@ -26,6 +26,7 @@ public interface KtStubElementTypes {
     KtFunctionElementType FUNCTION = new KtFunctionElementType("FUN");
     KtPropertyElementType PROPERTY = new KtPropertyElementType("PROPERTY");
     KtPropertyAccessorElementType PROPERTY_ACCESSOR = new KtPropertyAccessorElementType("PROPERTY_ACCESSOR");
+    KtBackingFieldElementType BACKING_FIELD = new KtBackingFieldElementType("BACKING_FIELD");
     KtTypeAliasElementType TYPEALIAS = new KtTypeAliasElementType("TYPEALIAS");
 
     KtClassElementType ENUM_ENTRY = new KtClassElementType("ENUM_ENTRY");
@@ -79,6 +80,9 @@ public interface KtStubElementTypes {
     KtPlaceHolderStubElementType<KtNullableType> NULLABLE_TYPE =
             new KtPlaceHolderStubElementType<>("NULLABLE_TYPE", KtNullableType.class);
 
+    KtPlaceHolderStubElementType<KtIntersectionType> INTERSECTION_TYPE =
+            new KtPlaceHolderStubElementType<>("INTERSECTION_TYPE", KtIntersectionType.class);
+
     KtPlaceHolderStubElementType<KtTypeReference> TYPE_REFERENCE =
             new KtPlaceHolderStubElementType<>("TYPE_REFERENCE", KtTypeReference.class);
 
@@ -88,6 +92,10 @@ public interface KtStubElementTypes {
 
     KtPlaceHolderStubElementType<KtFunctionType> FUNCTION_TYPE =
             new KtPlaceHolderStubElementType<>("FUNCTION_TYPE", KtFunctionType.class);
+
+    KtTypeCodeFragmentType TYPE_CODE_FRAGMENT = new KtTypeCodeFragmentType();
+    KtExpressionCodeFragmentType EXPRESSION_CODE_FRAGMENT = new KtExpressionCodeFragmentType();
+    KtBlockCodeFragmentType BLOCK_CODE_FRAGMENT = new KtBlockCodeFragmentType();
 
     KtTypeProjectionElementType TYPE_PROJECTION = new KtTypeProjectionElementType("TYPE_PROJECTION");
 
@@ -106,6 +114,12 @@ public interface KtStubElementTypes {
 
     KtValueArgumentElementType<KtValueArgument> VALUE_ARGUMENT =
             new KtValueArgumentElementType<>("VALUE_ARGUMENT", KtValueArgument.class);
+
+    KtPlaceHolderStubElementType<KtContractEffectList> CONTRACT_EFFECT_LIST =
+            new KtContractEffectListElementType("CONTRACT_EFFECT_LIST");
+
+    KtContractEffectElementType CONTRACT_EFFECT =
+            new KtContractEffectElementType("CONTRACT_EFFECT", KtContractEffect.class);
 
     KtValueArgumentElementType<KtLambdaArgument> LAMBDA_ARGUMENT =
             new KtValueArgumentElementType<>("LAMBDA_ARGUMENT", KtLambdaArgument.class);
@@ -157,7 +171,7 @@ public interface KtStubElementTypes {
 
     TokenSet SUPER_TYPE_LIST_ENTRIES = TokenSet.create(DELEGATED_SUPER_TYPE_ENTRY, SUPER_TYPE_CALL_ENTRY, SUPER_TYPE_ENTRY);
 
-    TokenSet TYPE_ELEMENT_TYPES = TokenSet.create(USER_TYPE, NULLABLE_TYPE, FUNCTION_TYPE, DYNAMIC_TYPE);
+    TokenSet TYPE_ELEMENT_TYPES = TokenSet.create(USER_TYPE, NULLABLE_TYPE, FUNCTION_TYPE, DYNAMIC_TYPE, INTERSECTION_TYPE);
 
     TokenSet INSIDE_DIRECTIVE_EXPRESSIONS = TokenSet.create(REFERENCE_EXPRESSION, DOT_QUALIFIED_EXPRESSION);
 }

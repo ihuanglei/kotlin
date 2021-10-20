@@ -1,10 +1,11 @@
 /*
- * Copyright 2010-2018 JetBrains s.r.o. and Kotlin Programming Language contributors.
+ * Copyright 2010-2021 JetBrains s.r.o. and Kotlin Programming Language contributors.
  * Use of this source code is governed by the Apache 2.0 license that can be found in the license/LICENSE.txt file.
  */
 
 @file:kotlin.jvm.JvmMultifileClass
 @file:kotlin.jvm.JvmName("MapsKt")
+@file:OptIn(kotlin.experimental.ExperimentalTypeInference::class)
 
 package kotlin.collections
 
@@ -123,24 +124,71 @@ public inline fun <K, V> linkedMapOf(): LinkedHashMap<K, V> = LinkedHashMap<K, V
 public fun <K, V> linkedMapOf(vararg pairs: Pair<K, V>): LinkedHashMap<K, V> = pairs.toMap(LinkedHashMap(mapCapacity(pairs.size)))
 
 /**
- * Calculate the initial capacity of a map, based on Guava's com.google.common.collect.Maps approach. This is equivalent
- * to the Collection constructor for HashSet, (c.size()/.75f) + 1, but provides further optimisations for very small or
- * very large sizes, allows support non-collection classes, and provides consistency for all map based class construction.
+ * Builds a new read-only [Map] by populating a [MutableMap] using the given [builderAction]
+ * and returning a read-only map with the same key-value pairs.
+ *
+ * The map passed as a receiver to the [builderAction] is valid only inside that function.
+ * Using it outside of the function produces an unspecified behavior.
+ *
+ * Entries of the map are iterated in the order they were added by the [builderAction].
+ *
+ * The returned map is serializable (JVM).
+ *
+ * @sample samples.collections.Builders.Maps.buildMapSample
  */
-@PublishedApi
-internal fun mapCapacity(expectedSize: Int): Int {
-    if (expectedSize < 3) {
-        return expectedSize + 1
-    }
-    if (expectedSize < INT_MAX_POWER_OF_TWO) {
-        return expectedSize + expectedSize / 3
-    }
-    return Int.MAX_VALUE // any large value
+@SinceKotlin("1.6")
+@WasExperimental(ExperimentalStdlibApi::class)
+@kotlin.internal.InlineOnly
+public inline fun <K, V> buildMap(@BuilderInference builderAction: MutableMap<K, V>.() -> Unit): Map<K, V> {
+    contract { callsInPlace(builderAction, InvocationKind.EXACTLY_ONCE) }
+    return buildMapInternal(builderAction)
 }
 
-private const val INT_MAX_POWER_OF_TWO: Int = Int.MAX_VALUE / 2 + 1
+@PublishedApi
+@SinceKotlin("1.3")
+@kotlin.internal.InlineOnly
+internal expect inline fun <K, V> buildMapInternal(builderAction: MutableMap<K, V>.() -> Unit): Map<K, V>
 
-/** Returns `true` if this map is not empty. */
+/**
+ * Builds a new read-only [Map] by populating a [MutableMap] using the given [builderAction]
+ * and returning a read-only map with the same key-value pairs.
+ *
+ * The map passed as a receiver to the [builderAction] is valid only inside that function.
+ * Using it outside of the function produces an unspecified behavior.
+ *
+ * [capacity] is used to hint the expected number of pairs added in the [builderAction].
+ *
+ * Entries of the map are iterated in the order they were added by the [builderAction].
+ *
+ * The returned map is serializable (JVM).
+ *
+ * @throws IllegalArgumentException if the given [capacity] is negative.
+ *
+ * @sample samples.collections.Builders.Maps.buildMapSample
+ */
+@SinceKotlin("1.6")
+@WasExperimental(ExperimentalStdlibApi::class)
+@kotlin.internal.InlineOnly
+public inline fun <K, V> buildMap(capacity: Int, @BuilderInference builderAction: MutableMap<K, V>.() -> Unit): Map<K, V> {
+    contract { callsInPlace(builderAction, InvocationKind.EXACTLY_ONCE) }
+    return buildMapInternal(capacity, builderAction)
+}
+
+@PublishedApi
+@SinceKotlin("1.3")
+@kotlin.internal.InlineOnly
+internal expect inline fun <K, V> buildMapInternal(capacity: Int, builderAction: MutableMap<K, V>.() -> Unit): Map<K, V>
+
+/**
+ * Calculate the initial capacity of a map.
+ */
+@PublishedApi
+internal expect fun mapCapacity(expectedSize: Int): Int
+
+/**
+ * Returns `true` if this map is not empty.
+ * @sample samples.collections.Maps.Usage.mapIsNotEmpty
+ */
 @kotlin.internal.InlineOnly
 public inline fun <K, V> Map<out K, V>.isNotEmpty(): Boolean = !isEmpty()
 
@@ -181,6 +229,8 @@ public inline fun <M, R> M.ifEmpty(defaultValue: () -> R): R where M : Map<*, *>
  * Checks if the map contains the given key.
  *
  * This method allows to use the `x in map` syntax for checking whether an object is contained in the map.
+ *
+ * @sample samples.collections.Maps.Usage.containsKey
  */
 @kotlin.internal.InlineOnly
 public inline operator fun <@kotlin.internal.OnlyInputTypes K, V> Map<out K, V>.contains(key: K): Boolean = containsKey(key)

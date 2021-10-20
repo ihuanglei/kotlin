@@ -1,10 +1,10 @@
-// !LANGUAGE: +InlineClasses
-// IGNORE_BACKEND_FIR: JVM_IR
 // WITH_RUNTIME
 
 import kotlin.test.*
 
-inline class Z(val value: Int)
+@Suppress("OPTIONAL_DECLARATION_USAGE_IN_NON_COMMON_SOURCE")
+@kotlin.jvm.JvmInline
+value class Z(val value: Int)
 
 fun test1_1(z: Z) = "$z"
 fun test1_2(z: Z) = "$z$z"

@@ -7,19 +7,22 @@ package org.jetbrains.kotlin.android.synthetic.test
 
 import com.intellij.openapi.util.io.FileUtil
 import com.intellij.util.ArrayUtil
+import org.jetbrains.kotlin.ObsoleteTestInfrastructure
 import org.jetbrains.kotlin.cli.jvm.config.jvmClasspathRoots
 import org.jetbrains.kotlin.codegen.AbstractBlackBoxCodegenTest
 import org.jetbrains.kotlin.codegen.CodegenTestFiles
 import org.jetbrains.kotlin.config.CompilerConfiguration
+import org.jetbrains.kotlin.config.JVMConfigurationKeys
 import org.jetbrains.kotlin.test.ConfigurationKind
 import org.jetbrains.kotlin.test.KotlinTestUtils
 import org.jetbrains.kotlin.test.TestJdkKind
+import org.jetbrains.kotlin.test.util.KtTestUtil
 import java.io.File
 import java.net.URL
 import java.util.regex.Pattern
 
+@OptIn(ObsoleteTestInfrastructure::class)
 abstract class AbstractAndroidBoxTest : AbstractBlackBoxCodegenTest() {
-
     private fun createAndroidAPIEnvironment(path: String) {
         return createEnvironmentForConfiguration(KotlinTestUtils.newConfiguration(ConfigurationKind.ALL, TestJdkKind.ANDROID_API), path)
     }
@@ -29,6 +32,7 @@ abstract class AbstractAndroidBoxTest : AbstractBlackBoxCodegenTest() {
     }
 
     private fun createEnvironmentForConfiguration(configuration: CompilerConfiguration, path: String) {
+        configuration.put(JVMConfigurationKeys.IR, backend.isIR);
         val layoutPaths = File(path)
             .listFiles { file -> file.name.startsWith("layout") && file.isDirectory }!!
             .map { "$path${it.name}/" }
@@ -92,7 +96,7 @@ abstract class AbstractAndroidBoxTest : AbstractBlackBoxCodegenTest() {
         myFiles = CodegenTestFiles.create(
             myEnvironment!!.project,
             ArrayUtil.toStringArray(files),
-            KotlinTestUtils.getHomeDirectory() + "/plugins/android-extensions/android-extensions-compiler/testData"
+            KtTestUtil.getHomeDirectory() + "/plugins/android-extensions/android-extensions-compiler/testData"
         )
         blackBox(true)
     }

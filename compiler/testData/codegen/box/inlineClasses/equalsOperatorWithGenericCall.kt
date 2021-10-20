@@ -1,7 +1,14 @@
-// IGNORE_BACKEND_FIR: JVM_IR
-inline class IcAny(val x: Any?)
-inline class IcInt(val x: Int)
-inline class IcLong(val x: Long)
+// WITH_RUNTIME
+
+@Suppress("OPTIONAL_DECLARATION_USAGE_IN_NON_COMMON_SOURCE")
+@kotlin.jvm.JvmInline
+value class IcAny(val x: Any?)
+@Suppress("OPTIONAL_DECLARATION_USAGE_IN_NON_COMMON_SOURCE")
+@kotlin.jvm.JvmInline
+value class IcInt(val x: Int)
+@Suppress("OPTIONAL_DECLARATION_USAGE_IN_NON_COMMON_SOURCE")
+@kotlin.jvm.JvmInline
+value class IcLong(val x: Long)
 
 fun <T> id(x: T) = x
 

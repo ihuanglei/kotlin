@@ -16,21 +16,22 @@
 
 package org.jetbrains.kotlin.descriptors.runtime.components
 
-import org.jetbrains.kotlin.builtins.KotlinBuiltIns
+import org.jetbrains.kotlin.builtins.StandardNames
 import org.jetbrains.kotlin.builtins.jvm.JavaToKotlinClassMap
+import org.jetbrains.kotlin.descriptors.runtime.structure.classId
+import org.jetbrains.kotlin.descriptors.runtime.structure.desc
+import org.jetbrains.kotlin.descriptors.runtime.structure.isEnumClassOrSpecializedEnumEntryClass
 import org.jetbrains.kotlin.load.kotlin.KotlinJvmBinaryClass
 import org.jetbrains.kotlin.load.kotlin.header.KotlinClassHeader
 import org.jetbrains.kotlin.load.kotlin.header.ReadKotlinClassHeaderAnnotationVisitor
 import org.jetbrains.kotlin.name.ClassId
 import org.jetbrains.kotlin.name.Name
+import org.jetbrains.kotlin.name.SpecialNames
 import org.jetbrains.kotlin.resolve.constants.ClassLiteralValue
 import org.jetbrains.kotlin.resolve.jvm.JvmPrimitiveType
 import java.lang.reflect.Constructor
 import java.lang.reflect.Field
 import java.lang.reflect.Method
-import org.jetbrains.kotlin.descriptors.runtime.structure.classId
-import org.jetbrains.kotlin.descriptors.runtime.structure.desc
-import org.jetbrains.kotlin.descriptors.runtime.structure.isEnumClassOrSpecializedEnumEntryClass
 
 @Suppress("PLATFORM_CLASS_MAPPED_TO_KOTLIN")
 private val TYPES_ELIGIBLE_FOR_SIMPLE_VISIT = setOf<Class<*>>(
@@ -115,7 +116,7 @@ private object ReflectClassStructure {
 
     private fun loadConstructorAnnotations(klass: Class<*>, memberVisitor: KotlinJvmBinaryClass.MemberVisitor) {
         for (constructor in klass.declaredConstructors) {
-            val visitor = memberVisitor.visitMethod(Name.special("<init>"), SignatureSerializer.constructorDesc(constructor)) ?: continue
+            val visitor = memberVisitor.visitMethod(SpecialNames.INIT, SignatureSerializer.constructorDesc(constructor)) ?: continue
 
             for (annotation in constructor.declaredAnnotations) {
                 processAnnotation(visitor, annotation)
@@ -196,7 +197,7 @@ private object ReflectClassStructure {
         if (currentClass.isPrimitive) {
             if (currentClass == Void.TYPE) {
                 // void.class is not representable in Kotlin, we approximate it by Unit::class
-                return ClassLiteralValue(ClassId.topLevel(KotlinBuiltIns.FQ_NAMES.unit.toSafe()), dimensions)
+                return ClassLiteralValue(ClassId.topLevel(StandardNames.FqNames.unit.toSafe()), dimensions)
             }
 
             val primitiveType = JvmPrimitiveType.get(currentClass.name).primitiveType
@@ -242,6 +243,10 @@ private object ReflectClassStructure {
                     }
                     componentType == Class::class.java -> for (element in value as Array<*>) {
                         v.visitClassLiteral((element as Class<*>).classLiteralValue())
+                    }
+                    Annotation::class.java.isAssignableFrom(componentType) -> for (element in value as Array<*>) {
+                        val vv = v.visitAnnotation(componentType.classId) ?: continue
+                        processAnnotationArguments(vv, element as Annotation, componentType)
                     }
                     else -> for (element in value as Array<*>) {
                         v.visit(element)

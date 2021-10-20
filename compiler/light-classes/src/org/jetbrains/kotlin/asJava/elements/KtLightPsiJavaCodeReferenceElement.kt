@@ -14,7 +14,8 @@ import org.jetbrains.kotlin.asJava.classes.lazyPub
 class KtLightPsiJavaCodeReferenceElement(
     private val ktElement: PsiElement,
     reference: () -> PsiReference?,
-    clsDelegateProvider: () -> PsiJavaCodeReferenceElement?
+    clsDelegateProvider: () -> PsiJavaCodeReferenceElement?,
+    private val customReferenceName: String? = null,
 ) :
     PsiElement by ktElement,
     PsiReference by LazyPsiReferenceDelegate(ktElement, reference),
@@ -25,11 +26,11 @@ class KtLightPsiJavaCodeReferenceElement(
     override fun advancedResolve(incompleteCode: Boolean): JavaResolveResult =
         delegate?.advancedResolve(incompleteCode) ?: JavaResolveResult.EMPTY
 
-    override fun getReferenceNameElement(): PsiElement? = ktElement
+    override fun getReferenceNameElement(): PsiElement? = delegate?.referenceNameElement
 
     override fun getTypeParameters(): Array<PsiType> = delegate?.typeParameters ?: emptyArray()
 
-    override fun getReferenceName(): String? = delegate?.referenceName
+    override fun getReferenceName(): String? = customReferenceName ?: delegate?.referenceName
 
     override fun isQualified(): Boolean = delegate?.isQualified ?: false
 

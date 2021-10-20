@@ -24,7 +24,7 @@ import org.jetbrains.kotlin.utils.Printer
 import java.io.File
 
 abstract class BasicMap<K : Comparable<K>, V>(
-        storageFile: File,
+        internal val storageFile: File,
         keyDescriptor: KeyDescriptor<K>,
         valueExternalizer: DataExternalizer<V>
 ) {
@@ -47,8 +47,14 @@ abstract class BasicMap<K : Comparable<K>, V>(
         storage.flush(memoryCachesOnly)
     }
 
+    // avoid unsynchronized close
     fun close() {
         storage.close()
+    }
+
+    @TestOnly
+    fun closeForTest() {
+        close()
     }
 
     @TestOnly

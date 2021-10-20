@@ -1,7 +1,8 @@
-// !LANGUAGE: +InlineClasses
-// IGNORE_BACKEND_FIR: JVM_IR
+// WITH_RUNTIME
 
-inline class IC(val x: String) {
+@Suppress("OPTIONAL_DECLARATION_USAGE_IN_NON_COMMON_SOURCE")
+@kotlin.jvm.JvmInline
+value class IC(val x: String) {
     private fun privateFun() = x
     override fun toString() = privateFun()
 }

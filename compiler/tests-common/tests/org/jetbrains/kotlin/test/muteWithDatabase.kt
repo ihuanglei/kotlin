@@ -6,140 +6,193 @@
 package org.jetbrains.kotlin.test
 
 import junit.framework.TestCase
-import java.io.File
-
-private class AutoMute(
-    val file: String,
-    val issue: String
-)
-
-private val DO_AUTO_MUTE: AutoMute? by lazy {
-    val autoMuteFile = File("tests/automute")
-    if (autoMuteFile.exists()) {
-        val lines = autoMuteFile.readLines().filter { it.isNotBlank() }.map { it.trim() }
-        AutoMute(
-            lines.getOrNull(0) ?: error("A file path is expected in tne first line"),
-            lines.getOrNull(1) ?: error("An issue description is the second line")
-        )
-    } else {
-        null
-    }
-}
-
-private class MutedTest(
-    val key: String,
-    @Suppress("unused") val issue: String?,
-    val hasFailFile: Boolean
-) {
-    val methodName = key.substringAfterLast(".", "").replace("`", "").also {
-        if (it.isEmpty()) throw IllegalArgumentException("Can't get method name")
-    }
-    val classNameKey = key.substringBeforeLast(".", "").also {
-        if (it.isEmpty()) throw IllegalArgumentException("Can't get class name")
-    }
-    val simpleClassName = classNameKey.substringAfterLast(".")
-}
-
-private class MutedSet(muted: List<MutedTest>) {
-    // Method name -> Simple class name -> List of muted tests
-    private val cache: Map<String, Map<String, List<MutedTest>>> =
-        muted
-            .groupBy { it.methodName } // Method name -> List of muted tests
-            .mapValues { (_, tests) -> tests.groupBy { it.simpleClassName } }
-
-    fun mutedTest(testCase: TestCase): MutedTest? {
-        val mutedTests = cache[testCase.name]?.get(testCase.javaClass.simpleName) ?: return null
-
-        return mutedTests.firstOrNull { mutedTest ->
-            testCase.javaClass.canonicalName.endsWith(mutedTest.classNameKey)
-        }
-    }
-}
-
-private fun loadMutedSet(files: List<File>): MutedSet {
-    return MutedSet(files.flatMap { file -> loadMutedTests(file) })
-}
-
-private fun loadMutedTests(file: File): List<MutedTest> {
-    if (!file.exists()) {
-        System.err.println("Can't find mute file: ${file.absolutePath}")
-        return listOf()
-    }
-
-    try {
-        val testLines = file.readLines()
-            .asSequence()
-            .map { it.trim() }
-            .filter { it.isNotEmpty() }
-            .toList()
-
-        return testLines.drop(1).map { parseMutedTest(it) }
-    } catch (ex: Throwable) {
-        throw ParseError("Couldn't parse file with muted tests: $file", cause = ex)
-    }
-}
-
-private fun parseMutedTest(str: String): MutedTest {
-    val components = str.splitToSequence(",").map { it.trim() }.toList()
-
-    val key = components.getOrNull(0) ?: throw ParseError("Test key is absent (1 column): $str")
-
-    val issue = components.getOrNull(1)
-
-    val hasFailFile = when (val stateStr = components.getOrNull(2)) {
-        "MUTE", "", null -> false
-        "FAIL" -> true
-        else -> throw ParseError("Invalid state (`$stateStr`), MUTE, FAIL or empty are expected: $str")
-    }
-
-    return MutedTest(key, issue, hasFailFile)
-}
-
-private class ParseError(message: String, override val cause: Throwable? = null) : IllegalArgumentException(message)
-
-private val mutedSet by lazy {
-    loadMutedSet(
-        listOf(
-            File("tests/mute.csv")
-        )
-    )
-}
-
-internal fun isMutedInDatabase(testCase: TestCase): Boolean {
-    val mutedTest = mutedSet.mutedTest(testCase)
-    return mutedTest != null && !mutedTest.hasFailFile
-}
+import org.jetbrains.kotlin.test.mutes.*
+import org.junit.internal.runners.statements.InvokeMethod
+import org.junit.jupiter.api.extension.*
+import org.junit.runner.Runner
+import org.junit.runner.notification.RunNotifier
+import org.junit.runners.BlockJUnit4ClassRunner
+import org.junit.runners.model.FrameworkMethod
+import org.junit.runners.model.Statement
+import org.junit.runners.parameterized.BlockJUnit4ClassRunnerWithParameters
+import org.junit.runners.parameterized.ParametersRunnerFactory
+import org.junit.runners.parameterized.TestWithParameters
+import java.lang.reflect.Method
 
 internal fun wrapWithMuteInDatabase(testCase: TestCase, f: () -> Unit): (() -> Unit)? {
-    if (isMutedInDatabase(testCase)) {
-        return { MUTED_DO_TEST_LAMBDA(testCase) }
-    }
+    return wrapWithMuteInDatabase(testCase.javaClass, testCase.name, f)
+}
 
-    val doAutoMute = DO_AUTO_MUTE ?: return null
+class RunnerFactoryWithMuteInDatabase : ParametersRunnerFactory {
+    override fun createRunnerForTestWithParameters(testWithParameters: TestWithParameters?): Runner {
+        return object : BlockJUnit4ClassRunnerWithParameters(testWithParameters) {
+            override fun isIgnored(child: FrameworkMethod): Boolean {
+                val methodWithParametersKey = parametrizedMethodKey(child, name)
 
-    return {
-        try {
-            f()
-        } catch (e: Throwable) {
-            val file = File(doAutoMute.file)
-            val lines = file.readLines()
-            val firstLine = lines[0]
-            val muted = lines.drop(1).toMutableList()
-            muted.add("${testKey(testCase)}, ${doAutoMute.issue}")
-            val newMuted: List<String> = mutableListOf<String>() + firstLine + muted.sorted()
-            file.writeText(newMuted.joinToString("\n"))
+                return super.isIgnored(child)
+                        || isMutedInDatabaseWithLog(child.declaringClass, child.name)
+                        || isMutedInDatabaseWithLog(child.declaringClass, methodWithParametersKey)
+            }
 
-            throw e
+            override fun runChild(method: FrameworkMethod, notifier: RunNotifier) {
+                val testKey = testKey(method.declaringClass, parametrizedMethodKey(method, name))
+                notifier.withAutoMuteListener(testKey) {
+                    super.runChild(method, notifier)
+                }
+            }
+
+            override fun methodInvoker(method: FrameworkMethod, test: Any?): Statement {
+                return MethodInvokerWithMutedTests(method, test, mainMethodKey = parametrizedMethodKey(method, name))
+            }
         }
     }
+
+    private fun parametrizedMethodKey(child: FrameworkMethod, parametersName: String) = "${child.method.name}$parametersName"
 }
 
-internal val MUTED_DO_TEST_LAMBDA = { testCase: TestCase ->
-    System.err.println("MUTED TEST: ${testKey(testCase)}")
+class MethodInvokerWithMutedTests(
+    val method: FrameworkMethod,
+    val test: Any?,
+    val mainMethodKey: String? = null
+) : InvokeMethod(method, test) {
+    override fun evaluate() {
+        val methodClass = method.declaringClass
+        val mutedTest =
+            mainMethodKey?.let { getMutedTest(methodClass, it) }
+                ?: getMutedTest(methodClass, method.method.name)
+
+        if (mutedTest != null && isPresentedInDatabaseWithoutFailMarker(mutedTest)) {
+            if (mutedTest.isFlaky) {
+                super.evaluate()
+                return
+            } else {
+                val testKey = testKey(methodClass, mutedTest.methodKey)
+                invertMutedTestResultWithLog({ super.evaluate() }, testKey)
+                return
+            }
+        }
+        super.evaluate()
+    }
 }
 
-private fun testKey(testCase: TestCase) = "${testCase::class.java.canonicalName}.${testCase.name}"
+class RunnerWithMuteInDatabase(klass: Class<*>?) : BlockJUnit4ClassRunner(klass) {
+    override fun isIgnored(child: FrameworkMethod): Boolean {
+        return super.isIgnored(child) || isMutedInDatabaseWithLog(child.declaringClass, child.name)
+    }
+
+    override fun runChild(method: FrameworkMethod, notifier: RunNotifier) {
+        val testKey = testKey(method.declaringClass, method.name)
+        notifier.withAutoMuteListener(testKey) {
+            super.runChild(method, notifier)
+        }
+    }
+
+    override fun methodInvoker(method: FrameworkMethod, test: Any?): Statement {
+        return MethodInvokerWithMutedTests(method, test)
+    }
+}
 
 fun TestCase.runTest(test: () -> Unit) {
     (wrapWithMuteInDatabase(this, test) ?: test).invoke()
+}
+
+annotation class WithMutedInDatabaseRunTest
+
+/**
+ * Extension for JUnit 5 tests adding mute-in database support to ignore flaky/failed tests.
+ *
+ * Just add it to the test class or test method.
+ */
+@Target(AnnotationTarget.CLASS, AnnotationTarget.ANNOTATION_CLASS, AnnotationTarget.FUNCTION)
+@Retention(AnnotationRetention.RUNTIME)
+@ExtendWith(MuteInCondition::class, MuteInTestWatcher::class, MuteInInvocationInterceptor::class)
+annotation class WithMuteInDatabase
+
+private val ExtensionContext.testClassNullable get() = testClass.orElseGet { null }
+private val ExtensionContext.testMethodNullable get() = testMethod.orElseGet { null }
+
+class MuteInCondition : ExecutionCondition {
+    override fun evaluateExecutionCondition(
+        context: ExtensionContext
+    ): ConditionEvaluationResult {
+        val testClass = context.testClassNullable
+        val testMethod = context.testMethodNullable
+
+        return if (testClass != null &&
+            testMethod != null &&
+            isMutedInDatabaseWithLog(testClass, testMethod.name)
+        ) {
+            ConditionEvaluationResult.disabled("Muted")
+        } else {
+            enabled
+        }
+    }
+
+    companion object {
+        private val enabled = ConditionEvaluationResult.enabled("Not found in mute-in database")
+    }
+}
+
+class MuteInTestWatcher : TestWatcher {
+    override fun testFailed(
+        context: ExtensionContext,
+        cause: Throwable
+    ) {
+        val testClass = context.testClassNullable
+        val testMethod = context.testMethodNullable
+        if (testClass != null &&
+            testMethod != null
+        ) {
+            DO_AUTO_MUTE?.muteTest(
+                testKey(testClass, testMethod.name)
+            )
+        }
+    }
+}
+
+class MuteInInvocationInterceptor : InvocationInterceptor {
+    override fun interceptTestTemplateMethod(
+        invocation: InvocationInterceptor.Invocation<Void>,
+        invocationContext: ReflectiveInvocationContext<Method>,
+        extensionContext: ExtensionContext
+    ) {
+        interceptWithMuteInDatabase(invocation, extensionContext)
+    }
+
+    override fun interceptTestMethod(
+        invocation: InvocationInterceptor.Invocation<Void>,
+        invocationContext: ReflectiveInvocationContext<Method>,
+        extensionContext: ExtensionContext
+    ) {
+        interceptWithMuteInDatabase(invocation, extensionContext)
+    }
+
+    private fun interceptWithMuteInDatabase(
+        invocation: InvocationInterceptor.Invocation<Void>,
+        extensionContext: ExtensionContext
+    ) {
+        val testClass = extensionContext.testClassNullable
+        val testMethod = extensionContext.testMethodNullable
+        if (testClass != null &&
+            testMethod != null
+        ) {
+            val mutedTest = getMutedTest(testClass, testMethod.name)
+            if (mutedTest != null &&
+                isPresentedInDatabaseWithoutFailMarker(mutedTest)
+            ) {
+                if (mutedTest.isFlaky) {
+                    invocation.proceed()
+                    return
+                } else {
+                    invertMutedTestResultWithLog(
+                        f = { invocation.proceed() },
+                        testKey = testKey(testMethod.declaringClass, mutedTest.methodKey)
+                    )
+                    return
+                }
+            }
+        }
+
+        invocation.proceed()
+    }
 }

@@ -17,7 +17,7 @@
 package org.jetbrains.kotlin.resolve
 
 import com.intellij.psi.PsiElement
-import org.jetbrains.kotlin.builtins.KotlinBuiltIns
+import org.jetbrains.kotlin.builtins.StandardNames
 import org.jetbrains.kotlin.descriptors.*
 import org.jetbrains.kotlin.descriptors.impl.FunctionDescriptorImpl
 import org.jetbrains.kotlin.descriptors.impl.PropertyAccessorDescriptorImpl
@@ -32,6 +32,7 @@ import org.jetbrains.kotlin.resolve.source.getPsi
 import org.jetbrains.kotlin.resolve.typeBinding.TypeBinding
 import org.jetbrains.kotlin.resolve.typeBinding.createTypeBinding
 import org.jetbrains.kotlin.resolve.typeBinding.createTypeBindingForReturnType
+import org.jetbrains.kotlin.types.EnrichedProjectionKind
 import org.jetbrains.kotlin.types.KotlinType
 import org.jetbrains.kotlin.types.Variance
 import org.jetbrains.kotlin.types.Variance.*
@@ -87,13 +88,13 @@ class VarianceCheckerCore(
     }
 
     fun checkMember(member: KtCallableDeclaration, descriptor: CallableMemberDescriptor) =
-        Visibilities.isPrivate(descriptor.visibility) || checkCallableDeclaration(context, member, descriptor)
+        DescriptorVisibilities.isPrivate(descriptor.visibility) || checkCallableDeclaration(context, member, descriptor)
 
     private fun TypeParameterDescriptor.varianceWithManual() =
         if (manualVariance != null && this.original == manualVariance.descriptor) manualVariance.variance else variance
 
     fun recordPrivateToThisIfNeeded(descriptor: CallableMemberDescriptor) {
-        if (isIrrelevant(descriptor) || descriptor.visibility != Visibilities.PRIVATE) return
+        if (isIrrelevant(descriptor) || descriptor.visibility != DescriptorVisibilities.PRIVATE) return
 
         val psiElement = descriptor.source.getPsi() as? KtCallableDeclaration ?: return
 
@@ -148,7 +149,7 @@ class VarianceCheckerCore(
         if (classifierDescriptor is TypeParameterDescriptor) {
             val declarationVariance = classifierDescriptor.varianceWithManual()
             if (!declarationVariance.allowsPosition(position)
-                && !type.annotations.hasAnnotation(KotlinBuiltIns.FQ_NAMES.unsafeVariance)
+                && !type.annotations.hasAnnotation(StandardNames.FqNames.unsafeVariance)
             ) {
                 val varianceConflictDiagnosticData = VarianceConflictDiagnosticData(containingType, classifierDescriptor, position)
                 val diagnostic =
@@ -164,10 +165,10 @@ class VarianceCheckerCore(
 
             val projectionKind = TypeCheckingProcedure.getEffectiveProjectionKind(argument.typeParameter!!, argument.projection)!!
             val newPosition = when (projectionKind) {
-                TypeCheckingProcedure.EnrichedProjectionKind.OUT -> position
-                TypeCheckingProcedure.EnrichedProjectionKind.IN -> position.opposite()
-                TypeCheckingProcedure.EnrichedProjectionKind.INV -> Variance.INVARIANT
-                TypeCheckingProcedure.EnrichedProjectionKind.STAR -> null // CONFLICTING_PROJECTION error was reported
+                EnrichedProjectionKind.OUT -> position
+                EnrichedProjectionKind.IN -> position.opposite()
+                EnrichedProjectionKind.INV -> Variance.INVARIANT
+                EnrichedProjectionKind.STAR -> null // CONFLICTING_PROJECTION error was reported
             }
             if (newPosition != null) {
                 noError = noError and argument.binding.checkTypePosition(containingType, newPosition)
@@ -185,11 +186,11 @@ class VarianceCheckerCore(
 
         private fun recordPrivateToThis(descriptor: CallableMemberDescriptor) {
             when (descriptor) {
-                is FunctionDescriptorImpl -> descriptor.visibility = Visibilities.PRIVATE_TO_THIS
+                is FunctionDescriptorImpl -> descriptor.visibility = DescriptorVisibilities.PRIVATE_TO_THIS
                 is PropertyDescriptorImpl -> {
-                    descriptor.visibility = Visibilities.PRIVATE_TO_THIS
+                    descriptor.visibility = DescriptorVisibilities.PRIVATE_TO_THIS
                     for (accessor in descriptor.accessors) {
-                        (accessor as PropertyAccessorDescriptorImpl).visibility = Visibilities.PRIVATE_TO_THIS
+                        (accessor as PropertyAccessorDescriptorImpl).visibility = DescriptorVisibilities.PRIVATE_TO_THIS
                     }
                 }
                 else -> throw IllegalStateException("Unexpected descriptor type: ${descriptor::class.java.name}")

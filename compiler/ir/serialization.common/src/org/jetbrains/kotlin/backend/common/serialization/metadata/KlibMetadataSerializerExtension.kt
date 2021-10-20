@@ -13,16 +13,21 @@ import org.jetbrains.kotlin.library.metadata.KlibMetadataSerializerProtocol
 import org.jetbrains.kotlin.metadata.ProtoBuf
 import org.jetbrains.kotlin.metadata.deserialization.BinaryVersion
 import org.jetbrains.kotlin.metadata.serialization.MutableVersionRequirementTable
+import org.jetbrains.kotlin.psi.KtDeclaration
+import org.jetbrains.kotlin.psi.KtPrimaryConstructor
+import org.jetbrains.kotlin.resolve.source.getPsi
 import org.jetbrains.kotlin.serialization.DescriptorSerializer
 import org.jetbrains.kotlin.serialization.KotlinSerializerExtensionBase
 import org.jetbrains.kotlin.serialization.StringTableImpl
 import org.jetbrains.kotlin.types.FlexibleType
+import org.jetbrains.kotlin.types.KotlinType
 
 class KlibMetadataSerializerExtension(
     private val languageVersionSettings: LanguageVersionSettings,
     override val metadataVersion: BinaryVersion,
-    val declarationTableHandler: (DeclarationDescriptor) -> KlibMetadataProtoBuf.DescriptorUniqId?,
-    override val stringTable: StringTableImpl
+    override val stringTable: StringTableImpl,
+    private val allowErrorTypes: Boolean,
+    private val exportKDoc: Boolean
 ) : KotlinSerializerExtensionBase(KlibMetadataSerializerProtocol) {
     override fun shouldUseTypeTable(): Boolean = true
 
@@ -35,30 +40,8 @@ class KlibMetadataSerializerExtension(
         lowerProto.flexibleTypeCapabilitiesId = stringTable.getStringIndex(DynamicTypeDeserializer.id)
     }
 
-    private fun uniqId(descriptor: DeclarationDescriptor): KlibMetadataProtoBuf.DescriptorUniqId? {
-        return declarationTableHandler(descriptor)
-    }
-
-    override fun serializeTypeParameter(typeParameter: TypeParameterDescriptor, proto: ProtoBuf.TypeParameter.Builder) {
-        uniqId(typeParameter)?.let { proto.setExtension(KlibMetadataProtoBuf.typeParamUniqId, it) }
-        super.serializeTypeParameter(typeParameter, proto)
-    }
-
-    override fun serializeTypeAlias(typeAlias: TypeAliasDescriptor, proto: ProtoBuf.TypeAlias.Builder) {
-        uniqId(typeAlias)?.let { proto.setExtension(KlibMetadataProtoBuf.typeAliasUniqId, it) }
-        super.serializeTypeAlias(typeAlias, proto)
-    }
-
-    override fun serializeEnumEntry(descriptor: ClassDescriptor, proto: ProtoBuf.EnumEntry.Builder) {
-        uniqId(descriptor)?.let { proto.setExtension(KlibMetadataProtoBuf.enumEntryUniqId, it) }
-        super.serializeEnumEntry(descriptor, proto)
-    }
-
-    override fun serializeConstructor(descriptor: ConstructorDescriptor, proto: ProtoBuf.Constructor.Builder,
-                                      childSerializer: DescriptorSerializer
-    ) {
-        uniqId(descriptor)?.let { proto.setExtension(KlibMetadataProtoBuf.constructorUniqId, it) }
-        super.serializeConstructor(descriptor, proto, childSerializer)
+    override fun serializeErrorType(type: KotlinType, builder: ProtoBuf.Type.Builder) {
+        if (!allowErrorTypes) super.serializeErrorType(type, builder)
     }
 
     override fun serializeClass(
@@ -67,10 +50,19 @@ class KlibMetadataSerializerExtension(
         versionRequirementTable: MutableVersionRequirementTable,
         childSerializer: DescriptorSerializer
     ) {
-        uniqId(descriptor)?.let { proto.setExtension(KlibMetadataProtoBuf.classUniqId, it) }
         descriptorFileId(descriptor)?.let { proto.setExtension(KlibMetadataProtoBuf.classFile, it) }
+        if (exportKDoc) descriptor.findKDocString()?.let { proto.setExtension(KlibMetadataProtoBuf.classKdoc, it) }
         super.serializeClass(descriptor, proto, versionRequirementTable, childSerializer)
         childSerializer.typeTable.serialize()?.let { proto.mergeTypeTable(it) }
+    }
+
+    override fun serializeConstructor(
+        descriptor: ConstructorDescriptor,
+        proto: ProtoBuf.Constructor.Builder,
+        childSerializer: DescriptorSerializer
+    ) {
+        if (exportKDoc) descriptor.findKDocString()?.let { proto.setExtension(KlibMetadataProtoBuf.constructorKdoc, it) }
+        super.serializeConstructor(descriptor, proto, childSerializer)
     }
 
     override fun serializeProperty(
@@ -79,8 +71,8 @@ class KlibMetadataSerializerExtension(
         versionRequirementTable: MutableVersionRequirementTable?,
         childSerializer: DescriptorSerializer
     ) {
-        uniqId(descriptor)?.let { proto.setExtension(KlibMetadataProtoBuf.propertyUniqId, it) }
         descriptorFileId(descriptor)?.let { proto.setExtension(KlibMetadataProtoBuf.propertyFile, it) }
+        if (exportKDoc) descriptor.findKDocString()?.let { proto.setExtension(KlibMetadataProtoBuf.propertyKdoc, it) }
         super.serializeProperty(descriptor, proto, versionRequirementTable, childSerializer)
     }
 
@@ -90,11 +82,21 @@ class KlibMetadataSerializerExtension(
         versionRequirementTable: MutableVersionRequirementTable?,
         childSerializer: DescriptorSerializer
     ) {
-        uniqId(descriptor)?.let { proto.setExtension(KlibMetadataProtoBuf.functionUniqId, it) }
         descriptorFileId(descriptor)?.let { proto.setExtension(KlibMetadataProtoBuf.functionFile, it) }
+        if (exportKDoc) descriptor.findKDocString()?.let { proto.setExtension(KlibMetadataProtoBuf.functionKdoc, it) }
         super.serializeFunction(descriptor, proto, versionRequirementTable, childSerializer)
     }
+}
 
-    override fun releaseCoroutines() =
-        languageVersionSettings.supportsFeature(LanguageFeature.ReleaseCoroutines)
+fun DeclarationDescriptorWithSource.findKDocString(): String? {
+    val psi = source.getPsi()
+    if (psi is KtDeclaration) {
+        if (psi is KtPrimaryConstructor)
+            return null  // to be rendered with class itself
+        val kdoc = psi.docComment
+        if (kdoc != null) {
+            return kdoc.getDefaultSection().parent.text
+        }
+    }
+    return null
 }

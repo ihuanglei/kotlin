@@ -1,3 +1,4 @@
+// FIR_IDENTICAL
 // !LANGUAGE: +MultiPlatformProjects
 // MODULE: m1-common
 // FILE: common.kt
@@ -12,7 +13,7 @@ expect class Class
 
 expect enum class En { ENTRY }
 
-// MODULE: m2-jvm(m1-common)
+// MODULE: m2-jvm()()(m1-common)
 // FILE: jvm.kt
 
 actual interface Interface

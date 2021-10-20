@@ -1,4 +1,3 @@
-// IGNORE_BACKEND_FIR: JVM_IR
 // TARGET_BACKEND: JVM
 
 operator fun Int.plus(a: Int?) = this + a!!
@@ -23,4 +22,4 @@ public open class PerfectNumberFinder() {
         }
 }
 
-fun box () = if (PerfectNumberFinder().isPerfect(28)) "OK" else "fail"
+fun box() = if (PerfectNumberFinder().isPerfect(28)) "OK" else "fail"

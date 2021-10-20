@@ -1,7 +1,8 @@
-// !LANGUAGE: +InlineClasses
-// IGNORE_BACKEND_FIR: JVM_IR
+// WITH_RUNTIME
 
-inline class ULong(val l: Long)
+@Suppress("OPTIONAL_DECLARATION_USAGE_IN_NON_COMMON_SOURCE")
+@kotlin.jvm.JvmInline
+value class ULong(val l: Long)
 
 fun nonLocal(): ULong? {
     val u1 = ULong(1)

@@ -5,24 +5,53 @@
 
 package org.jetbrains.kotlin.ir.backend.js.export
 
+import org.jetbrains.kotlin.ir.backend.js.utils.sanitizeName
+import org.jetbrains.kotlin.serialization.js.ModuleKind
+
 // TODO: Support module kinds other than plain
 
 fun ExportedModule.toTypeScript(): String {
-    val prefix = "    type Nullable<T> = T | null | undefined\n"
-    val body = declarations.joinToString("\n") { it.toTypeScript("    ") }
-    return "declare namespace $name {\n$prefix$body\n}\n"
+    return wrapTypeScript(name, moduleKind, declarations.toTypeScript(moduleKind))
+}
+
+fun wrapTypeScript(name: String, moduleKind: ModuleKind, dts: String): String {
+    val types = "${moduleKind.indent}type Nullable<T> = T | null | undefined\n"
+
+    val declarationsDts = types + dts
+
+    val namespaceName = sanitizeName(name)
+
+    return when (moduleKind) {
+        ModuleKind.PLAIN -> "declare namespace $namespaceName {\n$declarationsDts\n}\n"
+        ModuleKind.AMD, ModuleKind.COMMON_JS, ModuleKind.ES -> declarationsDts
+        ModuleKind.UMD -> "$declarationsDts\nexport as namespace $namespaceName;"
+    }
+}
+
+private val ModuleKind.indent: String
+    get() = if (this == ModuleKind.PLAIN) "    " else ""
+
+fun List<ExportedDeclaration>.toTypeScript(moduleKind: ModuleKind): String {
+    return joinToString("\n") {
+        it.toTypeScript(
+            indent = moduleKind.indent,
+            prefix = if (moduleKind == ModuleKind.PLAIN) "" else "export "
+        )
+    }
 }
 
 fun List<ExportedDeclaration>.toTypeScript(indent: String): String =
     joinToString("") { it.toTypeScript(indent) + "\n" }
 
-fun ExportedDeclaration.toTypeScript(indent: String): String = indent + when (this) {
+fun ExportedDeclaration.toTypeScript(indent: String, prefix: String = ""): String = indent + when (this) {
     is ErrorDeclaration -> "/* ErrorDeclaration: $message */"
 
     is ExportedNamespace ->
-        "namespace $name {\n" + declarations.toTypeScript("$indent    ") + "$indent}"
+        "${prefix}namespace $name {\n" + declarations.toTypeScript("$indent    ") + "$indent}"
 
     is ExportedFunction -> {
+        val visibility = if (isProtected) "protected " else ""
+
         val keyword: String = when {
             isMember -> when {
                 isStatic -> "static "
@@ -32,7 +61,7 @@ fun ExportedDeclaration.toTypeScript(indent: String): String = indent + when (th
             else -> "function "
         }
 
-        val renderedParameters = parameters.joinToString(", ") { it.toTypeScript() }
+        val renderedParameters = parameters.joinToString(", ") { it.toTypeScript(indent) }
 
         val renderedTypeParameters =
             if (typeParameters.isNotEmpty())
@@ -40,31 +69,43 @@ fun ExportedDeclaration.toTypeScript(indent: String): String = indent + when (th
             else
                 ""
 
-        val renderedReturnType = returnType.toTypeScript()
+        val renderedReturnType = returnType.toTypeScript(indent)
 
-        "$keyword$name$renderedTypeParameters($renderedParameters): $renderedReturnType"
+        "${prefix}$visibility$keyword$name$renderedTypeParameters($renderedParameters): $renderedReturnType;"
     }
-    is ExportedConstructor ->
-        "constructor(${parameters.joinToString(", ") { it.toTypeScript() }})"
+    is ExportedConstructor -> {
+        val visibility = if (isProtected) "protected " else ""
+        val renderedParameters = parameters.joinToString(", ") { it.toTypeScript(indent) }
+        "${visibility}constructor($renderedParameters);"
+    }
 
     is ExportedProperty -> {
+        val visibility = if (isProtected) "protected " else ""
         val keyword = when {
             isMember -> (if (isAbstract) "abstract " else "") + (if (!mutable) "readonly " else "")
             else -> if (mutable) "let " else "const "
         }
-        keyword + name + ": " + type.toTypeScript() + ";"
+        val possibleStatic = if (isMember && isStatic) "static " else ""
+        "$prefix$visibility$possibleStatic$keyword$name: ${type.toTypeScript(indent)};"
     }
 
     is ExportedClass -> {
         val keyword = if (isInterface) "interface" else "class"
         val superInterfacesKeyword = if (isInterface) "extends" else "implements"
 
-        val superClassClause = superClass?.let { " extends ${it.toTypeScript()}" } ?: ""
+        val superClassClause = superClass?.let { " extends ${it.toTypeScript(indent)}" } ?: ""
         val superInterfacesClause = if (superInterfaces.isNotEmpty()) {
-            " $superInterfacesKeyword " + superInterfaces.joinToString(", ") { it.toTypeScript() }
+            " $superInterfacesKeyword " + superInterfaces.joinToString(", ") { it.toTypeScript(indent) }
         } else ""
 
         val membersString = members.joinToString("") { it.toTypeScript("$indent    ") + "\n" }
+
+        // If there are no exported constructors, add a private constructor to disable default one
+        val privateCtorString =
+            if (!isInterface && !isAbstract && members.none { it is ExportedConstructor })
+                "$indent    private constructor();\n"
+            else
+                ""
 
         val renderedTypeParameters =
             if (typeParameters.isNotEmpty())
@@ -74,28 +115,38 @@ fun ExportedDeclaration.toTypeScript(indent: String): String = indent + when (th
 
         val modifiers = if (isAbstract && !isInterface) "abstract " else ""
 
-        val klassExport = "$modifiers$keyword $name$renderedTypeParameters$superClassClause$superInterfacesClause {\n$membersString$indent}"
-        val staticsExport = if (statics.isNotEmpty()) "\n" + ExportedNamespace(name, statics).toTypeScript(indent) else ""
+        val bodyString = privateCtorString + membersString + indent
+
+        val klassExport = "$prefix$modifiers$keyword $name$renderedTypeParameters$superClassClause$superInterfacesClause {\n$bodyString}"
+        val staticsExport = if (nestedClasses.isNotEmpty()) "\n" + ExportedNamespace(name, nestedClasses).toTypeScript(indent, prefix) else ""
         klassExport + staticsExport
     }
 }
 
-fun ExportedParameter.toTypeScript(): String =
-    "$name: ${type.toTypeScript()}"
+fun ExportedParameter.toTypeScript(indent: String): String =
+    "$name: ${type.toTypeScript(indent)}"
 
-fun ExportedType.toTypeScript(): String = when (this) {
+fun ExportedType.toTypeScript(indent: String): String = when (this) {
     is ExportedType.Primitive -> typescript
-    is ExportedType.Array -> "Array<${elementType.toTypeScript()}>"
+    is ExportedType.Array -> "Array<${elementType.toTypeScript(indent)}>"
     is ExportedType.Function -> "(" + parameterTypes
         .withIndex()
         .joinToString(", ") { (index, type) ->
-            "p$index: ${type.toTypeScript()}"
-        } + ") => " + returnType.toTypeScript()
+            "p$index: ${type.toTypeScript(indent)}"
+        } + ") => " + returnType.toTypeScript(indent)
 
     is ExportedType.ClassType ->
-        name + if (arguments.isNotEmpty()) "<${arguments.joinToString(", ") { it.toTypeScript() }}>" else ""
+        name + if (arguments.isNotEmpty()) "<${arguments.joinToString(", ") { it.toTypeScript(indent) }}>" else ""
+    is ExportedType.TypeOf ->
+        "typeof $name"
 
     is ExportedType.ErrorType -> "any /*$comment*/"
     is ExportedType.TypeParameter -> name
-    is ExportedType.Nullable -> "Nullable<" + baseType.toTypeScript() + ">"
+    is ExportedType.Nullable -> "Nullable<" + baseType.toTypeScript(indent) + ">"
+    is ExportedType.InlineInterfaceType -> {
+        members.joinToString(prefix = "{\n", postfix = "$indent}", separator = "") { it.toTypeScript("$indent    ") + "\n" }
+    }
+    is ExportedType.IntersectionType -> {
+        lhs.toTypeScript(indent) + " & " + rhs.toTypeScript(indent)
+    }
 }

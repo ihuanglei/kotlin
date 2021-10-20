@@ -1,27 +1,25 @@
 /*
- * Copyright 2010-2018 JetBrains s.r.o. and Kotlin Programming Language contributors.
+ * Copyright 2010-2020 JetBrains s.r.o. and Kotlin Programming Language contributors.
  * Use of this source code is governed by the Apache 2.0 license that can be found in the license/LICENSE.txt file.
  */
 
 package org.jetbrains.kotlin.ir.backend.js.lower
 
-import org.jetbrains.kotlin.backend.common.ClassLoweringPass
-import org.jetbrains.kotlin.backend.common.CommonBackendContext
+import org.jetbrains.kotlin.backend.common.DeclarationTransformer
 import org.jetbrains.kotlin.backend.common.bridges.FunctionHandle
 import org.jetbrains.kotlin.backend.common.bridges.generateBridges
-import org.jetbrains.kotlin.backend.common.ir.copyTo
-import org.jetbrains.kotlin.backend.common.ir.copyTypeParametersFrom
-import org.jetbrains.kotlin.backend.common.ir.isMethodOfAny
-import org.jetbrains.kotlin.backend.common.ir.isSuspend
+import org.jetbrains.kotlin.backend.common.ir.*
 import org.jetbrains.kotlin.backend.common.lower.*
 import org.jetbrains.kotlin.descriptors.Modality
+import org.jetbrains.kotlin.ir.UNDEFINED_OFFSET
+import org.jetbrains.kotlin.ir.backend.js.JsCommonBackendContext
+import org.jetbrains.kotlin.ir.backend.js.JsIrBackendContext
 import org.jetbrains.kotlin.ir.backend.js.JsLoweredDeclarationOrigin
-import org.jetbrains.kotlin.ir.backend.js.ir.JsIrBuilder
-import org.jetbrains.kotlin.ir.backend.js.utils.functionSignature
-import org.jetbrains.kotlin.ir.backend.js.utils.getJsName
+import org.jetbrains.kotlin.ir.backend.js.utils.hasStableJsName
+import org.jetbrains.kotlin.ir.backend.js.utils.realOverrideTarget
 import org.jetbrains.kotlin.ir.builders.*
+import org.jetbrains.kotlin.ir.builders.declarations.buildFun
 import org.jetbrains.kotlin.ir.declarations.*
-import org.jetbrains.kotlin.ir.declarations.impl.IrValueParameterImpl
 import org.jetbrains.kotlin.ir.expressions.IrExpression
 import org.jetbrains.kotlin.ir.types.IrType
 import org.jetbrains.kotlin.ir.types.classifierOrNull
@@ -46,24 +44,22 @@ import org.jetbrains.kotlin.ir.util.*
 //            fun foo(t: Any?) = foo(t as Int)  // Constructed bridge
 //          }
 //
-class BridgesConstruction(val context: CommonBackendContext) : ClassLoweringPass {
+abstract class BridgesConstruction<T : JsCommonBackendContext>(val context: T) : DeclarationTransformer {
 
     private val specialBridgeMethods = SpecialBridgeMethods(context)
 
-    override fun lower(irClass: IrClass) {
-        irClass.declarations
-            .asSequence()
-            .filterIsInstance<IrSimpleFunction>()
-            .filter { !it.isStaticMethodOfClass }
-            .toList()
-            .forEach { generateBridges(it, irClass) }
+    abstract fun getFunctionSignature(function: IrSimpleFunction): Any
+
+    // Should dispatch receiver type be casted inside a bridge.
+    open val shouldCastDispatchReceiver: Boolean = false
+
+    override fun transformFlat(declaration: IrDeclaration): List<IrDeclaration>? {
+        if (declaration !is IrSimpleFunction || declaration.isStaticMethodOfClass || declaration.parent !is IrClass) return null
+
+        return generateBridges(declaration)?.let { listOf(declaration) + it }
     }
 
-    private fun generateBridges(function: IrSimpleFunction, irClass: IrClass) {
-        // equals(Any?), hashCode(), toString() never need bridges
-        if (function.isMethodOfAny())
-            return
-
+    private fun generateBridges(function: IrSimpleFunction): List<IrDeclaration>? {
         val (specialOverride: IrSimpleFunction?, specialOverrideInfo) =
             specialBridgeMethods.findSpecialWithOverride(function) ?: Pair(null, null)
 
@@ -74,6 +70,10 @@ class BridgesConstruction(val context: CommonBackendContext) : ClassLoweringPass
             signature = { FunctionAndSignature(it.function) }
         )
 
+        if (bridgesToGenerate.isEmpty()) return null
+
+        val result = mutableListOf<IrDeclaration>()
+
         for ((from, to) in bridgesToGenerate) {
             if (!from.function.parentAsClass.isInterface &&
                 from.function.isReal &&
@@ -82,6 +82,11 @@ class BridgesConstruction(val context: CommonBackendContext) : ClassLoweringPass
             ) {
                 continue
             }
+
+            // Don't build bridges for functions with the same signature.
+            // TODO: This should be caught earlier in bridgesToGenerate
+            if (FunctionAndSignature(to.function.realOverrideTarget) == FunctionAndSignature(from.function.realOverrideTarget))
+                continue
 
             if (from.function.correspondingPropertySymbol != null && from.function.isEffectivelyExternal()) {
                 // TODO: Revisit bridges from external properties
@@ -97,8 +102,10 @@ class BridgesConstruction(val context: CommonBackendContext) : ClassLoweringPass
             }
 
 
-            irClass.declarations.add(bridge)
+            result += bridge
         }
+
+        return result
     }
 
     // Ported from from jvm.lower.BridgeLowering
@@ -109,72 +116,90 @@ class BridgesConstruction(val context: CommonBackendContext) : ClassLoweringPass
         specialMethodInfo: SpecialMethodWithDefaultInfo?
     ): IrFunction {
 
-        val origin =
-            if (bridge.isEffectivelyExternal() || bridge.getJsName() != null)
-                JsLoweredDeclarationOrigin.BRIDGE_TO_EXTERNAL_FUNCTION
-            else
-                IrDeclarationOrigin.BRIDGE
+        val origin = getBridgeOrigin(bridge)
 
         // TODO: Support offsets for debug info
-        val irFunction = JsIrBuilder.buildFunction(
-            bridge.name,
-            bridge.returnType,
-            function.parent,
-            bridge.visibility,
-            bridge.modality, // TODO: should copy modality?
-            isInline = bridge.isInline,
-            isExternal = bridge.isExternal,
-            isTailrec = bridge.isTailrec,
-            isSuspend = bridge.isSuspend,
-            isExpect = bridge.isExpect,
-            origin = origin
-        ).apply {
+        val irFunction = context.irFactory.buildFun {
+            updateFrom(bridge)
+            this.startOffset = UNDEFINED_OFFSET
+            this.endOffset = UNDEFINED_OFFSET
+            this.name = bridge.name
+            this.returnType = bridge.returnType
+            this.modality = Modality.FINAL
+            this.isFakeOverride = false
+            this.origin = origin
+        }.apply {
+            parent = function.parent
             copyTypeParametersFrom(bridge)
-            // TODO: should dispatch receiver be copied?
-            dispatchReceiverParameter = bridge.dispatchReceiverParameter?.run {
-                IrValueParameterImpl(startOffset, endOffset, origin, descriptor, type, varargElementType).also { it.parent = this@apply }
-            }
-            extensionReceiverParameter = bridge.extensionReceiverParameter?.copyTo(this)
-            valueParameters += bridge.valueParameters.map { p -> p.copyTo(this) }
+            val substitutionMap = makeTypeParameterSubstitutionMap(bridge, this)
+            copyReceiverParametersFrom(bridge, substitutionMap)
+            valueParameters += bridge.valueParameters.map { p -> p.copyTo(this, type = p.type.substitute(substitutionMap)) }
             annotations += bridge.annotations
-            overriddenSymbols.addAll(delegateTo.overriddenSymbols)
-            overriddenSymbols.add(bridge.symbol)
+            overriddenSymbols += delegateTo.overriddenSymbols
+            overriddenSymbols += bridge.symbol
         }
 
-        context.createIrBuilder(irFunction.symbol).irBlockBody(irFunction) {
-            if (specialMethodInfo != null) {
-                irFunction.valueParameters.take(specialMethodInfo.argumentsToCheck).forEach {
-                    +irIfThen(
-                        context.irBuiltIns.unitType,
-                        irNot(irIs(irGet(it), delegateTo.valueParameters[it.index].type)),
-                        irReturn(specialMethodInfo.defaultValueGenerator(irFunction))
-                    )
+        irFunction.body = context.irFactory.createBlockBody(UNDEFINED_OFFSET, UNDEFINED_OFFSET) {
+            statements += context.createIrBuilder(irFunction.symbol).irBlockBody(irFunction) {
+                if (specialMethodInfo != null) {
+                    irFunction.valueParameters.take(specialMethodInfo.argumentsToCheck).forEach {
+                        +irIfThen(
+                            context.irBuiltIns.unitType,
+                            irNot(irIs(irGet(it), delegateTo.valueParameters[it.index].type)),
+                            irReturn(specialMethodInfo.defaultValueGenerator(irFunction))
+                        )
+                    }
                 }
-            }
 
-            val call = irCall(delegateTo.symbol)
-            call.dispatchReceiver = irGet(irFunction.dispatchReceiverParameter!!)
-            irFunction.extensionReceiverParameter?.let {
-                call.extensionReceiver = irCastIfNeeded(irGet(it), delegateTo.extensionReceiverParameter!!.type)
-            }
+                val call = irCall(delegateTo.symbol)
+                val dispatchReceiver = irGet(irFunction.dispatchReceiverParameter!!)
 
-            val toTake = irFunction.valueParameters.size - if (call.isSuspend xor irFunction.isSuspend) 1 else 0
+                call.dispatchReceiver = if (shouldCastDispatchReceiver)
+                    irCastIfNeeded(dispatchReceiver, delegateTo.dispatchReceiverParameter!!.type)
+                else
+                    dispatchReceiver
 
-            irFunction.valueParameters.subList(0, toTake).mapIndexed { i, valueParameter ->
-                call.putValueArgument(i, irCastIfNeeded(irGet(valueParameter), delegateTo.valueParameters[i].type))
-            }
+                irFunction.extensionReceiverParameter?.let {
+                    call.extensionReceiver = irCastIfNeeded(irGet(it), delegateTo.extensionReceiverParameter!!.type)
+                }
 
-            +irReturn(call)
-        }.apply {
-            irFunction.body = this
+                val toTake = irFunction.valueParameters.size - if (call.isSuspend xor irFunction.isSuspend) 1 else 0
+
+                irFunction.valueParameters.subList(0, toTake).mapIndexed { i, valueParameter ->
+                    call.putValueArgument(i, irCastIfNeeded(irGet(valueParameter), delegateTo.valueParameters[i].type))
+                }
+
+                +irReturn(call)
+            }.statements
         }
 
         return irFunction
     }
 
+    abstract fun getBridgeOrigin(bridge: IrSimpleFunction): IrDeclarationOrigin
+
     // TODO: get rid of Unit check
     private fun IrBlockBodyBuilder.irCastIfNeeded(argument: IrExpression, type: IrType): IrExpression =
         if (argument.type.classifierOrNull == type.classifierOrNull) argument else irAs(argument, type)
+
+    // Wrapper around function that compares and hashCodes it based on signature
+    // Designed to be used as a Signature type parameter in backend.common.bridges
+    inner class FunctionAndSignature(val function: IrSimpleFunction) {
+
+        // TODO: Use type-upper-bound-based signature instead of Strings
+        // Currently strings are used for compatibility with a hack-based name generator
+
+        private val signature = getFunctionSignature(function)
+
+        override fun equals(other: Any?): Boolean {
+            if (this === other) return true
+            if (other !is BridgesConstruction<*>.FunctionAndSignature) return false
+
+            return signature == other.signature
+        }
+
+        override fun hashCode(): Int = signature.hashCode()
+    }
 }
 
 // Handle for common.bridges
@@ -191,23 +216,5 @@ data class IrBasedFunctionHandle(val function: IrSimpleFunction) : FunctionHandl
         function.overriddenSymbols.map { IrBasedFunctionHandle(it.owner) }
 }
 
-// Wrapper around function that compares and hashCodes it based on signature
-// Designed to be used as a Signature type parameter in backend.common.bridges
-class FunctionAndSignature(val function: IrSimpleFunction) {
-
-    // TODO: Use type-upper-bound-based signature instead of Strings
-    // Currently strings are used for compatibility with a hack-based name generator
-
-    private val signature = functionSignature(function)
-
-    override fun equals(other: Any?): Boolean {
-        if (this === other) return true
-        if (other !is FunctionAndSignature) return false
-
-        return signature == other.signature
-    }
-
-    override fun hashCode(): Int = signature.hashCode()
-}
 
 

@@ -3,17 +3,15 @@ plugins {
     kotlin("jvm")
 }
 
-jvmTarget = "1.6"
-
 publish()
 
 dependencies {
-    compile(project(":kotlin-script-runtime"))
-    compile(kotlinStdlib())
-    compile(project(":kotlin-scripting-common"))
-    compile(project(":kotlin-scripting-jvm"))
-    compile(project(":kotlin-scripting-jvm-host"))
-    compile(project(":kotlin-scripting-compiler"))
+    api(project(":kotlin-script-runtime"))
+    api(kotlinStdlib())
+    api(project(":kotlin-scripting-common"))
+    api(project(":kotlin-scripting-jvm"))
+    api(project(":kotlin-scripting-jvm-host-unshaded"))
+    api(project(":kotlin-scripting-compiler"))
     compileOnly(project(":compiler:cli-common"))
     compileOnly(project(":kotlin-reflect-api"))
     compileOnly(intellijCoreDep())

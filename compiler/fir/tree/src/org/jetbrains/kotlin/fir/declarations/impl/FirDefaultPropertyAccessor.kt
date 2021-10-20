@@ -5,63 +5,143 @@
 
 package org.jetbrains.kotlin.fir.declarations.impl
 
+import org.jetbrains.kotlin.descriptors.EffectiveVisibility
 import org.jetbrains.kotlin.descriptors.Modality
 import org.jetbrains.kotlin.descriptors.Visibility
-import org.jetbrains.kotlin.fir.FirSession
-import org.jetbrains.kotlin.fir.FirSourceElement
-import org.jetbrains.kotlin.fir.declarations.FirResolvePhase
-import org.jetbrains.kotlin.fir.declarations.FirValueParameter
+import org.jetbrains.kotlin.fir.*
+import org.jetbrains.kotlin.fir.contracts.impl.FirEmptyContractDescription
+import org.jetbrains.kotlin.fir.declarations.*
+import org.jetbrains.kotlin.fir.declarations.builder.buildDefaultSetterValueParameter
+import org.jetbrains.kotlin.fir.expressions.FirAnnotation
 import org.jetbrains.kotlin.fir.expressions.FirBlock
-import org.jetbrains.kotlin.fir.symbols.CallableId
 import org.jetbrains.kotlin.fir.symbols.impl.FirPropertyAccessorSymbol
-import org.jetbrains.kotlin.fir.symbols.impl.FirVariableSymbol
+import org.jetbrains.kotlin.fir.symbols.impl.FirPropertySymbol
+import org.jetbrains.kotlin.fir.symbols.impl.FirValueParameterSymbol
 import org.jetbrains.kotlin.fir.types.FirTypeRef
 import org.jetbrains.kotlin.fir.types.impl.FirImplicitUnitTypeRef
-import org.jetbrains.kotlin.name.FqName
 import org.jetbrains.kotlin.name.Name
 
+@OptIn(FirImplementationDetail::class)
 abstract class FirDefaultPropertyAccessor(
     source: FirSourceElement?,
-    session: FirSession,
+    moduleData: FirModuleData,
+    origin: FirDeclarationOrigin,
     propertyTypeRef: FirTypeRef,
+    valueParameters: MutableList<FirValueParameter>,
+    propertySymbol: FirPropertySymbol,
     isGetter: Boolean,
     visibility: Visibility,
+    modality: Modality = Modality.FINAL,
+    effectiveVisibility: EffectiveVisibility? = null,
     symbol: FirPropertyAccessorSymbol
-) : FirPropertyAccessorImpl(source, session, propertyTypeRef, symbol, isGetter, FirDeclarationStatusImpl(visibility, Modality.FINAL)) {
-    override var resolvePhase = FirResolvePhase.BODY_RESOLVE
+) : FirPropertyAccessorImpl(
+    source,
+    moduleData,
+    resolvePhase = if (effectiveVisibility != null) FirResolvePhase.BODY_RESOLVE else FirResolvePhase.TYPES,
+    origin,
+    FirDeclarationAttributes(),
+    propertyTypeRef,
+    status = if (effectiveVisibility == null)
+        FirDeclarationStatusImpl(visibility, modality)
+    else
+        FirResolvedDeclarationStatusImpl(visibility, modality, effectiveVisibility),
+    deprecation = null,
+    containerSource = null,
+    dispatchReceiverType = null,
+    valueParameters,
+    body = null,
+    contractDescription = FirEmptyContractDescription,
+    symbol,
+    propertySymbol,
+    isGetter,
+    annotations = mutableListOf(),
+    typeParameters = mutableListOf(),
+) {
+    override var resolvePhase
+        get() = if (status is FirResolvedDeclarationStatus) FirResolvePhase.BODY_RESOLVE else FirResolvePhase.TYPES
+        set(_) {}
 
     final override var body: FirBlock?
         get() = null
         set(_) {}
+
+    companion object {
+        fun createGetterOrSetter(
+            source: FirSourceElement?,
+            moduleData: FirModuleData,
+            origin: FirDeclarationOrigin,
+            propertyTypeRef: FirTypeRef,
+            visibility: Visibility,
+            propertySymbol: FirPropertySymbol,
+            isGetter: Boolean,
+            parameterAnnotations: List<FirAnnotation> = emptyList(),
+        ): FirDefaultPropertyAccessor {
+            return if (isGetter) {
+                FirDefaultPropertyGetter(source, moduleData, origin, propertyTypeRef, visibility, propertySymbol, Modality.FINAL)
+            } else {
+                FirDefaultPropertySetter(
+                    source, moduleData, origin, propertyTypeRef, visibility, propertySymbol, Modality.FINAL,
+                    parameterAnnotations = parameterAnnotations
+                )
+            }
+        }
+    }
 }
 
 class FirDefaultPropertyGetter(
     source: FirSourceElement?,
-    session: FirSession,
+    moduleData: FirModuleData,
+    origin: FirDeclarationOrigin,
     propertyTypeRef: FirTypeRef,
     visibility: Visibility,
+    propertySymbol: FirPropertySymbol,
+    modality: Modality = Modality.FINAL,
+    effectiveVisibility: EffectiveVisibility? = null,
     symbol: FirPropertyAccessorSymbol = FirPropertyAccessorSymbol()
-) : FirDefaultPropertyAccessor(source, session, propertyTypeRef, isGetter = true, visibility = visibility, symbol = symbol) {
-    override val valueParameters: MutableList<FirValueParameter> = mutableListOf()
-}
+) : FirDefaultPropertyAccessor(
+    source,
+    moduleData,
+    origin,
+    propertyTypeRef,
+    valueParameters = mutableListOf(),
+    propertySymbol,
+    isGetter = true,
+    visibility = visibility,
+    modality = modality,
+    effectiveVisibility = effectiveVisibility,
+    symbol = symbol
+)
 
 class FirDefaultPropertySetter(
     source: FirSourceElement?,
-    session: FirSession,
+    moduleData: FirModuleData,
+    origin: FirDeclarationOrigin,
     propertyTypeRef: FirTypeRef,
     visibility: Visibility,
-    symbol: FirPropertyAccessorSymbol = FirPropertyAccessorSymbol()
-) : FirDefaultPropertyAccessor(source, session, FirImplicitUnitTypeRef(source), isGetter = false, visibility = visibility, symbol = symbol) {
-    override val valueParameters: MutableList<FirValueParameter> = mutableListOf(
-        FirDefaultSetterValueParameter(
-            source,
-            session,
-            propertyTypeRef,
-            FirVariableSymbol(
-                CallableId(
-                    FqName.ROOT, Name.special("<default-setter-parameter>")
-                )
-            )
-        )
-    )
-}
+    propertySymbol: FirPropertySymbol,
+    modality: Modality = Modality.FINAL,
+    effectiveVisibility: EffectiveVisibility? = null,
+    symbol: FirPropertyAccessorSymbol = FirPropertyAccessorSymbol(),
+    parameterAnnotations: List<FirAnnotation> = emptyList(),
+) : FirDefaultPropertyAccessor(
+    source,
+    moduleData,
+    origin,
+    FirImplicitUnitTypeRef(source),
+    valueParameters = mutableListOf(
+        buildDefaultSetterValueParameter builder@{
+            this@builder.source = source?.fakeElement(FirFakeSourceElementKind.DefaultAccessor)
+            this@builder.moduleData = moduleData
+            this@builder.origin = origin
+            this@builder.returnTypeRef = propertyTypeRef
+            this@builder.symbol = FirValueParameterSymbol(Name.special("<default-setter-parameter>"))
+            this@builder.annotations += parameterAnnotations
+        }
+    ),
+    propertySymbol,
+    isGetter = false,
+    visibility = visibility,
+    modality = modality,
+    effectiveVisibility = effectiveVisibility,
+    symbol = symbol
+)

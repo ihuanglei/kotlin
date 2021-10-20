@@ -5,10 +5,16 @@
 
 package org.jetbrains.kotlin.fir.resolve.calls
 
+import org.jetbrains.kotlin.descriptors.Modality
+import org.jetbrains.kotlin.fir.FirSession
+import org.jetbrains.kotlin.fir.declarations.FirMemberDeclaration
+import org.jetbrains.kotlin.fir.declarations.utils.modality
 import org.jetbrains.kotlin.fir.render
+import org.jetbrains.kotlin.fir.resolve.inference.ConeTypeParameterBasedTypeVariable
+import org.jetbrains.kotlin.fir.resolve.inference.InferenceComponents
 import org.jetbrains.kotlin.fir.resolve.substitution.substitutorByMap
-import org.jetbrains.kotlin.fir.symbols.impl.FirTypeParameterSymbol
-import org.jetbrains.kotlin.fir.types.coneTypeUnsafe
+import org.jetbrains.kotlin.fir.symbols.ConeTypeParameterLookupTag
+import org.jetbrains.kotlin.fir.types.coneType
 import org.jetbrains.kotlin.resolve.calls.inference.model.NewConstraintSystemImpl
 import org.jetbrains.kotlin.resolve.calls.inference.model.SimpleConstraintSystemConstraintPosition
 import org.jetbrains.kotlin.resolve.calls.results.FlatSignature
@@ -18,7 +24,6 @@ import org.jetbrains.kotlin.types.model.KotlinTypeMarker
 import org.jetbrains.kotlin.types.model.TypeParameterMarker
 import org.jetbrains.kotlin.types.model.TypeSubstitutorMarker
 import org.jetbrains.kotlin.types.model.TypeSystemInferenceExtensionContext
-import org.jetbrains.kotlin.utils.addToStdlib.cast
 
 class ConeOverloadConflictResolver(
     specificityComparator: TypeSpecificityComparator,
@@ -27,12 +32,89 @@ class ConeOverloadConflictResolver(
 
     override fun chooseMaximallySpecificCandidates(
         candidates: Set<Candidate>,
-        discriminateGenerics: Boolean
+        discriminateGenerics: Boolean,
+        discriminateAbstracts: Boolean
+    ): Set<Candidate> {
+        if (candidates.size == 1) return candidates
+        val fixedCandidates =
+            if (candidates.first().callInfo.candidateForCommonInvokeReceiver != null)
+                chooseCandidatesWithMostSpecificInvokeReceiver(candidates)
+            else
+                candidates
+
+        return chooseMaximallySpecificCandidates(
+            fixedCandidates, discriminateGenerics, discriminateAbstracts, discriminateSAMs = true, discriminateSuspendConversions = true
+        )
+    }
+
+    private fun chooseCandidatesWithMostSpecificInvokeReceiver(candidates: Set<Candidate>): Set<Candidate> {
+        val propertyReceiverCandidates = candidates.mapTo(mutableSetOf()) {
+            it.callInfo.candidateForCommonInvokeReceiver
+                ?: error("If one candidate within a group is property+invoke, other should be the same, but $it found")
+        }
+
+        val bestInvokeReceiver =
+            chooseMaximallySpecificCandidates(propertyReceiverCandidates, discriminateGenerics = false)
+                .singleOrNull() ?: return candidates
+
+        return candidates.filterTo(mutableSetOf()) { it.callInfo.candidateForCommonInvokeReceiver == bestInvokeReceiver }
+    }
+
+    private fun chooseMaximallySpecificCandidates(
+        candidates: Set<Candidate>,
+        discriminateGenerics: Boolean,
+        discriminateAbstracts: Boolean,
+        discriminateSAMs: Boolean,
+        discriminateSuspendConversions: Boolean,
     ): Set<Candidate> {
         findMaximallySpecificCall(candidates, false)?.let { return setOf(it) }
 
         if (discriminateGenerics) {
             findMaximallySpecificCall(candidates, true)?.let { return setOf(it) }
+        }
+
+        if (discriminateSAMs) {
+            val filtered = candidates.filterTo(mutableSetOf()) { !it.usesSAM }
+            when (filtered.size) {
+                1 -> return filtered
+                0, candidates.size -> {
+                }
+                else -> return chooseMaximallySpecificCandidates(
+                    filtered, discriminateGenerics, discriminateAbstracts, discriminateSAMs = false, discriminateSuspendConversions
+                )
+            }
+        }
+
+        if (discriminateSuspendConversions) {
+            val filtered = candidates.filterTo(mutableSetOf()) { !it.usesSuspendConversion }
+            when (filtered.size) {
+                1 -> return filtered
+                0, candidates.size -> {
+                }
+                else -> return chooseMaximallySpecificCandidates(
+                    filtered,
+                    discriminateGenerics,
+                    discriminateAbstracts,
+                    discriminateSAMs = false,
+                    discriminateSuspendConversions = false
+                )
+            }
+        }
+
+        if (discriminateAbstracts) {
+            val filtered = candidates.filterTo(mutableSetOf()) { (it.symbol.fir as? FirMemberDeclaration)?.modality != Modality.ABSTRACT }
+            when (filtered.size) {
+                1 -> return filtered
+                0, candidates.size -> {
+                }
+                else -> return chooseMaximallySpecificCandidates(
+                    filtered,
+                    discriminateGenerics,
+                    discriminateAbstracts = false,
+                    discriminateSAMs = false,
+                    discriminateSuspendConversions = false
+                )
+            }
         }
 
         return candidates
@@ -113,25 +195,24 @@ class ConeOverloadConflictResolver(
     }
 }
 
-object NoSubstitutor : TypeSubstitutorMarker
-
-class ConeSimpleConstraintSystemImpl(val system: NewConstraintSystemImpl) : SimpleConstraintSystem {
+class ConeSimpleConstraintSystemImpl(val system: NewConstraintSystemImpl, val session: FirSession) : SimpleConstraintSystem {
     override fun registerTypeVariables(typeParameters: Collection<TypeParameterMarker>): TypeSubstitutorMarker = with(context) {
         val csBuilder = system.getBuilder()
-        val substitutionMap = typeParameters.associateWith {
-            require(it is FirTypeParameterSymbol)
-            val variable = TypeParameterBasedTypeVariable(it)
+        val substitutionMap = typeParameters.associateBy({ (it as ConeTypeParameterLookupTag).typeParameterSymbol }) {
+            require(it is ConeTypeParameterLookupTag)
+            val variable = ConeTypeParameterBasedTypeVariable(it.typeParameterSymbol)
             csBuilder.registerVariable(variable)
 
             variable.defaultType
         }
-        val substitutor = substitutorByMap(substitutionMap.cast())
+        val substitutor = substitutorByMap(substitutionMap, session)
         for (typeParameter in typeParameters) {
-            require(typeParameter is FirTypeParameterSymbol)
-            for (upperBound in typeParameter.fir.bounds) {
+            require(typeParameter is ConeTypeParameterLookupTag)
+            for (upperBound in typeParameter.symbol.fir.bounds) {
                 addSubtypeConstraint(
-                    substitutionMap[typeParameter] ?: error("No ${typeParameter.fir.render()} in substitution map"),
-                    substitutor.substituteOrSelf(upperBound.coneTypeUnsafe())
+                    substitutionMap[typeParameter.typeParameterSymbol]
+                        ?: error("No ${typeParameter.symbol.fir.render()} in substitution map"),
+                    substitutor.substituteOrSelf(upperBound.coneType)
                 )
             }
         }

@@ -5,35 +5,53 @@
 
 package org.jetbrains.kotlin.fir.resolve.calls
 
+import org.jetbrains.kotlin.fir.PrivateForInline
+import org.jetbrains.kotlin.resolve.calls.tower.CandidateApplicability
+import org.jetbrains.kotlin.resolve.calls.tower.isSuccess
 import kotlin.coroutines.Continuation
 
-interface CheckerSink {
-    fun reportApplicability(new: CandidateApplicability)
-    suspend fun yield()
-    suspend fun yieldApplicability(new: CandidateApplicability) {
-        reportApplicability(new)
-        yield()
-    }
+abstract class CheckerSink {
+    abstract fun reportDiagnostic(diagnostic: ResolutionDiagnostic)
 
-    val components: InferenceComponents
+    abstract val needYielding: Boolean
 
-    suspend fun yieldIfNeed()
+    @PrivateForInline
+    abstract suspend fun yield()
 }
 
-class CheckerSinkImpl(override val components: InferenceComponents, var continuation: Continuation<Unit>? = null) : CheckerSink {
-    var current = CandidateApplicability.RESOLVED
-    override fun reportApplicability(new: CandidateApplicability) {
-        if (new < current) current = new
+@OptIn(PrivateForInline::class)
+suspend inline fun CheckerSink.yieldIfNeed() {
+    if (needYielding) {
+        yield()
+    }
+}
+
+suspend inline fun CheckerSink.yieldDiagnostic(diagnostic: ResolutionDiagnostic) {
+    reportDiagnostic(diagnostic)
+    yieldIfNeed()
+}
+
+class CheckerSinkImpl(
+    private val candidate: Candidate,
+    var continuation: Continuation<Unit>? = null,
+    val stopOnFirstError: Boolean = true,
+) : CheckerSink() {
+    override fun reportDiagnostic(diagnostic: ResolutionDiagnostic) {
+        candidate.addDiagnostic(diagnostic)
     }
 
+    @PrivateForInline
     override suspend fun yield() = kotlin.coroutines.intrinsics.suspendCoroutineUninterceptedOrReturn<Unit> {
         continuation = it
         kotlin.coroutines.intrinsics.COROUTINE_SUSPENDED
     }
 
-    override suspend fun yieldIfNeed() {
-        if (current < CandidateApplicability.SYNTHETIC_RESOLVED) {
-            yield()
-        }
+    override val needYielding: Boolean
+        get() = stopOnFirstError && !candidate.isSuccessful
+}
+
+fun CheckerSink.reportDiagnosticIfNotNull(diagnostic: ResolutionDiagnostic?) {
+    if (diagnostic != null) {
+        reportDiagnostic(diagnostic)
     }
 }

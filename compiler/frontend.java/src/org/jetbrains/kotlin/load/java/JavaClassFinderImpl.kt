@@ -17,14 +17,21 @@
 package org.jetbrains.kotlin.load.java
 
 import com.intellij.openapi.project.Project
+import com.intellij.psi.search.GlobalSearchScope
 import org.jetbrains.kotlin.load.java.structure.JavaClass
+import org.jetbrains.kotlin.load.java.structure.JavaPackage
 import org.jetbrains.kotlin.load.java.structure.impl.JavaPackageImpl
 import org.jetbrains.kotlin.name.FqName
 import org.jetbrains.kotlin.resolve.jvm.KotlinJavaPsiFacade
 import javax.inject.Inject
 
-class JavaClassFinderImpl : AbstractJavaClassFinder() {
+fun Project.createJavaClassFinder(scope: GlobalSearchScope): JavaClassFinder =
+    JavaClassFinderImpl().apply {
+        setProjectInstance(this@createJavaClassFinder)
+        setScope(scope)
+    }
 
+class JavaClassFinderImpl : AbstractJavaClassFinder() {
     private lateinit var javaFacade: KotlinJavaPsiFacade
 
     @Inject
@@ -33,11 +40,16 @@ class JavaClassFinderImpl : AbstractJavaClassFinder() {
         javaFacade = KotlinJavaPsiFacade.getInstance(project)
     }
 
-    override fun findClass(request: JavaClassFinder.Request): JavaClass? = javaFacade.findClass(request, javaSearchScope)
+    override fun findClass(request: JavaClassFinder.Request): JavaClass? {
+        return javaFacade.findClass(request, javaSearchScope)
+    }
 
-    override fun findPackage(fqName: FqName) =
-        javaFacade.findPackage(fqName.asString(), javaSearchScope)?.let { JavaPackageImpl(it, javaSearchScope) }
+    override fun findPackage(fqName: FqName, mayHaveAnnotations: Boolean): JavaPackage? {
+        return javaFacade.findPackage(fqName.asString(), javaSearchScope)?.let { JavaPackageImpl(it, javaSearchScope, mayHaveAnnotations) }
+    }
 
-    override fun knownClassNamesInPackage(packageFqName: FqName): Set<String>? = javaFacade.knownClassNamesInPackage(packageFqName)
+    override fun knownClassNamesInPackage(packageFqName: FqName): Set<String>? {
+        return javaFacade.knownClassNamesInPackage(packageFqName, javaSearchScope)
+    }
 
 }

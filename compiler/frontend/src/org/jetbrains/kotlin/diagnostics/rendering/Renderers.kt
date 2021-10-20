@@ -23,13 +23,12 @@ import com.intellij.psi.PsiElement
 import org.jetbrains.kotlin.analyzer.moduleInfo
 import org.jetbrains.kotlin.analyzer.unwrapPlatform
 import org.jetbrains.kotlin.builtins.KotlinBuiltIns
-import org.jetbrains.kotlin.cfg.WhenMissingCase
-import org.jetbrains.kotlin.cfg.hasUnknown
 import org.jetbrains.kotlin.descriptors.*
 import org.jetbrains.kotlin.descriptors.impl.TypeAliasConstructorDescriptor
+import org.jetbrains.kotlin.diagnostics.WhenMissingCase
 import org.jetbrains.kotlin.diagnostics.rendering.TabledDescriptorRenderer.newTable
 import org.jetbrains.kotlin.diagnostics.rendering.TabledDescriptorRenderer.newText
-import org.jetbrains.kotlin.name.FqName
+import org.jetbrains.kotlin.name.FqNameUnsafe
 import org.jetbrains.kotlin.name.Name
 import org.jetbrains.kotlin.platform.isCommon
 import org.jetbrains.kotlin.psi.*
@@ -68,16 +67,6 @@ object Renderers {
     }
 
     @JvmField
-    val STRING = Renderer<String> { it }
-
-    @JvmField
-    val THROWABLE = Renderer<Throwable> {
-        val writer = StringWriter()
-        it.printStackTrace(PrintWriter(writer))
-        StringUtil.first(writer.toString(), 2048, true)
-    }
-
-    @JvmField
     val NAME = Renderer<Named> { it.name.asString() }
 
     @JvmField
@@ -95,7 +84,7 @@ object Renderers {
     }
     
     @JvmField
-    val VISIBILITY = Renderer<Visibility> {
+    val VISIBILITY = Renderer<DescriptorVisibility> {
         it.externalDisplayName
     }
 
@@ -124,13 +113,13 @@ object Renderers {
         else
             declarationWithNameAndKind
 
-        withPlatform.capitalize()
+        withPlatform.replaceFirstChar(Char::uppercaseChar)
     }
 
 
     @JvmField
     val NAME_OF_CONTAINING_DECLARATION_OR_FILE = Renderer<DeclarationDescriptor> {
-        if (DescriptorUtils.isTopLevelDeclaration(it) && it is DeclarationDescriptorWithVisibility && it.visibility == Visibilities.PRIVATE) {
+        if (DescriptorUtils.isTopLevelDeclaration(it) && it is DeclarationDescriptorWithVisibility && it.visibility == DescriptorVisibilities.PRIVATE) {
             "file"
         } else {
             val containingDeclaration = it.containingDeclaration
@@ -179,18 +168,14 @@ object Renderers {
     }
 
     @JvmField
-    val RENDER_POSITION_VARIANCE = Renderer { variance: Variance ->
-        when (variance) {
-            Variance.INVARIANT -> "invariant"
-            Variance.IN_VARIANCE -> "in"
-            Variance.OUT_VARIANCE -> "out"
-        }
-    }
-
-    @JvmField
     val AMBIGUOUS_CALLS = Renderer { calls: Collection<ResolvedCall<*>> ->
         val descriptors = calls.map { it.resultingDescriptor }
         renderAmbiguousDescriptors(descriptors)
+    }
+
+    @JvmField
+    val COMPATIBILITY_CANDIDATE = Renderer { call: CallableDescriptor ->
+        renderAmbiguousDescriptors(listOf(call))
     }
 
     @JvmField
@@ -205,20 +190,6 @@ object Renderers {
             .joinToString(separator = "\n", prefix = "\n") {
                 FQ_NAMES_IN_TYPES.render(it, context)
             }
-    }
-
-    @JvmStatic
-    fun <T> commaSeparated(itemRenderer: DiagnosticParameterRenderer<T>) = ContextDependentRenderer<Collection<T>> { collection, context ->
-        buildString {
-            val iterator = collection.iterator()
-            while (iterator.hasNext()) {
-                val next = iterator.next()
-                append(itemRenderer.render(next, context))
-                if (iterator.hasNext()) {
-                    append(", ")
-                }
-            }
-        }
     }
 
     @JvmField
@@ -688,9 +659,12 @@ object Renderers {
 
     private val WHEN_MISSING_LIMIT = 7
 
+    private val List<WhenMissingCase>.assumesElseBranchOnly: Boolean
+        get() = any { it == WhenMissingCase.Unknown || it is WhenMissingCase.ConditionTypeIsExpect }
+
     @JvmField
     val RENDER_WHEN_MISSING_CASES = Renderer<List<WhenMissingCase>> {
-        if (!it.hasUnknown) {
+        if (!it.assumesElseBranchOnly) {
             val list = it.joinToString(", ", limit = WHEN_MISSING_LIMIT) { "'$it'" }
             val branches = if (it.size > 1) "branches" else "branch"
             "$list $branches or 'else' branch instead"
@@ -735,6 +709,12 @@ object Renderers {
 
         return typesAsString.sorted().joinToString(separator = " & ")
     }
+
+    fun renderCallInfo(fqName: FqNameUnsafe?, typeCall: String) =
+        buildString {
+            append("fqName: ${fqName?.asString() ?: "fqName is unknown"}; ")
+            append("typeCall: $typeCall")
+        }
 }
 
 fun DescriptorRenderer.asRenderer() = SmartDescriptorRenderer(this)

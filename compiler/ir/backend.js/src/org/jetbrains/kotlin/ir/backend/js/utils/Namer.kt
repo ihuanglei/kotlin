@@ -5,7 +5,6 @@
 
 package org.jetbrains.kotlin.ir.backend.js.utils
 
-import org.jetbrains.kotlin.idea.KotlinLanguage
 import org.jetbrains.kotlin.js.backend.ast.JsNameRef
 
 object Namer {
@@ -24,8 +23,6 @@ object Namer {
     val PROTOTYPE_NAME = "prototype"
     val CONSTRUCTOR_NAME = "constructor"
 
-    val CONTINUATION = "\$cont"
-
     val JS_ERROR = JsNameRef("Error")
 
     val JS_OBJECT = JsNameRef("Object")
@@ -42,4 +39,7 @@ object Namer {
     val KPROPERTY_GET = "get"
     val KPROPERTY_SET = "set"
     val KCALLABLE_CACHE_SUFFIX = "\$cache"
+    const val KCALLABLE_ARITY = "\$arity"
+
+    const val SHARED_BOX_V = "_v"
 }

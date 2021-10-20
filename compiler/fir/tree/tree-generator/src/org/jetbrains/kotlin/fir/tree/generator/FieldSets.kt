@@ -5,7 +5,7 @@
 
 package org.jetbrains.kotlin.fir.tree.generator
 
-import org.jetbrains.kotlin.fir.tree.generator.FirTreeBuilder.annotationCall
+import org.jetbrains.kotlin.fir.tree.generator.FirTreeBuilder.annotation
 import org.jetbrains.kotlin.fir.tree.generator.FirTreeBuilder.block
 import org.jetbrains.kotlin.fir.tree.generator.FirTreeBuilder.controlFlowGraphReference
 import org.jetbrains.kotlin.fir.tree.generator.FirTreeBuilder.declaration
@@ -13,6 +13,7 @@ import org.jetbrains.kotlin.fir.tree.generator.FirTreeBuilder.declarationStatus
 import org.jetbrains.kotlin.fir.tree.generator.FirTreeBuilder.expression
 import org.jetbrains.kotlin.fir.tree.generator.FirTreeBuilder.reference
 import org.jetbrains.kotlin.fir.tree.generator.FirTreeBuilder.typeParameter
+import org.jetbrains.kotlin.fir.tree.generator.FirTreeBuilder.typeParameterRef
 import org.jetbrains.kotlin.fir.tree.generator.FirTreeBuilder.typeProjection
 import org.jetbrains.kotlin.fir.tree.generator.FirTreeBuilder.typeRef
 import org.jetbrains.kotlin.fir.tree.generator.FirTreeBuilder.valueParameter
@@ -20,24 +21,23 @@ import org.jetbrains.kotlin.fir.tree.generator.context.type
 import org.jetbrains.kotlin.fir.tree.generator.model.*
 
 object FieldSets {
-    val calleeReference = field("calleeReference", reference)
+    val calleeReference by lazy { field("calleeReference", reference, withReplace = true) }
 
-    val receivers = fieldSet(
-        field("explicitReceiver", expression, nullable = true).withTransform(),
-        field("dispatchReceiver", expression).withTransform(),
-        field("extensionReceiver", expression).withTransform()
-    )
+    val receivers by lazy {
+        fieldSet(
+            field("explicitReceiver", expression, nullable = true, withReplace = true).withTransform(),
+            field("dispatchReceiver", expression).withTransform(),
+            field("extensionReceiver", expression).withTransform()
+        )
+    }
 
-    val typeArguments =
-        fieldList("typeArguments", typeProjection)
+    val typeArguments by lazy { fieldList("typeArguments", typeProjection, withReplace = true) }
 
-    val arguments =
-        fieldList("arguments", expression)
+    val arguments by lazy { fieldList("arguments", expression) }
 
-    val declarations = fieldList(declaration)
+    val declarations by lazy { fieldList(declaration.withArgs("E" to "*")) }
 
-    val annotations =
-        fieldList("annotations", annotationCall)
+    val annotations by lazy { fieldList("annotations", annotation).withTransform(needTransformInOtherChildren = true) }
 
     fun symbolWithPackage(packageName: String?, symbolClassName: String, argument: String? = null): Field {
         return field("symbol", type(packageName, symbolClassName), argument)
@@ -46,34 +46,40 @@ object FieldSets {
     fun symbol(symbolClassName: String, argument: String? = null): Field =
         symbolWithPackage("fir.symbols.impl", symbolClassName, argument)
 
-    fun body(nullable: Boolean = false) =
-        field("body", block, nullable)
+    fun body(nullable: Boolean = false, withReplace: Boolean = false) =
+        field("body", block, nullable, withReplace = withReplace)
 
-    val returnTypeRef =
-        field("returnTypeRef", typeRef)
+    val returnTypeRef =field("returnTypeRef", typeRef)
 
-    val typeRefField =
-        field(typeRef, withReplace = true)
+    val typeRefField = field(typeRef, withReplace = true)
 
     fun receiverTypeRef(nullable: Boolean = false) = field("receiverTypeRef", typeRef, nullable)
 
-    val valueParameters = fieldList(valueParameter)
+    val valueParameters by lazy { fieldList(valueParameter) }
 
-    val typeParameters = fieldList(typeParameter)
+    val typeParameters by lazy { fieldList("typeParameters", typeParameter) }
 
-    val name = field(nameType)
+    val typeParameterRefs by lazy { fieldList("typeParameters", typeParameterRef) }
 
-    val initializer = field("initializer", expression, nullable = true)
+    val name by lazy { field(nameType) }
+
+    val initializer by lazy { field("initializer", expression, nullable = true) }
 
     fun superTypeRefs(withReplace: Boolean = false) = fieldList("superTypeRefs", typeRef, withReplace)
 
-    val classKind = field(classKindType)
+    val classKind by lazy { field(classKindType) }
 
-    val status = field("status", declarationStatus)
+    val status by lazy { field("status", declarationStatus) }
 
-    val controlFlowGraphReferenceField = field("controlFlowGraphReference", controlFlowGraphReference)
+    val controlFlowGraphReferenceField by lazy { field("controlFlowGraphReference", controlFlowGraphReference, withReplace = true, nullable = true) }
 
-    val visibility = field(visibilityType)
+    val visibility by lazy { field(visibilityType) }
 
-    val modality = field(modalityType, nullable = true)
+    val effectiveVisibility by lazy { field("effectiveVisibility", effectiveVisibilityType) }
+
+    val modality by lazy { field(modalityType, nullable = true) }
+
+    val scopeProvider by lazy { field("scopeProvider", firScopeProviderType) }
+
+    val smartcastStability by lazy { field(smartcastStabilityType) }
 }

@@ -161,6 +161,7 @@ message Type {
 
   /*
     suspend
+    definitelyNonNull
    */
   optional int32 flags = 1;
 
@@ -209,6 +210,7 @@ message Class {
     isExternal
     isExpect
     isInline
+    isFun
   */
   optional int32 flags = 1 [default = 6 /* public final class, no annotations */];
 
@@ -231,6 +233,11 @@ message Class {
   repeated EnumEntry enum_entry = 13;
 
   repeated int32 sealed_subclass_fq_name = 16 [packed = true, (fq_name_id_in_table) = true];
+
+  optional int32 inline_class_underlying_property_name = 17 [(name_id_in_table) = true];
+
+  optional Type inline_class_underlying_type = 18;
+  optional int32 inline_class_underlying_type_id = 19 [(type_id_in_table) = true];
 
   optional TypeTable type_table = 30;
 
@@ -269,6 +276,7 @@ message Constructor {
     hasAnnotations
     Visibility
     isSecondary
+    hasNonStableParameterNames
   */
   optional int32 flags = 1 [default = 6 /* public constructor, no annotations */];
 
@@ -293,6 +301,7 @@ message Function {
     isExternal
     isSuspend
     isExpect
+    hasNonStableParameterNames
   */
   optional int32 flags = 9 [default = 6 /* public final function, no annotations */];
   optional int32 old_flags = 1 [default = 6];

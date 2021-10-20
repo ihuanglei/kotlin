@@ -13,7 +13,7 @@
 
 // TESTCASE NUMBER: 1
 fun case_1(x: Nothing?) {
-    if (<!DEBUG_INFO_CONSTANT!>x<!> is Int) {
+    if (<!USELESS_IS_CHECK!><!DEBUG_INFO_CONSTANT!>x<!> is Int<!>) {
         <!DEBUG_INFO_CONSTANT, DEBUG_INFO_EXPRESSION_TYPE("kotlin.Nothing?")!>x<!>
         <!DEBUG_INFO_EXPRESSION_TYPE("kotlin.Nothing?"), SMARTCAST_IMPOSSIBLE!>x<!>.inv()
     }
@@ -23,13 +23,13 @@ fun case_1(x: Nothing?) {
 fun case_2(x: Nothing) {
     if (<!USELESS_IS_CHECK!>x <!UNREACHABLE_CODE!>is Unit<!><!>) <!UNREACHABLE_CODE!>{
         <!DEBUG_INFO_EXPRESSION_TYPE("kotlin.Nothing")!>x<!>
-        <!DEBUG_INFO_EXPRESSION_TYPE("kotlin.Nothing")!>x<!>.<!MISSING_DEPENDENCY_CLASS, MISSING_DEPENDENCY_CLASS!>inv<!>()
+        <!DEBUG_INFO_EXPRESSION_TYPE("kotlin.Nothing")!>x<!>.<!MISSING_DEPENDENCY_CLASS!>inv<!>()
     }<!>
 }
 
 // TESTCASE NUMBER: 3
 fun case_3(x: Nothing?) {
-    if (<!DEBUG_INFO_CONSTANT!>x<!> !is Class) else {
+    if (<!USELESS_IS_CHECK!><!DEBUG_INFO_CONSTANT!>x<!> !is Class<!>) else {
         <!DEBUG_INFO_CONSTANT, DEBUG_INFO_EXPRESSION_TYPE("kotlin.Nothing?")!>x<!>
         <!DEBUG_INFO_EXPRESSION_TYPE("kotlin.Nothing?"), SMARTCAST_IMPOSSIBLE!>x<!>.prop_1
     }
@@ -53,7 +53,7 @@ fun case_5(x: Nothing?) {
 
 // TESTCASE NUMBER: 6
 fun case_6(x: Nothing?) {
-    if (!(<!DEBUG_INFO_CONSTANT!>x<!> !is Object)) {
+    if (!(<!USELESS_IS_CHECK!><!DEBUG_INFO_CONSTANT!>x<!> !is Object<!>)) {
         <!DEBUG_INFO_CONSTANT, DEBUG_INFO_EXPRESSION_TYPE("kotlin.Nothing?")!>x<!>
         <!DEBUG_INFO_EXPRESSION_TYPE("kotlin.Nothing?"), SMARTCAST_IMPOSSIBLE!>x<!>.prop_1
     }
@@ -71,7 +71,7 @@ fun case_7(x: Nothing) {
 fun case_8(x: Nothing?) {
     if (!(<!USELESS_IS_CHECK!><!DEBUG_INFO_CONSTANT!>x<!> is Int?<!>)) else {
         <!DEBUG_INFO_CONSTANT, DEBUG_INFO_EXPRESSION_TYPE("kotlin.Nothing?")!>x<!>
-        <!DEBUG_INFO_CONSTANT, DEBUG_INFO_EXPRESSION_TYPE("kotlin.Nothing?")!>x<!>?.<!MISSING_DEPENDENCY_CLASS, MISSING_DEPENDENCY_CLASS!>inv<!>()
+        <!DEBUG_INFO_CONSTANT, DEBUG_INFO_EXPRESSION_TYPE("kotlin.Nothing?")!>x<!>?.<!MISSING_DEPENDENCY_CLASS!>inv<!>()
     }
 }
 
@@ -85,7 +85,7 @@ fun case_9(x: Nothing?) {
 
 // TESTCASE NUMBER: 10
 fun case_10(x: Nothing?) {
-    if (!!(<!DEBUG_INFO_CONSTANT!>x<!> !is Interface3)) else {
+    if (!!(<!USELESS_IS_CHECK!><!DEBUG_INFO_CONSTANT!>x<!> !is Interface3<!>)) else {
         <!DEBUG_INFO_CONSTANT, DEBUG_INFO_EXPRESSION_TYPE("kotlin.Nothing?")!>x<!>
         <!DEBUG_INFO_EXPRESSION_TYPE("kotlin.Nothing?"), SMARTCAST_IMPOSSIBLE!>x<!>.itest()
         <!DEBUG_INFO_EXPRESSION_TYPE("kotlin.Nothing?"), SMARTCAST_IMPOSSIBLE!>x<!>.itest3()

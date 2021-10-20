@@ -1,7 +1,8 @@
-// !LANGUAGE: +InlineClasses
-// IGNORE_BACKEND_FIR: JVM_IR
+// WITH_RUNTIME
 
-inline class Direction(private val direction: Int) {
+@Suppress("OPTIONAL_DECLARATION_USAGE_IN_NON_COMMON_SOURCE")
+@kotlin.jvm.JvmInline
+value class Direction(private val direction: Int) {
     fun dx() = dx[direction]
     fun dy() = dy[direction]
 

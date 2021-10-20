@@ -1,3 +1,1 @@
-annotation class Outer {
-    class Nested
-}
+interface A : suspend () -> Unit

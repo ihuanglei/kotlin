@@ -11,8 +11,14 @@ import org.jetbrains.kotlin.ir.IrElement
 import org.jetbrains.kotlin.ir.builders.IrBuilderWithScope
 import org.jetbrains.kotlin.ir.builders.irCall
 import org.jetbrains.kotlin.ir.builders.irString
+import org.jetbrains.kotlin.ir.declarations.IrDeclarationOrigin
 import org.jetbrains.kotlin.ir.declarations.IrFile
+import org.jetbrains.kotlin.ir.expressions.IrCall
 import org.jetbrains.kotlin.ir.expressions.IrExpression
+import org.jetbrains.kotlin.ir.expressions.IrStatementOrigin
+import org.jetbrains.kotlin.ir.symbols.IrClassSymbol
+import org.jetbrains.kotlin.ir.symbols.IrFileSymbol
+import org.jetbrains.kotlin.ir.symbols.IrSimpleFunctionSymbol
 
 interface LoggingContext {
     var inVerbosePhase: Boolean
@@ -28,9 +34,37 @@ interface CommonBackendContext : BackendContext, LoggingContext {
     val scriptMode: Boolean
 
     fun throwUninitializedPropertyAccessException(builder: IrBuilderWithScope, name: String): IrExpression {
-        val throwErrorFunction = ir.symbols.ThrowUninitializedPropertyAccessException.owner
+        val throwErrorFunction = ir.symbols.throwUninitializedPropertyAccessException.owner
         return builder.irCall(throwErrorFunction).apply {
             putValueArgument(0, builder.irString(name))
         }
     }
+
+    val mapping: Mapping
+
+    // Adjust internal structures after a deep copy of some declarations.
+    fun handleDeepCopy(
+        fileSymbolMap: MutableMap<IrFileSymbol, IrFileSymbol>,
+        classSymbolMap: MutableMap<IrClassSymbol, IrClassSymbol>,
+        functionSymbolMap: MutableMap<IrSimpleFunctionSymbol, IrSimpleFunctionSymbol>
+    ) {}
+
+    fun isSideEffectFree(call: IrCall): Boolean {
+        return false
+    }
+
+    val preferJavaLikeCounterLoop: Boolean
+        get() = false
+
+    val doWhileCounterLoopOrigin: IrStatementOrigin?
+        get() = null
+
+    val inductionVariableOrigin: IrDeclarationOrigin
+        get() = IrDeclarationOrigin.IR_TEMPORARY_VARIABLE
+
+    val optimizeLoopsOverUnsignedArrays: Boolean
+        get() = false
+
+    val optimizeNullChecksUsingKotlinNullability: Boolean
+        get() = true
 }

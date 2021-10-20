@@ -1,6 +1,7 @@
-// IGNORE_BACKEND_FIR: JVM_IR
-// KJS_WITH_FULL_RUNTIME
 // WITH_RUNTIME
+
+// IGNORE_BACKEND: WASM
+// WASM_MUTE_REASON: REFLECTION
 
 fun box(): String {
     lateinit var str: String

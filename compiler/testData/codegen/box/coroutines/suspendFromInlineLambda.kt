@@ -1,10 +1,8 @@
-// IGNORE_BACKEND_FIR: JVM_IR
 // WITH_RUNTIME
 // WITH_COROUTINES
-// COMMON_COROUTINES_TEST
 import helpers.*
-import COROUTINES_PACKAGE.*
-import COROUTINES_PACKAGE.intrinsics.*
+import kotlin.coroutines.*
+import kotlin.coroutines.intrinsics.*
 
 class Controller {
     suspend fun suspendHere(v: Int): Int = suspendCoroutineUninterceptedOrReturn { x ->
@@ -28,13 +26,12 @@ fun box(): String {
 
     builder {
         result += "-"
-        foo {
-            result += suspendHere(it).toString()
-        }
+        foo { result += suspendHere(it).toString() }
+        foo(fun(it: Int) { result += suspendHere(it).toString() })
         result += "+"
     }
 
-    if (result != "-24+") return "fail: $result"
+    if (result != "-2424+") return "fail: $result"
 
     return "OK"
 }

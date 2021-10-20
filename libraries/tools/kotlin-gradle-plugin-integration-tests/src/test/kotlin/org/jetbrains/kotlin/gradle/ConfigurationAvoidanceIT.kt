@@ -5,27 +5,85 @@
 
 package org.jetbrains.kotlin.gradle
 
-import org.junit.Test
+import org.gradle.util.GradleVersion
+import org.jetbrains.kotlin.gradle.testbase.*
+import org.junit.jupiter.api.DisplayName
 
-class ConfigurationAvoidanceIT : BaseGradleIT() {
+@DisplayName("Tasks configuration avoidance")
+@SimpleGradlePluginTests
+class ConfigurationAvoidanceIT : KGPBaseTest() {
 
-    @Test
-    fun testUnrelatedTaskNotConfigured() = with(Project("simpleProject", GradleVersionRequired.AtLeast("4.10.2"))) {
-        setupWorkingDir()
+    @DisplayName("Unrelated tasks are not configured")
+    @GradleTest
+    fun testUnrelatedTaskNotConfigured(gradleVersion: GradleVersion) {
+        project("simpleProject", gradleVersion) {
 
-        val expensivelyConfiguredTaskName = "expensivelyConfiguredTask"
-        val triggeredExpensiveConfigurationText = "Triggered expensive configuration!"
+            val expensivelyConfiguredTaskName = "expensivelyConfiguredTask"
 
-        gradleBuildScript().appendText("\n" + """
-            tasks.register("$expensivelyConfiguredTaskName") {
-                println("$triggeredExpensiveConfigurationText")
-            }
-        """.trimIndent())
+            @Suppress("GroovyAssignabilityCheck")
+            buildGradle.append(
+                //language=Groovy
+                """
+                    
+                tasks.register("$expensivelyConfiguredTaskName") {
+                    throw new GradleException("Should not configure expensive task!")
+                }
+                """.trimIndent()
+            )
 
-        build("compileKotlin") {
-            assertSuccessful()
-            assertNotContains(triggeredExpensiveConfigurationText)
+            build("compileKotlin")
         }
     }
 
+    @DisplayName("Android tasks are not configured")
+    @GradleTestVersions(minVersion = "6.7.1")
+    @GradleTest
+    fun testAndroidUnrelatedTaskNotConfigured(gradleVersion: GradleVersion) {
+        project(
+            "AndroidProject",
+            gradleVersion
+        ) {
+
+            listOf("Android", "Test").forEach { subproject ->
+                subProject(subproject)
+                    .buildGradle
+                    .append(
+                        //language=Groovy
+                        """
+                        
+                        android {
+                            applicationVariants.all {
+                                it.getAidlCompileProvider().configure {
+                                    throw new RuntimeException("Task should not be configured.")
+                                }
+                            }
+                        }
+                        """.trimIndent()
+                    )
+            }
+
+            subProject("Lib")
+                .buildGradle
+                .append(
+                    //language=Groovy
+                    """
+                    
+                    android {
+                        libraryVariants.all {
+                            it.getAidlCompileProvider().configure {
+                                throw new RuntimeException("Task should not be configured.")
+                            }
+                        }
+                    }
+                    """.trimIndent()
+                )
+
+            build(
+                "help",
+                buildOptions = defaultBuildOptions.copy(
+                    androidVersion = TestVersions.AGP.AGP_42
+                )
+            )
+        }
+    }
 }

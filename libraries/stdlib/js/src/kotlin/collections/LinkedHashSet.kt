@@ -38,10 +38,17 @@ public actual open class LinkedHashSet<E> : HashSet<E>, MutableSet<E> {
      *
      * @throws IllegalArgumentException if the initial capacity or load factor are negative
      */
-    @Suppress("ACTUAL_FUNCTION_WITH_DEFAULT_ARGUMENTS")
-    actual constructor(initialCapacity: Int, loadFactor: Float = 0.0f) : super(LinkedHashMap<E, Any>(initialCapacity, loadFactor))
+    actual constructor(initialCapacity: Int, loadFactor: Float) : super(LinkedHashMap<E, Any>(initialCapacity, loadFactor))
 
     actual constructor(initialCapacity: Int) : this(initialCapacity, 0.0f)
+
+    @PublishedApi
+    internal fun build(): Set<E> {
+        (map as LinkedHashMap<E, Any>).build()
+        return this
+    }
+
+    internal override fun checkIsMutable(): Unit = map.checkIsMutable()
 
 //    public override fun clone(): Any {
 //        return LinkedHashSet(this)

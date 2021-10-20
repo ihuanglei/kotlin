@@ -1,27 +1,23 @@
 package org.jetbrains.kotlin.backend.common.serialization.metadata.impl
 
 import org.jetbrains.kotlin.backend.common.serialization.metadata.KlibMetadataDeserializedPackageFragmentsFactory
-import org.jetbrains.kotlin.descriptors.*
-import org.jetbrains.kotlin.descriptors.impl.ClassDescriptorImpl
+import org.jetbrains.kotlin.descriptors.ClassifierDescriptor
+import org.jetbrains.kotlin.descriptors.ModuleDescriptor
+import org.jetbrains.kotlin.descriptors.PackageFragmentDescriptor
 import org.jetbrains.kotlin.descriptors.impl.PackageFragmentDescriptorImpl
 import org.jetbrains.kotlin.incremental.components.LookupLocation
-import org.jetbrains.kotlin.incremental.components.NoLookupLocation
-import org.jetbrains.kotlin.library.*
-import org.jetbrains.kotlin.library.metadata.KlibMetadataCachedPackageFragment
-import org.jetbrains.kotlin.library.metadata.KlibMetadataDeserializedPackageFragment
-import org.jetbrains.kotlin.library.metadata.KlibMetadataPackageFragment
-import org.jetbrains.kotlin.library.metadata.PackageAccessHandler
+import org.jetbrains.kotlin.library.KotlinLibrary
+import org.jetbrains.kotlin.library.exportForwardDeclarations
+import org.jetbrains.kotlin.library.isInterop
+import org.jetbrains.kotlin.library.metadata.*
+import org.jetbrains.kotlin.library.packageFqName
 import org.jetbrains.kotlin.name.FqName
 import org.jetbrains.kotlin.name.Name
-import org.jetbrains.kotlin.resolve.descriptorUtil.builtIns
 import org.jetbrains.kotlin.resolve.scopes.MemberScope
 import org.jetbrains.kotlin.resolve.scopes.MemberScopeImpl
 import org.jetbrains.kotlin.serialization.konan.impl.ForwardDeclarationsFqNames
-import org.jetbrains.kotlin.storage.LockBasedStorageManager
 import org.jetbrains.kotlin.storage.StorageManager
-import org.jetbrains.kotlin.storage.getValue
 import org.jetbrains.kotlin.utils.Printer
-import org.jetbrains.kotlin.utils.addToStdlib.firstNotNullResult
 
 // TODO decouple and move interop-specific logic back to Kotlin/Native.
 open class KlibMetadataDeserializedPackageFragmentsFactoryImpl : KlibMetadataDeserializedPackageFragmentsFactory {
@@ -35,8 +31,18 @@ open class KlibMetadataDeserializedPackageFragmentsFactoryImpl : KlibMetadataDes
     ) = packageFragmentNames.flatMap {
         val fqName = FqName(it)
         val parts = library.packageMetadataParts(fqName.asString())
+        val isBuiltInModule = moduleDescriptor.builtIns.builtInsModule === moduleDescriptor
         parts.map { partName ->
-            KlibMetadataDeserializedPackageFragment(fqName, library, packageAccessedHandler, storageManager, moduleDescriptor, partName)
+            if (isBuiltInModule)
+                BuiltInKlibMetadataDeserializedPackageFragment(
+                    fqName,
+                    library,
+                    packageAccessedHandler,
+                    storageManager,
+                    moduleDescriptor,
+                    partName
+                ) else
+                KlibMetadataDeserializedPackageFragment(fqName, library, packageAccessedHandler, storageManager, moduleDescriptor, partName)
         }
     }
 
@@ -126,7 +132,7 @@ class ClassifierAliasingPackageFragmentDescriptor(
     private val memberScope = object : MemberScopeImpl() {
 
         override fun getContributedClassifier(name: Name, location: LookupLocation) =
-            targets.firstNotNullResult {
+            targets.firstNotNullOfOrNull {
                 if (it.hasTopLevelClassifier(name)) {
                     it.getMemberScope().getContributedClassifier(name, location)
                 } else {
@@ -142,55 +148,6 @@ class ClassifierAliasingPackageFragmentDescriptor(
 
             p.popIndent()
             p.println("}")
-        }
-    }
-
-    override fun getMemberScope(): MemberScope = memberScope
-}
-
-
-/**
- * Package fragment which creates descriptors for forward declarations on demand.
- */
-private class ForwardDeclarationsPackageFragmentDescriptor(
-    storageManager: StorageManager,
-    module: ModuleDescriptor,
-    fqName: FqName,
-    supertypeName: Name,
-    classKind: ClassKind
-) : PackageFragmentDescriptorImpl(module, fqName) {
-
-    private val memberScope = object : MemberScopeImpl() {
-
-        private val declarations = storageManager.createMemoizedFunction(this::createDeclaration)
-
-        private val supertype by storageManager.createLazyValue {
-            val descriptor = builtIns.builtInsModule.getPackage(ForwardDeclarationsFqNames.packageName)
-                .memberScope
-                .getContributedClassifier(supertypeName, NoLookupLocation.FROM_BACKEND) as ClassDescriptor
-
-            descriptor.defaultType
-        }
-
-        private fun createDeclaration(name: Name): ClassDescriptor {
-            return ClassDescriptorImpl(
-                this@ForwardDeclarationsPackageFragmentDescriptor,
-                name,
-                Modality.FINAL,
-                classKind,
-                listOf(supertype),
-                SourceElement.NO_SOURCE,
-                false,
-                LockBasedStorageManager.NO_LOCKS
-            ).apply {
-                this.initialize(MemberScope.Empty, emptySet(), null)
-            }
-        }
-
-        override fun getContributedClassifier(name: Name, location: LookupLocation) = declarations(name)
-
-        override fun printScopeStructure(p: Printer) {
-            p.println(this::class.java.simpleName, "{}")
         }
     }
 

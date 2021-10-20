@@ -1,7 +1,6 @@
-// !LANGUAGE: +InlineClasses
-// IGNORE_BACKEND_FIR: JVM_IR
+// IGNORE_BACKEND: WASM
+// WASM_MUTE_REASON: UNSIGNED_ARRAYS
 // WITH_RUNTIME
-// KJS_WITH_FULL_RUNTIME
 
 class C<T>(val x: T, vararg ys: UInt) {
     val y0 = ys[0]

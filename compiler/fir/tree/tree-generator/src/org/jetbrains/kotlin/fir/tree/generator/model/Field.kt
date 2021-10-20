@@ -5,36 +5,47 @@
 
 package org.jetbrains.kotlin.fir.tree.generator.model
 
-import org.jetbrains.kotlin.fir.tree.generator.typeWithArguments
+import org.jetbrains.kotlin.fir.tree.generator.printer.typeWithArguments
 
 sealed class Field : Importable {
     abstract val name: String
     open val arguments = mutableListOf<Importable>()
     abstract val nullable: Boolean
-    abstract val withReplace: Boolean
+    abstract var isVolatile: Boolean
+    open var withReplace: Boolean = false
     abstract val isFirType: Boolean
 
     var fromParent: Boolean = false
     open var needsSeparateTransform: Boolean = false
+    open var needTransformInOtherChildren: Boolean = false
 
-    open val defaultValue: String? get() = null
+    open val defaultValueInImplementation: String? get() = null
     abstract var isMutable: Boolean
     open var isMutableInInterface: Boolean = false
     open val withGetter: Boolean get() = false
-    open val isLateinit: Boolean get() = false
     open val customSetter: String? get() = null
     open val fromDelegate: Boolean get() = false
+
+    open val overridenTypes: MutableSet<Importable> = mutableSetOf()
+    open var useNullableForReplace: Boolean = false
+
+    var withBindThis = true
 
     fun copy(): Field = internalCopy().also {
         updateFieldsInCopy(it)
     }
 
     protected fun updateFieldsInCopy(copy: Field) {
-        copy.arguments.clear()
-        copy.arguments.addAll(arguments)
-        copy.needsSeparateTransform = needsSeparateTransform
+        if (copy !is FieldWithDefault) {
+            copy.arguments.clear()
+            copy.arguments.addAll(arguments)
+            copy.needsSeparateTransform = needsSeparateTransform
+            copy.needTransformInOtherChildren = needTransformInOtherChildren
+            copy.isMutable = isMutable
+            copy.overridenTypes += overridenTypes
+            copy.useNullableForReplace = useNullableForReplace
+        }
         copy.fromParent = fromParent
-        copy.isMutable = isMutable
     }
 
     protected abstract fun internalCopy(): Field
@@ -61,32 +72,47 @@ sealed class Field : Importable {
 class FieldWithDefault(val origin: Field) : Field() {
     override val name: String get() = origin.name
     override val type: String get() = origin.type
+    override var isVolatile: Boolean = origin.isVolatile
     override val nullable: Boolean get() = origin.nullable
-    override val withReplace: Boolean get() = origin.withReplace
+    override var withReplace: Boolean
+        get() = origin.withReplace
+        set(_) {}
     override val packageName: String? get() = origin.packageName
     override val isFirType: Boolean get() = origin.isFirType
     override var needsSeparateTransform: Boolean
         get() = origin.needsSeparateTransform
         set(_) {}
 
+    override var needTransformInOtherChildren: Boolean
+        get() = origin.needTransformInOtherChildren
+        set(_) {}
+
     override val arguments: MutableList<Importable>
         get() = origin.arguments
 
-    override var defaultValue: String? = origin.defaultValue
+    override val fullQualifiedName: String?
+        get() = origin.fullQualifiedName
+
+    override var defaultValueInImplementation: String? = origin.defaultValueInImplementation
+    var defaultValueInBuilder: String? = null
     override var isMutable: Boolean = origin.isMutable
     override var isMutableInInterface: Boolean = origin.isMutableInInterface
     override var withGetter: Boolean = false
-    override var isLateinit: Boolean = false
     override var customSetter: String? = null
     override var fromDelegate: Boolean = false
     var needAcceptAndTransform: Boolean = true
+    override val overridenTypes: MutableSet<Importable>
+        get() = origin.overridenTypes
+
+    override var useNullableForReplace: Boolean
+        get() = origin.useNullableForReplace
+        set(_) {}
 
     override fun internalCopy(): Field {
         return FieldWithDefault(origin).also {
-            it.defaultValue = defaultValue
+            it.defaultValueInImplementation = defaultValueInImplementation
             it.isMutable = isMutable
             it.withGetter = withGetter
-            it.isLateinit = isLateinit
             it.fromDelegate = fromDelegate
             it.needAcceptAndTransform = needAcceptAndTransform
         }
@@ -99,7 +125,8 @@ class SimpleField(
     override val packageName: String?,
     val customType: Importable? = null,
     override val nullable: Boolean,
-    override val withReplace: Boolean
+    override var withReplace: Boolean,
+    override var isVolatile: Boolean = false
 ) : Field() {
     override val isFirType: Boolean = false
     override val fullQualifiedName: String?
@@ -114,8 +141,11 @@ class SimpleField(
             packageName,
             customType,
             nullable,
-            withReplace
-        )
+            withReplace,
+            isVolatile
+        ).apply {
+            withBindThis = this@SimpleField.withBindThis
+        }
     }
 
     fun replaceType(newType: Type) = SimpleField(
@@ -124,8 +154,10 @@ class SimpleField(
         newType.packageName,
         customType,
         nullable,
-        withReplace
+        withReplace,
+        isVolatile
     ).also {
+        it.withBindThis = withBindThis
         updateFieldsInCopy(it)
     }
 }
@@ -134,9 +166,16 @@ class FirField(
     override val name: String,
     val element: AbstractElement,
     override val nullable: Boolean,
-    override val withReplace: Boolean
+    override var withReplace: Boolean
 ) : Field() {
+    init {
+        if (element is ElementWithArguments) {
+            arguments += element.typeArguments.map { Type(null, it.name) }
+        }
+    }
+
     override val type: String get() = element.type
+    override var isVolatile: Boolean = false
     override val packageName: String? get() = element.packageName
     override val isFirType: Boolean = true
 
@@ -148,7 +187,9 @@ class FirField(
             element,
             nullable,
             withReplace
-        )
+        ).apply {
+            withBindThis = this@FirField.withBindThis
+        }
     }
 }
 
@@ -157,9 +198,9 @@ class FirField(
 class FieldList(
     override val name: String,
     val baseType: Importable,
-    override val withReplace: Boolean
+    override var withReplace: Boolean
 ) : Field() {
-    override val defaultValue: String? get() = if (isMutable) "mutableListOf()" else "emptyListOf()"
+    override var defaultValueInImplementation: String? = null
     override val packageName: String? get() = baseType.packageName
     override val fullQualifiedName: String? get() = baseType.fullQualifiedName
     override val type: String = "List<${baseType.typeWithArguments}>"
@@ -167,6 +208,7 @@ class FieldList(
     override val nullable: Boolean
         get() = false
 
+    override var isVolatile: Boolean = false
     override var isMutable: Boolean = true
 
     override fun internalCopy(): Field {
@@ -177,5 +219,5 @@ class FieldList(
         )
     }
 
-    override val isFirType: Boolean = baseType is Element
+    override val isFirType: Boolean = baseType is AbstractElement
 }

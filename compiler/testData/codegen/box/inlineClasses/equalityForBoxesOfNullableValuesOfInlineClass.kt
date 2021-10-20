@@ -1,13 +1,18 @@
-// IGNORE_BACKEND_FIR: JVM_IR
-// KJS_WITH_FULL_RUNTIME
-// !LANGUAGE: +InlineClasses
 // WITH_RUNTIME
 
-inline class X(val x: String)
-inline class Y(val y: Number)
+@Suppress("OPTIONAL_DECLARATION_USAGE_IN_NON_COMMON_SOURCE")
+@kotlin.jvm.JvmInline
+value class X(val x: String)
+@Suppress("OPTIONAL_DECLARATION_USAGE_IN_NON_COMMON_SOURCE")
+@kotlin.jvm.JvmInline
+value class Y(val y: Number)
 
-inline class NX(val x: String?)
-inline class NY(val y: Number?)
+@Suppress("OPTIONAL_DECLARATION_USAGE_IN_NON_COMMON_SOURCE")
+@kotlin.jvm.JvmInline
+value class NX(val x: String?)
+@Suppress("OPTIONAL_DECLARATION_USAGE_IN_NON_COMMON_SOURCE")
+@kotlin.jvm.JvmInline
+value class NY(val y: Number?)
 
 fun testNotNull(x: X?, y: Y?) {
     val xs = listOf<Any?>(x)

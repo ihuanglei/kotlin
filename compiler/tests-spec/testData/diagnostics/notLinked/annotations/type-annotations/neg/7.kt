@@ -1,3 +1,4 @@
+// FIR_IDENTICAL
 /*
  * KOTLIN DIAGNOSTICS NOT LINKED SPEC TEST (NEGATIVE)
  *
@@ -17,7 +18,7 @@ annotation class Ann
  */
 open class TypeToken<T>
 
-val case_1 = object : TypeToken<@<!DEBUG_INFO_MISSING_UNRESOLVED!>Ann<!>(<!DEBUG_INFO_MISSING_UNRESOLVED!>unresolved_reference<!>) String>() {}
+val case_1 = object : TypeToken<@Ann(<!TOO_MANY_ARGUMENTS, UNRESOLVED_REFERENCE!>unresolved_reference<!>) String>() {}
 
 /*
  * TESTCASE NUMBER: 2
@@ -25,4 +26,4 @@ val case_1 = object : TypeToken<@<!DEBUG_INFO_MISSING_UNRESOLVED!>Ann<!>(<!DEBUG
  */
 interface A
 
-val case_2 = object: @<!DEBUG_INFO_MISSING_UNRESOLVED!>Ann<!>(<!DEBUG_INFO_MISSING_UNRESOLVED!>unresolved_reference<!>) A {}
+val case_2 = object: @Ann(<!TOO_MANY_ARGUMENTS, UNRESOLVED_REFERENCE!>unresolved_reference<!>) A {}

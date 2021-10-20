@@ -1,5 +1,11 @@
-// IGNORE_BACKEND_FIR: JVM_IR
-inline class Result<out T>(val value: Any?) {
+// IGNORE_BACKEND: WASM
+// WASM_MUTE_REASON: TYPE_ISSUES
+// WITH_RUNTIME
+
+
+@Suppress("OPTIONAL_DECLARATION_USAGE_IN_NON_COMMON_SOURCE")
+@kotlin.jvm.JvmInline
+value class Result<out T>(val value: Any?) {
     fun exceptionOrNull(): Throwable? =
         when (value) {
             is Failure -> value.exception

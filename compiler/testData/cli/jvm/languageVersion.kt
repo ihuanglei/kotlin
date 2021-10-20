@@ -1,5 +1,3 @@
 package test
 
-annotation class Outer {
-    class Nested
-}
+sealed interface Polygon

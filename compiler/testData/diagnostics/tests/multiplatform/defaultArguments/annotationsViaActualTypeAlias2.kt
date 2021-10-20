@@ -1,4 +1,5 @@
-// !LANGUAGE: +MultiPlatformProjects
+// FIR_IDENTICAL
+// !LANGUAGE: +MultiPlatformProjects -ProhibitGenericArrayClassLiteral
 // MODULE: m1-common
 // FILE: common.kt
 
@@ -42,7 +43,7 @@ annotation class A(val value: String)
 @Anno
 fun test() {}
 
-// MODULE: m2-jvm(m1-common)
+// MODULE: m2-jvm()()(m1-common)
 // FILE: jvm.kt
 
 actual typealias Anno = Jnno

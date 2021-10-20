@@ -5,7 +5,22 @@
 
 package org.jetbrains.kotlin.gradle.report
 
+import org.jetbrains.kotlin.build.report.metrics.BuildMetrics
+import org.jetbrains.kotlin.incremental.ChangedFiles
+
 internal class TaskExecutionResult(
-    val executionStrategy: String,
-    val icLogLines: List<String>?
+    val buildMetrics: BuildMetrics,
+    val taskInfo: TaskExecutionInfo = TaskExecutionInfo(),
+    val icLogLines: List<String> = emptyList()
 )
+
+internal class TaskExecutionInfo(
+    val properties: List<TaskExecutionProperties> = emptyList(),
+    val changedFiles: ChangedFiles? = null
+)
+
+internal enum class TaskExecutionProperties {
+    ABI_SNAPSHOT,
+    ARTIFACT_TRANSFORM
+    ;
+}

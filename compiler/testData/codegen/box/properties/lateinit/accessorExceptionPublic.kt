@@ -1,4 +1,6 @@
-// IGNORE_BACKEND_FIR: JVM_IR
+
+fun <T> eval(fn: () -> T) = fn()
+
 public class A {
     fun getFromClass(): Boolean {
         try {
@@ -11,7 +13,7 @@ public class A {
 
     fun getFromLambda(): Boolean {
         try {
-            val a = { str }()
+            val a = eval { str }
             return false
         } catch (e: RuntimeException) {
             return true

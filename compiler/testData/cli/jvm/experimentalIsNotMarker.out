@@ -1,3 +1,2 @@
-warning: class org.test.NotAMarker1 is not an experimental API marker annotation
-warning: class org.test.NotAMarker2 is not an experimental API marker annotation
+warning: class org.test.NotAMarker is not an opt-in requirement marker
 OK

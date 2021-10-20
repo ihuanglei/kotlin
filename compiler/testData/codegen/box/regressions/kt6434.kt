@@ -1,5 +1,7 @@
-// IGNORE_BACKEND_FIR: JVM_IR
+// IGNORE_BACKEND: WASM
+// WASM_MUTE_REASON: IGNORED_IN_JS
 // IGNORE_BACKEND: JS_IR
+// IGNORE_BACKEND: JS_IR_ES6
 // TODO: muted automatically, investigate should it be ran for JS or not
 // IGNORE_BACKEND: JS, NATIVE
 
@@ -15,8 +17,8 @@ class C(val nums: Map<E, Int>) {
 
     private fun loadNormalizedNums(): Map<E, Float> {
         val vals = nums.values
-        val min = vals.min()!!
-        val max = vals.max()!!
+        val min = vals.minOrNull()!!
+        val max = vals.maxOrNull()!!
         val rangeDiff = (max - min).toFloat()
         val normalizedNums = nums.map { kvp ->
             val (e, num) = kvp

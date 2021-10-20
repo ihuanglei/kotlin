@@ -6,64 +6,61 @@
 package kotlin.script.experimental.jvmhost.repl
 
 import org.jetbrains.kotlin.cli.common.repl.*
-import org.jetbrains.kotlin.scripting.compiler.plugin.impl.KJvmReplCompilerImpl
+import org.jetbrains.kotlin.scripting.compiler.plugin.impl.KJvmReplCompilerBase
 import org.jetbrains.kotlin.scripting.compiler.plugin.repl.JvmReplCompilerState
-import org.jetbrains.kotlin.scripting.compiler.plugin.repl.KJvmReplCompilerProxy
+import org.jetbrains.kotlin.scripting.compiler.plugin.repl.ReplCodeAnalyzerBase
 import java.util.concurrent.locks.ReentrantReadWriteLock
 import kotlin.concurrent.write
 import kotlin.script.experimental.api.*
 import kotlin.script.experimental.host.ScriptingHostConfiguration
 import kotlin.script.experimental.host.withDefaultsFrom
+import kotlin.script.experimental.impl.internalScriptingRunSuspend
 import kotlin.script.experimental.jvm.defaultJvmScriptingHostConfiguration
+import kotlin.script.experimental.jvm.util.isIncomplete
 
 /**
  * REPL Compilation wrapper for "legacy" REPL APIs defined in the org.jetbrains.kotlin.cli.common.repl package
  */
 class JvmReplCompiler(
     val scriptCompilationConfiguration: ScriptCompilationConfiguration,
-    val hostConfiguration: ScriptingHostConfiguration = defaultJvmScriptingHostConfiguration,
-    val replCompilerProxy: KJvmReplCompilerProxy = KJvmReplCompilerImpl(
-        hostConfiguration.withDefaultsFrom(defaultJvmScriptingHostConfiguration)
-    )
-) : ReplCompiler {
+    val hostConfiguration: ScriptingHostConfiguration = defaultJvmScriptingHostConfiguration
+) : ReplCompilerWithoutCheck {
 
-    override fun createState(lock: ReentrantReadWriteLock): IReplStageState<*> = JvmReplCompilerState(replCompilerProxy, lock)
-
-    override fun check(state: IReplStageState<*>, codeLine: ReplCodeLine): ReplCheckResult = state.lock.write {
-        val replCompilerState = state.asState(JvmReplCompilerState::class.java)
-        val compilation = replCompilerState.getCompilationState(scriptCompilationConfiguration)
-        val res =
-            replCompilerProxy.checkSyntax(
-                codeLine.toSourceCode(scriptCompilationConfiguration),
-                compilation.baseScriptCompilationConfiguration,
-                compilation.environment.project
-            )
-        when {
-            // TODO: implement diagnostics rendering
-            res is ResultWithDiagnostics.Success && res.value -> ReplCheckResult.Ok()
-            res is ResultWithDiagnostics.Success && !res.value -> ReplCheckResult.Incomplete()
-            else -> ReplCheckResult.Error(res.reports.joinToString("\n") { it.message })
-        }
-    }
+    override fun createState(lock: ReentrantReadWriteLock): IReplStageState<*> =
+        JvmReplCompilerState({ KJvmReplCompilerBase.createCompilationState(it, hostConfiguration) }, lock)
 
     override fun compile(state: IReplStageState<*>, codeLine: ReplCodeLine): ReplCompileResult = state.lock.write {
         val replCompilerState = state.asState(JvmReplCompilerState::class.java)
-        val compilation = replCompilerState.getCompilationState(scriptCompilationConfiguration)
         val snippet = codeLine.toSourceCode(scriptCompilationConfiguration)
-        val snippetId = ReplSnippetIdImpl(codeLine.no, codeLine.generation, snippet)
-        when (val res = replCompilerProxy.compileReplSnippet(compilation, snippet, snippetId, replCompilerState.history)) {
-            is ResultWithDiagnostics.Success ->
+
+        val replCompiler = KJvmReplCompilerBase<ReplCodeAnalyzerBase>(
+            hostConfiguration.withDefaultsFrom(defaultJvmScriptingHostConfiguration),
+            replCompilerState
+        )
+
+        @Suppress("DEPRECATION_ERROR")
+        when (val res = internalScriptingRunSuspend { replCompiler.compile(listOf(snippet), scriptCompilationConfiguration) }) {
+            is ResultWithDiagnostics.Success -> {
+                val lineId = LineId(codeLine.no, 0, snippet.hashCode())
                 ReplCompileResult.CompiledClasses(
-                    LineId(codeLine),
-                    replCompilerState.history.map { it.id },
+                    lineId,
+                    replCompiler.state.history.map { it.id },
                     snippet.name!!,
                     emptyList(),
-                    res.value.resultField != null,
+                    res.value.get().resultField != null,
                     emptyList(),
-                    res.value.resultField?.second?.typeName,
+                    res.value.get().resultField?.second?.typeName,
                     res.value
                 )
-            else -> ReplCompileResult.Error(res.reports.joinToString("\n") { it.message })
+            }
+            else -> {
+                val message = res.reports.joinToString("\n")
+                if (res.isIncomplete()) {
+                    ReplCompileResult.Incomplete(message)
+                } else {
+                    ReplCompileResult.Error(message)
+                }
+            }
         }
     }
 }
@@ -75,9 +72,11 @@ internal class SourceCodeFromReplCodeLine(
 ) : SourceCode {
     override val text: String get() = codeLine.code
     override val name: String =
-        "${compilationConfiguration[ScriptCompilationConfiguration.repl.makeSnippetIdentifier]!!(
-            compilationConfiguration, ReplSnippetIdImpl(codeLine.no, codeLine.generation, 0)
-        )}.${compilationConfiguration[ScriptCompilationConfiguration.fileExtension]}"
+        "${
+            compilationConfiguration[ScriptCompilationConfiguration.repl.makeSnippetIdentifier]!!(
+                compilationConfiguration, ReplSnippetIdImpl(codeLine.no, codeLine.generation, 0)
+            )
+        }.${compilationConfiguration[ScriptCompilationConfiguration.fileExtension]}"
     override val locationId: String? = null
 }
 

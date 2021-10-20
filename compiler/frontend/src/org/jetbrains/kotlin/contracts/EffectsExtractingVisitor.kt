@@ -20,10 +20,7 @@ import org.jetbrains.kotlin.builtins.KotlinBuiltIns
 import org.jetbrains.kotlin.config.LanguageFeature
 import org.jetbrains.kotlin.config.LanguageVersionSettings
 import org.jetbrains.kotlin.contracts.description.ContractProviderKey
-import org.jetbrains.kotlin.contracts.model.Computation
-import org.jetbrains.kotlin.contracts.model.ConditionalEffect
-import org.jetbrains.kotlin.contracts.model.ESEffect
-import org.jetbrains.kotlin.contracts.model.Functor
+import org.jetbrains.kotlin.contracts.model.*
 import org.jetbrains.kotlin.contracts.model.functors.*
 import org.jetbrains.kotlin.contracts.model.structure.*
 import org.jetbrains.kotlin.contracts.model.visitors.Reducer
@@ -35,7 +32,9 @@ import org.jetbrains.kotlin.lexer.KtTokens
 import org.jetbrains.kotlin.psi.*
 import org.jetbrains.kotlin.resolve.BindingContext
 import org.jetbrains.kotlin.resolve.BindingTrace
-import org.jetbrains.kotlin.resolve.calls.callUtil.getResolvedCall
+import org.jetbrains.kotlin.resolve.calls.util.getResolvedCall
+import org.jetbrains.kotlin.resolve.calls.inference.components.EmptySubstitutor
+import org.jetbrains.kotlin.resolve.calls.inference.components.NewTypeSubstitutorByConstructorMap
 import org.jetbrains.kotlin.resolve.calls.model.*
 import org.jetbrains.kotlin.resolve.calls.smartcasts.DataFlowValue
 import org.jetbrains.kotlin.resolve.calls.smartcasts.DataFlowValueFactory
@@ -46,6 +45,8 @@ import org.jetbrains.kotlin.resolve.scopes.receivers.ExpressionReceiver
 import org.jetbrains.kotlin.resolve.scopes.receivers.ExtensionReceiver
 import org.jetbrains.kotlin.resolve.scopes.receivers.ReceiverValue
 import org.jetbrains.kotlin.types.KotlinType
+import org.jetbrains.kotlin.types.TypeConstructor
+import org.jetbrains.kotlin.types.UnwrappedType
 import org.jetbrains.kotlin.utils.addIfNotNull
 
 /**
@@ -71,12 +72,13 @@ class EffectsExtractingVisitor(
         if (resolvedCall.isCallWithUnsupportedReceiver()) return UNKNOWN_COMPUTATION
 
         val arguments = resolvedCall.getCallArgumentsAsComputations() ?: return UNKNOWN_COMPUTATION
+        val typeSubstitution = resolvedCall.getTypeSubstitution()
 
         val descriptor = resolvedCall.resultingDescriptor
         return when {
             descriptor.isEqualsDescriptor() -> CallComputation(
                 ESBooleanType,
-                EqualsFunctor(false).invokeWithArguments(arguments, reducer)
+                EqualsFunctor(false).invokeWithArguments(arguments, typeSubstitution, reducer)
             )
             descriptor is ValueDescriptor -> ESVariableWithDataFlowValue(
                 descriptor,
@@ -86,7 +88,7 @@ class EffectsExtractingVisitor(
                 val esType = descriptor.returnType?.toESType()
                 CallComputation(
                     esType,
-                    descriptor.getFunctor()?.invokeWithArguments(arguments, reducer) ?: emptyList()
+                    descriptor.getFunctor()?.invokeWithArguments(arguments, typeSubstitution, reducer) ?: emptyList()
                 )
             }
             else -> UNKNOWN_COMPUTATION
@@ -123,7 +125,7 @@ class EffectsExtractingVisitor(
         val arg = extractOrGetCached(expression.leftHandSide)
         return CallComputation(
             ESBooleanType,
-            IsFunctor(rightType, expression.isNegated).invokeWithArguments(listOf(arg), reducer)
+            IsFunctor(rightType, expression.isNegated).invokeWithArguments(listOf(arg), ESTypeSubstitution.empty(builtIns), reducer)
         )
     }
 
@@ -148,10 +150,22 @@ class EffectsExtractingVisitor(
         val args = listOf(left, right)
 
         return when (expression.operationToken) {
-            KtTokens.EXCLEQ -> CallComputation(ESBooleanType, EqualsFunctor(true).invokeWithArguments(args, reducer))
-            KtTokens.EQEQ -> CallComputation(ESBooleanType, EqualsFunctor(false).invokeWithArguments(args, reducer))
-            KtTokens.ANDAND -> CallComputation(ESBooleanType, AndFunctor().invokeWithArguments(args, reducer))
-            KtTokens.OROR -> CallComputation(ESBooleanType, OrFunctor().invokeWithArguments(args, reducer))
+            KtTokens.EXCLEQ -> CallComputation(
+                ESBooleanType,
+                EqualsFunctor(true).invokeWithArguments(args, ESTypeSubstitution.empty(builtIns), reducer)
+            )
+            KtTokens.EQEQ -> CallComputation(
+                ESBooleanType,
+                EqualsFunctor(false).invokeWithArguments(args, ESTypeSubstitution.empty(builtIns), reducer)
+            )
+            KtTokens.ANDAND -> CallComputation(
+                ESBooleanType,
+                AndFunctor().invokeWithArguments(args, ESTypeSubstitution.empty(builtIns), reducer)
+            )
+            KtTokens.OROR -> CallComputation(
+                ESBooleanType,
+                OrFunctor().invokeWithArguments(args, ESTypeSubstitution.empty(builtIns), reducer)
+            )
             else -> UNKNOWN_COMPUTATION
         }
     }
@@ -215,6 +229,19 @@ class EffectsExtractingVisitor(
         return arguments
     }
 
+    private fun ResolvedCall<*>.getTypeSubstitution(): ESTypeSubstitution {
+        val substitution = mutableMapOf<TypeConstructor, UnwrappedType>()
+        for ((typeParameter, typeArgument) in typeArguments) {
+            substitution[typeParameter.typeConstructor] = typeArgument.unwrap()
+        }
+        val substitutor = if (substitution.isNotEmpty()) {
+            NewTypeSubstitutorByConstructorMap(substitution)
+        } else {
+            EmptySubstitutor
+        }
+        return ESTypeSubstitution(substitutor, builtIns)
+    }
+
     private fun ResolvedValueArgument.toComputation(): Computation? {
         return when (this) {
             // Assume that we don't know anything about default arguments
@@ -236,7 +263,10 @@ class EffectsExtractingVisitor(
     private fun ValueArgument.toComputation(): Computation? {
         return when (this) {
             is KtLambdaArgument -> getLambdaExpression()?.let { ESLambda(it) }
-            is KtValueArgument -> getArgumentExpression()?.let { extractOrGetCached(it) }
+            is KtValueArgument -> getArgumentExpression()?.let {
+                if (it is KtLambdaExpression) ESLambda(it)
+                else extractOrGetCached(it)
+            }
             else -> null
         }
     }

@@ -81,6 +81,9 @@ interface CompileService : Remote {
     fun getDaemonInfo(): CallResult<String>
 
     @Throws(RemoteException::class)
+    fun getKotlinVersion(): CallResult<String>
+
+    @Throws(RemoteException::class)
     fun getDaemonJVMOptions(): CallResult<DaemonJVMOptions>
 
     @Throws(RemoteException::class)
@@ -105,6 +108,7 @@ interface CompileService : Remote {
 
     // TODO: consider adding async version of shutdown and release
 
+    @Suppress("DEPRECATION")
     @Deprecated("The usages should be replaced with `compile` method", ReplaceWith("compile"))
     @Throws(RemoteException::class)
     fun remoteCompile(
@@ -118,6 +122,7 @@ interface CompileService : Remote {
             operationsTracer: RemoteOperationsTracer?
     ): CallResult<Int>
 
+    @Suppress("DEPRECATION")
     @Deprecated("The usages should be replaced with `compile` method", ReplaceWith("compile"))
     @Throws(RemoteException::class)
     fun remoteIncrementalCompile(
@@ -149,6 +154,7 @@ interface CompileService : Remote {
     @Throws(RemoteException::class)
     fun clearJarCache()
 
+    @Suppress("DEPRECATION")
     @Deprecated("The usages should be replaced with other `leaseReplSession` method", ReplaceWith("leaseReplSession"))
     @Throws(RemoteException::class)
     fun leaseReplSession(

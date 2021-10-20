@@ -1,15 +1,14 @@
-
 plugins {
     kotlin("jvm")
     id("jps-compatible")
 }
 
-jvmTarget = "1.6"
+project.updateJvmTarget("1.6")
 
 dependencies {
-    compile(kotlinStdlib())
-    compile(commonDep("org.jetbrains.kotlinx", "kotlinx-coroutines-core")) { isTransitive = false }
-    testCompile(commonDep("junit"))
+    api(kotlinStdlib())
+    compileOnly(project(":kotlin-reflect-api"))
+    testApi(commonDep("junit"))
 }
 
 sourceSets {
@@ -18,7 +17,9 @@ sourceSets {
 }
 
 tasks.withType<org.jetbrains.kotlin.gradle.dsl.KotlinCompile<*>> {
-    kotlinOptions.freeCompilerArgs += "-Xallow-kotlin-package"
+    kotlinOptions.freeCompilerArgs += listOf(
+        "-Xallow-kotlin-package"
+    )
 }
 
 publish()

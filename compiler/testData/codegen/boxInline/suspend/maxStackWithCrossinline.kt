@@ -1,12 +1,8 @@
-// IGNORE_BACKEND: JVM_IR
-// IGNORE_BACKEND_MULTI_MODULE: JVM_IR
-// FILE: inlined.kt
+// WITH_COROUTINES
 // WITH_RUNTIME
 // NO_CHECK_LAMBDA_INLINING
 // WITH_RUNTIME
-// WITH_COROUTINES
-// COMMON_COROUTINES_TEST
-
+// FILE: inlined.kt
 fun handle(f: suspend () -> Unit) {}
 
 open class Foo {
@@ -28,8 +24,6 @@ class Bar : Foo() {
 class Baz(unit: Unit)
 
 // FILE: inlineSite.kt
-// COMMON_COROUTINES_TEST
-
 fun box(): String {
     Bar().bar {}
     return "OK"

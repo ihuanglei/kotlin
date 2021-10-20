@@ -16,6 +16,7 @@
 
 package org.jetbrains.kotlin.kapt3.test
 
+import junit.framework.TestCase
 import org.jetbrains.kotlin.kapt3.javac.KaptJavaFileObject
 import org.jetbrains.kotlin.resolve.jvm.extensions.AnalysisHandlerExtension
 import org.jetbrains.kotlin.utils.addToStdlib.firstIsInstance
@@ -28,6 +29,9 @@ import javax.annotation.processing.RoundEnvironment
 import javax.lang.model.element.ElementKind
 import javax.lang.model.element.ExecutableElement
 import javax.lang.model.element.TypeElement
+import javax.lang.model.element.VariableElement
+import javax.lang.model.util.ElementFilter
+import javax.tools.Diagnostic
 import kotlin.system.exitProcess
 
 class KotlinKapt3IntegrationTests : AbstractKotlinKapt3IntegrationTest(), CustomJdkTestLauncher {
@@ -39,7 +43,7 @@ class KotlinKapt3IntegrationTests : AbstractKotlinKapt3IntegrationTest(), Custom
     ) {
         super.test(name, *supportedAnnotations, options = options, process = process)
 
-        doTestWithJdk9(
+        doTestWithJdk11(
             SingleJUnitTestRunner::class.java,
             KotlinKapt3IntegrationTests::class.java.name + "#test" + getTestName(false)
         )
@@ -60,6 +64,15 @@ class KotlinKapt3IntegrationTests : AbstractKotlinKapt3IntegrationTest(), Custom
         assert(commentOf("test.Simple") == " KDoc comment.\n")
         assert(commentOf("test.EnumClass") == null) // simple comment - not saved
         assert(commentOf("test.MyAnnotation") == null) // multiline comment - not saved
+    }
+
+    @Test
+    fun testParameterNames() {
+        test("DefaultParameterValues", "test.Anno") { set, roundEnv, _ ->
+            val user = roundEnv.getElementsAnnotatedWith(set.single()).single() as TypeElement
+            val nameField = user.enclosedElements.filterIsInstance<VariableElement>().single()
+            assertEquals("John", nameField.constantValue)
+        }
     }
 
     @Test
@@ -92,6 +105,68 @@ class KotlinKapt3IntegrationTests : AbstractKotlinKapt3IntegrationTest(), Custom
             assert(bindings.none { it.key.contains("InnerClass") })
         }
     }
+
+    @Test
+    fun testErrorLocationMapping() {
+        val diagnostics = diagnosticsTest("ErrorLocationMapping", "MyAnnotation") { _, _, processingEnv ->
+            val subject = processingEnv.elementUtils.getTypeElement("Subject")
+            assertNotNull(subject)
+            processingEnv.messager.printMessage(
+                Diagnostic.Kind.NOTE,
+                "note on class",
+                subject
+            )
+            // report error on the field as well
+            val field = ElementFilter.fieldsIn(
+                subject.enclosedElements
+            ).firstOrNull {
+                it.simpleName.toString() == "field"
+            }
+            processingEnv.messager.printMessage(
+                Diagnostic.Kind.NOTE,
+                "note on field",
+                field
+            )
+        }
+        diagnostics.assertContainsDiagnostic("ErrorLocationMapping.kt:1: Note: note on class")
+        diagnostics.assertContainsDiagnostic("ErrorLocationMapping.kt:5: Note: note on field")
+    }
+
+    private fun List<LoggingMessageCollector.Message>.assertContainsDiagnostic(
+        message: String
+    ) {
+        assert(
+            any {
+                it.message.contains(message)
+            }
+        ) {
+            """
+            Didn't find expected diagnostic message.
+            Expected: $message
+            Diagnostics:
+            ${this.joinToString("\n") { "${it.severity}: ${it.message}" }}
+            """.trimIndent()
+        }
+    }
+
+    @Suppress("SameParameterValue")
+    private fun diagnosticsTest(
+        name: String,
+        vararg supportedAnnotations: String,
+        process: (Set<TypeElement>, RoundEnvironment, ProcessingEnvironment) -> Unit
+    ): List<LoggingMessageCollector.Message> {
+        lateinit var messageCollector: LoggingMessageCollector
+        test(
+            name = name,
+            supportedAnnotations = supportedAnnotations
+        ) { typeElements, roundEnv, processingEnv ->
+            val kaptExtension = AnalysisHandlerExtension.getInstances(myEnvironment.project).firstIsInstance<Kapt3ExtensionForTests>()
+            messageCollector = kaptExtension.messageCollector
+            process(typeElements, roundEnv, processingEnv)
+        }
+        return messageCollector.messages
+    }
+
 
     private fun bindingsTest(name: String, test: (File, File, Map<String, KaptJavaFileObject>) -> Unit) {
         test(name, "test.MyAnnotation") { _, _, _ ->

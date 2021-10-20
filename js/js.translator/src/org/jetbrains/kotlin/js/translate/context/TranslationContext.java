@@ -131,8 +131,8 @@ public class TranslationContext {
             if (function.isSuspend()) {
                 ClassDescriptor continuationDescriptor =
                         DescriptorUtilKt.findContinuationClassDescriptor(
-                                getCurrentModule(), NoLookupLocation.FROM_BACKEND,
-                                getLanguageVersionSettings().supportsFeature(LanguageFeature.ReleaseCoroutines));
+                                getCurrentModule(), NoLookupLocation.FROM_BACKEND
+                        );
 
                 return new ValueParameterDescriptorImpl(function, null, function.getValueParameters().size(),
                                                         Annotations.Companion.getEMPTY(), Name.identifier("continuation"),
@@ -179,13 +179,13 @@ public class TranslationContext {
     @NotNull
     public TranslationContext newFunctionBodyWithUsageTracker(@NotNull JsFunction fun, @NotNull MemberDescriptor descriptor) {
         DynamicContext dynamicContext = DynamicContext.newContext(fun.getScope(), fun.getBody());
-        UsageTracker usageTracker = new UsageTracker(this.usageTracker, descriptor);
+        UsageTracker usageTracker = new UsageTracker(this.usageTracker, descriptor, bindingContext());
         return new TranslationContext(this, this.staticContext, dynamicContext, this.aliasingContext.inner(), usageTracker, descriptor);
     }
 
     @NotNull
     public TranslationContext innerWithUsageTracker(@NotNull MemberDescriptor descriptor) {
-        UsageTracker usageTracker = new UsageTracker(this.usageTracker, descriptor);
+        UsageTracker usageTracker = new UsageTracker(this.usageTracker, descriptor, bindingContext());
         return new TranslationContext(this, staticContext, dynamicContext, aliasingContext.inner(), usageTracker, descriptor);
     }
 

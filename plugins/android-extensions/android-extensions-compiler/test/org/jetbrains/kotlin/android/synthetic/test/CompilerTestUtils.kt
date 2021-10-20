@@ -5,16 +5,18 @@
 
 package org.jetbrains.kotlin.android.synthetic.test
 
-import com.intellij.testFramework.registerServiceInstance
+import com.intellij.mock.MockProject
 import kotlinx.android.extensions.CacheImplementation
 import org.jetbrains.kotlin.android.synthetic.AndroidConfigurationKeys
 import org.jetbrains.kotlin.android.synthetic.AndroidExtensionPropertiesComponentContainerContributor
 import org.jetbrains.kotlin.android.synthetic.codegen.CliAndroidExtensionsExpressionCodegenExtension
+import org.jetbrains.kotlin.android.synthetic.codegen.CliAndroidIrExtension
 import org.jetbrains.kotlin.android.synthetic.codegen.CliAndroidOnDestroyClassBuilderInterceptorExtension
 import org.jetbrains.kotlin.android.synthetic.res.AndroidLayoutXmlFileManager
 import org.jetbrains.kotlin.android.synthetic.res.AndroidVariant
 import org.jetbrains.kotlin.android.synthetic.res.CliAndroidLayoutXmlFileManager
 import org.jetbrains.kotlin.android.synthetic.res.CliAndroidPackageFragmentProviderExtension
+import org.jetbrains.kotlin.backend.common.extensions.IrGenerationExtension
 import org.jetbrains.kotlin.cli.jvm.compiler.EnvironmentConfigFiles
 import org.jetbrains.kotlin.cli.jvm.compiler.KotlinCoreEnvironment
 import org.jetbrains.kotlin.cli.jvm.config.JvmClasspathRoot
@@ -35,9 +37,10 @@ fun KtUsefulTestCase.createTestEnvironment(configuration: CompilerConfiguration,
     val project = myEnvironment.project
 
     val variants = listOf(AndroidVariant.createMainVariant(resDirectories))
-    project.registerServiceInstance(AndroidLayoutXmlFileManager::class.java, CliAndroidLayoutXmlFileManager(project, "test", variants))
+    (project as MockProject).registerService(AndroidLayoutXmlFileManager::class.java, CliAndroidLayoutXmlFileManager(project, "test", variants))
 
     ExpressionCodegenExtension.registerExtension(project, CliAndroidExtensionsExpressionCodegenExtension(true, CacheImplementation.DEFAULT))
+    IrGenerationExtension.registerExtension(project, CliAndroidIrExtension(true, CacheImplementation.DEFAULT))
     StorageComponentContainerContributor.registerExtension(project, AndroidExtensionPropertiesComponentContainerContributor())
     ClassBuilderInterceptorExtension.registerExtension(
         project, CliAndroidOnDestroyClassBuilderInterceptorExtension(CacheImplementation.DEFAULT)

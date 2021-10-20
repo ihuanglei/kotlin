@@ -15,28 +15,42 @@ import org.jetbrains.kotlin.context.withModule
 import org.jetbrains.kotlin.descriptors.ModuleDescriptor
 import org.jetbrains.kotlin.descriptors.impl.ModuleDescriptorImpl
 import org.jetbrains.kotlin.psi.KtFile
+import org.jetbrains.kotlin.resolve.CliSealedClassInheritorsProvider
 
 class ResolverForSingleModuleProject<M : ModuleInfo>(
     debugName: String,
     projectContext: ProjectContext,
-    module: M,
+    private val module: M,
     private val resolverForModuleFactory: ResolverForModuleFactory,
     private val searchScope: GlobalSearchScope,
     private val builtIns: KotlinBuiltIns = DefaultBuiltIns.Instance,
     private val languageVersionSettings: LanguageVersionSettings = LanguageVersionSettingsImpl.DEFAULT,
     private val syntheticFiles: Collection<KtFile> = emptyList(),
-    private val sdkDependency: M? = null
+    private val sdkDependency: M? = null,
+    knownDependencyModuleDescriptors: Map<M, ModuleDescriptor> = emptyMap()
 ) : AbstractResolverForProject<M>(
     debugName,
     projectContext,
-    listOf(module),
+    listOf(module) + knownDependencyModuleDescriptors.keys,
     null,
     EmptyResolverForProject(),
     PackageOracleFactory.OptimisticFactory
 ) {
     override fun sdkDependency(module: M): M? = sdkDependency
 
-    override fun modulesContent(module: M): ModuleContent<M> = ModuleContent(module, syntheticFiles, searchScope)
+    init {
+        knownDependencyModuleDescriptors.forEach { (module, descriptor) ->
+            descriptorByModule[module] = ModuleData(
+                descriptor as ModuleDescriptorImpl,
+                (module as? TrackableModuleInfo)?.createModificationTracker() ?: fallbackModificationTracker
+            )
+        }
+    }
+
+    override fun modulesContent(module: M): ModuleContent<M> = when (module) {
+        this.module -> ModuleContent(module, syntheticFiles, searchScope)
+        else -> ModuleContent(module, emptyList(), searchScope)
+    }
 
     override fun builtInsForModule(module: M): KotlinBuiltIns = builtIns
 
@@ -46,6 +60,7 @@ class ResolverForSingleModuleProject<M : ModuleInfo>(
             projectContext.withModule(descriptor),
             modulesContent(moduleInfo),
             this,
-            languageVersionSettings
+            languageVersionSettings,
+            CliSealedClassInheritorsProvider,
         )
 }

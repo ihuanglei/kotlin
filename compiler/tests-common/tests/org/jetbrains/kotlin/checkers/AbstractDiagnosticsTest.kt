@@ -11,10 +11,15 @@ import com.intellij.psi.PsiElement
 import com.intellij.psi.search.GlobalSearchScope
 import junit.framework.AssertionFailedError
 import junit.framework.TestCase
+import org.jetbrains.kotlin.ObsoleteTestInfrastructure
 import org.jetbrains.kotlin.TestsCompilerError
 import org.jetbrains.kotlin.analyzer.AnalysisResult
 import org.jetbrains.kotlin.analyzer.common.CommonResolverForModuleFactory
 import org.jetbrains.kotlin.builtins.jvm.JvmBuiltIns
+import org.jetbrains.kotlin.cli.common.messages.AnalyzerWithCompilerReport
+import org.jetbrains.kotlin.cli.common.messages.GroupingMessageCollector
+import org.jetbrains.kotlin.cli.common.messages.MessageRenderer
+import org.jetbrains.kotlin.cli.common.messages.PrintingMessageCollector
 import org.jetbrains.kotlin.cli.jvm.compiler.NoScopeRecordCliBindingTrace
 import org.jetbrains.kotlin.cli.jvm.compiler.TopDownAnalyzerFacadeForJVM
 import org.jetbrains.kotlin.config.*
@@ -24,6 +29,7 @@ import org.jetbrains.kotlin.context.SimpleGlobalContext
 import org.jetbrains.kotlin.context.withModule
 import org.jetbrains.kotlin.context.withProject
 import org.jetbrains.kotlin.descriptors.DeclarationDescriptor
+import org.jetbrains.kotlin.descriptors.ModuleCapability
 import org.jetbrains.kotlin.descriptors.ModuleDescriptor
 import org.jetbrains.kotlin.descriptors.PackageViewDescriptor
 import org.jetbrains.kotlin.descriptors.impl.CompositePackageFragmentProvider
@@ -40,6 +46,7 @@ import org.jetbrains.kotlin.load.java.lazy.SingleModuleClassResolver
 import org.jetbrains.kotlin.name.FqName
 import org.jetbrains.kotlin.name.Name
 import org.jetbrains.kotlin.name.SpecialNames
+import org.jetbrains.kotlin.platform.CommonPlatforms
 import org.jetbrains.kotlin.platform.isCommon
 import org.jetbrains.kotlin.platform.jvm.JvmPlatforms
 import org.jetbrains.kotlin.psi.KtFile
@@ -54,6 +61,7 @@ import org.jetbrains.kotlin.storage.ExceptionTracker
 import org.jetbrains.kotlin.storage.LockBasedStorageManager
 import org.jetbrains.kotlin.storage.StorageManager
 import org.jetbrains.kotlin.test.InTextDirectivesUtils
+import org.jetbrains.kotlin.test.KotlinBaseTest
 import org.jetbrains.kotlin.test.KotlinTestUtils
 import org.jetbrains.kotlin.test.util.DescriptorValidator
 import org.jetbrains.kotlin.test.util.RecursiveDescriptorComparator
@@ -61,11 +69,14 @@ import org.jetbrains.kotlin.test.util.RecursiveDescriptorComparator.RECURSIVE
 import org.jetbrains.kotlin.test.util.RecursiveDescriptorComparator.RECURSIVE_ALL
 import org.jetbrains.kotlin.utils.keysToMap
 import org.junit.Assert
+import java.io.ByteArrayOutputStream
 import java.io.File
+import java.io.PrintStream
 import java.util.*
 import java.util.function.Predicate
 import java.util.regex.Pattern
 
+@ObsoleteTestInfrastructure("org.jetbrains.kotlin.test.runners.AbstractDiagnosticTest")
 abstract class AbstractDiagnosticsTest : BaseDiagnosticsTest() {
     override fun analyzeAndCheck(testDataFile: File, files: List<TestFile>) {
         try {
@@ -77,6 +88,10 @@ abstract class AbstractDiagnosticsTest : BaseDiagnosticsTest() {
         } catch (t: Throwable) {
             throw TestsCompilerError(t)
         }
+    }
+
+    protected open fun shouldValidateFirTestData(testDataFile: File): Boolean {
+        return false
     }
 
     private fun analyzeAndCheckUnhandled(testDataFile: File, files: List<TestFile>) {
@@ -108,14 +123,7 @@ abstract class AbstractDiagnosticsTest : BaseDiagnosticsTest() {
 
             val oldModule = modules[testModule]!!
 
-            val languageVersionSettings =
-                if (coroutinesPackage.isNotEmpty())
-                    CompilerTestLanguageVersionSettings(
-                        DEFAULT_DIAGNOSTIC_TESTS_FEATURES,
-                        if (coroutinesPackage.contains("experimental")) ApiVersion.KOTLIN_1_2 else ApiVersion.KOTLIN_1_3,
-                        if (coroutinesPackage.contains("experimental")) LanguageVersion.KOTLIN_1_2 else LanguageVersion.KOTLIN_1_3
-                    )
-                else loadLanguageVersionSettings(testFilesInModule)
+            val languageVersionSettings = loadLanguageVersionSettings(testFilesInModule)
 
             languageVersionSettingsByModule[testModule] = languageVersionSettings
 
@@ -160,7 +168,7 @@ abstract class AbstractDiagnosticsTest : BaseDiagnosticsTest() {
         var exceptionFromDescriptorValidation: Throwable? = null
         try {
             val expectedFile = getExpectedDescriptorFile(testDataFile, files)
-            validateAndCompareDescriptorWithFile(expectedFile, files, modules, coroutinesPackage)
+            validateAndCompareDescriptorWithFile(expectedFile, files, modules)
         } catch (e: Throwable) {
             exceptionFromDescriptorValidation = e
         }
@@ -168,13 +176,22 @@ abstract class AbstractDiagnosticsTest : BaseDiagnosticsTest() {
         // main checks
         var ok = true
 
+        val diagnosticsFullTextByteArrayStream = ByteArrayOutputStream()
+        val diagnosticsFullTextPrintStream = PrintStream(diagnosticsFullTextByteArrayStream)
+        var shouldCheckDiagnosticsFullText = false
+        val diagnosticsFullTextCollector =
+            GroupingMessageCollector(
+                PrintingMessageCollector(diagnosticsFullTextPrintStream, MessageRenderer.SYSTEM_INDEPENDENT_RELATIVE_PATHS, true),
+                false
+            )
+
         val actualText = StringBuilder()
         for (testFile in files) {
-            val module = testFile.module
+            val module: KotlinBaseTest.TestModule? = testFile.module
             val isCommonModule = modules[module]!!.platform.isCommon()
             val implementingModules =
                 if (!isCommonModule) emptyList()
-                else modules.entries.filter { (testModule) -> module in testModule?.getDependencies().orEmpty() }
+                else modules.entries.filter { (testModule) -> module in testModule?.dependencies.orEmpty() }
             val implementingModulesBindings = implementingModules.mapNotNull { (testModule, moduleDescriptor) ->
                 val platform = moduleDescriptor.platform
                 if (platform != null && !platform.isCommon()) platform to moduleBindings[testModule]!!
@@ -182,14 +199,20 @@ abstract class AbstractDiagnosticsTest : BaseDiagnosticsTest() {
             }
             val moduleDescriptor = modules[module]!!
 
+            val moduleBindingContext = moduleBindings[module]!!
             ok = ok and testFile.getActualText(
-                moduleBindings[module]!!,
+                moduleBindingContext,
                 implementingModulesBindings,
                 actualText,
                 shouldSkipJvmSignatureDiagnostics(groupedByModule) || isCommonModule,
                 languageVersionSettingsByModule[module]!!,
                 moduleDescriptor
             )
+
+            if (testFile.renderDiagnosticsFullText) {
+                shouldCheckDiagnosticsFullText = true
+                AnalyzerWithCompilerReport.reportDiagnostics(moduleBindingContext.diagnostics, diagnosticsFullTextCollector)
+            }
         }
 
         var exceptionFromDynamicCallDescriptorsValidation: Throwable? = null
@@ -200,9 +223,16 @@ abstract class AbstractDiagnosticsTest : BaseDiagnosticsTest() {
             exceptionFromDynamicCallDescriptorsValidation = e
         }
 
-        KotlinTestUtils.assertEqualsToFile(getExpectedDiagnosticsFile(testDataFile), actualText.cleanupInferenceDiagnostics()) { s ->
-            s.replace("COROUTINES_PACKAGE", coroutinesPackage)
+        if (shouldCheckDiagnosticsFullText) {
+            diagnosticsFullTextCollector.flush()
+            diagnosticsFullTextPrintStream.flush()
+            KotlinTestUtils.assertEqualsToFile(
+                File(FileUtil.getNameWithoutExtension(testDataFile.absolutePath) + ".diag.txt"),
+                String(diagnosticsFullTextByteArrayStream.toByteArray())
+            )
         }
+
+        checkDiagnostics(actualText.cleanupInferenceDiagnostics(), testDataFile)
 
         assertTrue("Diagnostics mismatch. See the output above", ok)
 
@@ -214,6 +244,10 @@ abstract class AbstractDiagnosticsTest : BaseDiagnosticsTest() {
         performAdditionalChecksAfterDiagnostics(
             testDataFile, files, groupedByModule, modules, moduleBindings, languageVersionSettingsByModule
         )
+    }
+
+    protected open fun checkDiagnostics(actualText: String, testDataFile: File) {
+        KotlinTestUtils.assertEqualsToFile(getExpectedDiagnosticsFile(testDataFile), actualText)
     }
 
     private fun StringBuilder.cleanupInferenceDiagnostics(): String = replace(Regex("NI;([\\S]*), OI;\\1([,!])")) { it.groupValues[1] + it.groupValues[2] }
@@ -365,6 +399,7 @@ abstract class AbstractDiagnosticsTest : BaseDiagnosticsTest() {
         if (platform.isCommon()) {
             return CommonResolverForModuleFactory.analyzeFiles(
                 files, moduleDescriptor.name, true, languageVersionSettings,
+                CommonPlatforms.defaultCommonPlatform, CompilerEnvironment,
                 mapOf(
                     MODULE_FILES to files
                 )
@@ -402,7 +437,8 @@ abstract class AbstractDiagnosticsTest : BaseDiagnosticsTest() {
                 listOf(
                     container.get<KotlinCodeAnalyzer>().packageFragmentProvider,
                     container.get<JavaDescriptorResolver>().packageFragmentProvider
-                )
+                ),
+                "CompositeProvider@AbstractDiagnosticsTest for $moduleDescriptor"
             )
         )
 
@@ -434,8 +470,7 @@ abstract class AbstractDiagnosticsTest : BaseDiagnosticsTest() {
     private fun validateAndCompareDescriptorWithFile(
         expectedFile: File,
         testFiles: List<TestFile>,
-        modules: Map<TestModule?, ModuleDescriptorImpl>,
-        coroutinesPackage: String
+        modules: Map<TestModule?, ModuleDescriptorImpl>
     ) {
         if (skipDescriptorsValidation()) return
         if (testFiles.any { file -> InTextDirectivesUtils.isDirectiveDefined(file.expectedText, "// SKIP_TXT") }) {
@@ -443,7 +478,12 @@ abstract class AbstractDiagnosticsTest : BaseDiagnosticsTest() {
             return
         }
 
-        val comparator = RecursiveDescriptorComparator(createdAffectedPackagesConfiguration(testFiles, modules.values))
+        val comparator = RecursiveDescriptorComparator(
+            createdAffectedPackagesConfiguration(
+                testFiles,
+                modules.values
+            )
+        )
 
         val isMultiModuleTest = modules.size != 1
 
@@ -496,9 +536,7 @@ abstract class AbstractDiagnosticsTest : BaseDiagnosticsTest() {
                     "Such tests are hard to maintain, take long time to execute and are subject to sudden unreviewed changes anyway."
         }
 
-        KotlinTestUtils.assertEqualsToFile(expectedFile, allPackagesText) { s ->
-            s.replace("COROUTINES_PACKAGE", coroutinesPackage)
-        }
+        KotlinTestUtils.assertEqualsToFile(expectedFile, allPackagesText)
     }
 
 
@@ -530,6 +568,7 @@ abstract class AbstractDiagnosticsTest : BaseDiagnosticsTest() {
                         getTopLevelPackagesFromFileList(getKtFiles(testFiles, false))
                 ).toSet()
 
+        val checkTypeEnabled = testFiles.any { it.declareCheckType }
         val stepIntoFilter = Predicate<DeclarationDescriptor> { descriptor ->
             val module = DescriptorUtils.getContainingModuleOrNull(descriptor)
             if (module !in modules) return@Predicate false
@@ -538,6 +577,8 @@ abstract class AbstractDiagnosticsTest : BaseDiagnosticsTest() {
                 val fqName = descriptor.fqName
                 return@Predicate fqName.isRoot || fqName.pathSegments().first() in packagesNames
             }
+
+            if (checkTypeEnabled && descriptor.name in NAMES_OF_CHECK_TYPE_HELPER) return@Predicate false
 
             true
         }
@@ -573,8 +614,8 @@ abstract class AbstractDiagnosticsTest : BaseDiagnosticsTest() {
             val module = modules[testModule]!!
             val dependencies = ArrayList<ModuleDescriptorImpl>()
             dependencies.add(module)
-            for (dependency in testModule.getDependencies()) {
-                dependencies.add(modules[dependency]!!)
+            for (dependency in testModule.dependencies) {
+                dependencies.add(modules[dependency as TestModule?]!!)
             }
 
             dependencies.add(module.builtIns.builtInsModule)
@@ -672,6 +713,8 @@ abstract class AbstractDiagnosticsTest : BaseDiagnosticsTest() {
     companion object {
         private val HASH_SANITIZER = fun(s: String): String = s.replace("@(\\d)+".toRegex(), "")
 
-        private val MODULE_FILES = ModuleDescriptor.Capability<List<KtFile>>("")
+        private val MODULE_FILES = ModuleCapability<List<KtFile>>("")
+
+        private val NAMES_OF_CHECK_TYPE_HELPER = listOf("checkSubtype", "CheckTypeInv", "_", "checkType").map { Name.identifier(it) }
     }
 }

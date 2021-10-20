@@ -10,11 +10,10 @@ import org.jetbrains.kotlin.diagnostics.Errors
 import org.jetbrains.kotlin.js.backend.ast.JsFunction
 import org.jetbrains.kotlin.js.backend.ast.JsInvocation
 import org.jetbrains.kotlin.js.backend.ast.metadata.descriptor
-import org.jetbrains.kotlin.js.backend.ast.metadata.inlineStrategy
+import org.jetbrains.kotlin.js.backend.ast.metadata.isInline
 import org.jetbrains.kotlin.js.backend.ast.metadata.psiElement
 import org.jetbrains.kotlin.js.inline.context.FunctionDefinitionLoader
 import org.jetbrains.kotlin.js.inline.util.FunctionWithWrapper
-import org.jetbrains.kotlin.resolve.inline.InlineStrategy
 import java.util.*
 
 /**
@@ -66,12 +65,14 @@ class InlinerCycleReporter(
         }
 
         try {
+
             when (functionVisitingState[definition.function]) {
                 VisitedState.IN_PROCESS -> {
                     reportInlineCycle(call, definition.function)
                     return
                 }
                 VisitedState.PROCESSED -> return
+                null -> {}
             }
 
             functionVisitingState[function] = VisitedState.IN_PROCESS
@@ -90,7 +91,7 @@ class InlinerCycleReporter(
     }
 
     private fun reportInlineCycle(call: JsInvocation?, calledFunction: JsFunction) {
-        call?.inlineStrategy = InlineStrategy.NOT_INLINE
+        call?.isInline = false
         val it = inlineCallInfos.descendingIterator()
 
         while (it.hasNext()) {

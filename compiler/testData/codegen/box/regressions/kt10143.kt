@@ -1,4 +1,5 @@
-// IGNORE_BACKEND_FIR: JVM_IR
+// TODO: Investigate ES modules issue
+
 // FILE: Outer.kt
 
 package another

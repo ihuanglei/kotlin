@@ -1,4 +1,4 @@
-// !WITH_NEW_INFERENCE
+// FIR_IDENTICAL
 
 // FILE: TestClass.java
 import org.jetbrains.annotations.Nullable;

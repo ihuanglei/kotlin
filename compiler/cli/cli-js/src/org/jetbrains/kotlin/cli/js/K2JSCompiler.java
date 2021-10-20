@@ -1,17 +1,6 @@
 /*
- * Copyright 2010-2017 JetBrains s.r.o.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
+ * Copyright 2010-2021 JetBrains s.r.o. and Kotlin Programming Language contributors.
+ * Use of this source code is governed by the Apache 2.0 license that can be found in the license/LICENSE.txt file.
  */
 
 package org.jetbrains.kotlin.cli.js;
@@ -31,10 +20,7 @@ import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 import org.jetbrains.kotlin.analyzer.AnalysisResult;
 import org.jetbrains.kotlin.backend.common.output.OutputFileCollection;
-import org.jetbrains.kotlin.cli.common.CLICompiler;
-import org.jetbrains.kotlin.cli.common.CLIConfigurationKeys;
-import org.jetbrains.kotlin.cli.common.CommonCompilerPerformanceManager;
-import org.jetbrains.kotlin.cli.common.ExitCode;
+import org.jetbrains.kotlin.cli.common.*;
 import org.jetbrains.kotlin.cli.common.arguments.K2JSCompilerArguments;
 import org.jetbrains.kotlin.cli.common.arguments.K2JSCompilerArgumentsKt;
 import org.jetbrains.kotlin.cli.common.arguments.K2JsArgumentConstants;
@@ -68,6 +54,7 @@ import org.jetbrains.kotlin.metadata.deserialization.BinaryVersion;
 import org.jetbrains.kotlin.name.FqName;
 import org.jetbrains.kotlin.progress.ProgressIndicatorAndCompilationCanceledStatus;
 import org.jetbrains.kotlin.psi.KtFile;
+import org.jetbrains.kotlin.resolve.CompilerEnvironment;
 import org.jetbrains.kotlin.serialization.js.ModuleKind;
 import org.jetbrains.kotlin.utils.*;
 
@@ -78,7 +65,6 @@ import java.util.stream.Collectors;
 
 import static org.jetbrains.kotlin.cli.common.ExitCode.COMPILATION_ERROR;
 import static org.jetbrains.kotlin.cli.common.ExitCode.OK;
-import static org.jetbrains.kotlin.cli.common.UtilsKt.checkKotlinPackageUsage;
 import static org.jetbrains.kotlin.cli.common.UtilsKt.getLibraryFromHome;
 import static org.jetbrains.kotlin.cli.common.messages.CompilerMessageSeverity.*;
 
@@ -113,7 +99,7 @@ public class K2JSCompiler extends CLICompiler<K2JSCompilerArguments> {
         doMain(new K2JSCompiler(), args);
     }
 
-    private final K2JSCompilerPerformanceManager performanceManager = new K2JSCompilerPerformanceManager();
+    final K2JSCompilerPerformanceManager performanceManager = new K2JSCompilerPerformanceManager();
 
     @NotNull
     @Override
@@ -222,7 +208,7 @@ public class K2JSCompiler extends CLICompiler<K2JSCompilerArguments> {
 
         environmentForJS.getConfiguration().put(CLIConfigurationKeys.ALLOW_KOTLIN_PACKAGE, arguments.getAllowKotlinPackage());
 
-        if (!checkKotlinPackageUsage(environmentForJS, sourcesFiles)) return ExitCode.COMPILATION_ERROR;
+        if (!UtilsKt.checkKotlinPackageUsage(environmentForJS.getConfiguration(), sourcesFiles)) return ExitCode.COMPILATION_ERROR;
 
         if (arguments.getOutputFile() == null) {
             messageCollector.report(ERROR, "Specify output file via -output", null);
@@ -246,7 +232,7 @@ public class K2JSCompiler extends CLICompiler<K2JSCompilerArguments> {
 
         configuration.put(CommonConfigurationKeys.MODULE_NAME, FileUtil.getNameWithoutExtension(outputFile));
 
-        JsConfig config = new JsConfig(project, configuration);
+        JsConfig config = new JsConfig(project, configuration, CompilerEnvironment.INSTANCE);
         JsConfig.Reporter reporter = new JsConfig.Reporter() {
             @Override
             public void error(@NotNull String message) {
@@ -262,17 +248,28 @@ public class K2JSCompiler extends CLICompiler<K2JSCompilerArguments> {
             return COMPILATION_ERROR;
         }
 
-        AnalyzerWithCompilerReport analyzerWithCompilerReport = new AnalyzerWithCompilerReport(
-                messageCollector, CommonConfigurationKeysKt.getLanguageVersionSettings(configuration)
-        );
-        analyzerWithCompilerReport.analyzeAndReport(sourcesFiles, () -> TopDownAnalyzerFacadeForJS.analyzeFiles(sourcesFiles, config));
-        if (analyzerWithCompilerReport.hasErrors()) {
-            return COMPILATION_ERROR;
-        }
+        AnalysisResult analysisResult;
+        do {
+            AnalyzerWithCompilerReport analyzerWithCompilerReport = new AnalyzerWithCompilerReport(
+                    messageCollector, CommonConfigurationKeysKt.getLanguageVersionSettings(configuration)
+            );
+            List<KtFile> sources = environmentForJS.getSourceFiles();
+            analyzerWithCompilerReport.analyzeAndReport(sourcesFiles, () -> TopDownAnalyzerFacadeForJS.analyzeFiles(sources, config));
+            if (analyzerWithCompilerReport.hasErrors()) {
+                return COMPILATION_ERROR;
+            }
 
-        ProgressIndicatorAndCompilationCanceledStatus.checkCanceled();
+            ProgressIndicatorAndCompilationCanceledStatus.checkCanceled();
+            analysisResult = analyzerWithCompilerReport.getAnalysisResult();
 
-        AnalysisResult analysisResult = analyzerWithCompilerReport.getAnalysisResult();
+            if (analysisResult instanceof JsAnalysisResult.RetryWithAdditionalRoots) {
+                environmentForJS.addKotlinSourceRoots(((JsAnalysisResult.RetryWithAdditionalRoots) analysisResult).getAdditionalKotlinRoots());
+            }
+        } while(analysisResult instanceof JsAnalysisResult.RetryWithAdditionalRoots);
+
+        if (!analysisResult.getShouldGenerateCode())
+            return OK;
+
         assert analysisResult instanceof JsAnalysisResult : "analysisResult should be instance of JsAnalysisResult, but " + analysisResult;
         JsAnalysisResult jsAnalysisResult = (JsAnalysisResult) analysisResult;
 
@@ -515,7 +512,7 @@ public class K2JSCompiler extends CLICompiler<K2JSCompilerArguments> {
     }
 
     @NotNull
-    private static String calculateSourceMapSourceRoot(
+    static String calculateSourceMapSourceRoot(
             @NotNull MessageCollector messageCollector,
             @NotNull K2JSCompilerArguments arguments
     ) {
@@ -567,7 +564,7 @@ public class K2JSCompiler extends CLICompiler<K2JSCompilerArguments> {
 
     @NotNull
     @Override
-    protected CommonCompilerPerformanceManager getPerformanceManager() {
+    public CommonCompilerPerformanceManager getDefaultPerformanceManager() {
         return performanceManager;
     }
 

@@ -28,7 +28,7 @@ interface IrElementVisitor<out R, in D> {
     fun visitExternalPackageFragment(declaration: IrExternalPackageFragment, data: D) = visitPackageFragment(declaration, data)
     fun visitScript(declaration: IrScript, data: D) = visitDeclaration(declaration, data)
 
-    fun visitDeclaration(declaration: IrDeclaration, data: D) = visitElement(declaration, data)
+    fun visitDeclaration(declaration: IrDeclarationBase, data: D) = visitElement(declaration, data)
     fun visitClass(declaration: IrClass, data: D) = visitDeclaration(declaration, data)
     fun visitFunction(declaration: IrFunction, data: D) = visitDeclaration(declaration, data)
     fun visitSimpleFunction(declaration: IrSimpleFunction, data: D) = visitFunction(declaration, data)
@@ -53,6 +53,10 @@ interface IrElementVisitor<out R, in D> {
 
     fun visitExpression(expression: IrExpression, data: D) = visitElement(expression, data)
     fun <T> visitConst(expression: IrConst<T>, data: D) = visitExpression(expression, data)
+    fun visitConstantValue(expression: IrConstantValue, data: D) = visitExpression(expression, data)
+    fun visitConstantObject(expression: IrConstantObject, data: D) = visitConstantValue(expression, data)
+    fun visitConstantPrimitive(expression: IrConstantPrimitive, data: D) = visitConstantValue(expression, data)
+    fun visitConstantArray(expression: IrConstantArray, data: D) = visitConstantValue(expression, data)
     fun visitVararg(expression: IrVararg, data: D) = visitExpression(expression, data)
     fun visitSpreadElement(spread: IrSpreadElement, data: D) = visitElement(spread, data)
 
@@ -67,12 +71,12 @@ interface IrElementVisitor<out R, in D> {
     fun visitGetEnumValue(expression: IrGetEnumValue, data: D) = visitSingletonReference(expression, data)
     fun visitValueAccess(expression: IrValueAccessExpression, data: D) = visitDeclarationReference(expression, data)
     fun visitGetValue(expression: IrGetValue, data: D) = visitValueAccess(expression, data)
-    fun visitSetVariable(expression: IrSetVariable, data: D) = visitValueAccess(expression, data)
+    fun visitSetValue(expression: IrSetValue, data: D) = visitValueAccess(expression, data)
     fun visitFieldAccess(expression: IrFieldAccessExpression, data: D) = visitDeclarationReference(expression, data)
     fun visitGetField(expression: IrGetField, data: D) = visitFieldAccess(expression, data)
     fun visitSetField(expression: IrSetField, data: D) = visitFieldAccess(expression, data)
 
-    fun visitMemberAccess(expression: IrMemberAccessExpression, data: D) = visitExpression(expression, data)
+    fun visitMemberAccess(expression: IrMemberAccessExpression<*>, data: D) = visitDeclarationReference(expression, data)
     fun visitFunctionAccess(expression: IrFunctionAccessExpression, data: D) = visitMemberAccess(expression, data)
     fun visitCall(expression: IrCall, data: D) = visitFunctionAccess(expression, data)
     fun visitConstructorCall(expression: IrConstructorCall, data: D) = visitFunctionAccess(expression, data)
@@ -80,11 +84,13 @@ interface IrElementVisitor<out R, in D> {
     fun visitEnumConstructorCall(expression: IrEnumConstructorCall, data: D) = visitFunctionAccess(expression, data)
     fun visitGetClass(expression: IrGetClass, data: D) = visitExpression(expression, data)
 
-    fun visitCallableReference(expression: IrCallableReference, data: D) = visitMemberAccess(expression, data)
+    fun visitCallableReference(expression: IrCallableReference<*>, data: D) = visitMemberAccess(expression, data)
     fun visitFunctionReference(expression: IrFunctionReference, data: D) = visitCallableReference(expression, data)
     fun visitPropertyReference(expression: IrPropertyReference, data: D) = visitCallableReference(expression, data)
     fun visitLocalDelegatedPropertyReference(expression: IrLocalDelegatedPropertyReference, data: D) =
         visitCallableReference(expression, data)
+
+    fun visitRawFunctionReference(expression: IrRawFunctionReference, data: D) = visitDeclarationReference(expression, data)
 
     fun visitFunctionExpression(expression: IrFunctionExpression, data: D) = visitExpression(expression, data)
 

@@ -5,160 +5,67 @@
 
 package org.jetbrains.kotlin.fir.java.enhancement
 
-import org.jetbrains.kotlin.descriptors.ClassKind
 import org.jetbrains.kotlin.fir.FirSession
+import org.jetbrains.kotlin.fir.FirSessionComponent
 import org.jetbrains.kotlin.fir.declarations.FirRegularClass
 import org.jetbrains.kotlin.fir.expressions.*
+import org.jetbrains.kotlin.fir.java.JavaTypeParameterStack
+import org.jetbrains.kotlin.fir.java.convertAnnotationsToFir
+import org.jetbrains.kotlin.fir.java.declarations.FirJavaClass
+import org.jetbrains.kotlin.fir.resolve.providers.symbolProvider
 import org.jetbrains.kotlin.fir.resolve.toSymbol
-import org.jetbrains.kotlin.fir.symbols.impl.FirRegularClassSymbol
-import org.jetbrains.kotlin.load.java.*
+import org.jetbrains.kotlin.load.java.AbstractAnnotationTypeQualifierResolver
+import org.jetbrains.kotlin.load.java.JavaModuleAnnotationsProvider
+import org.jetbrains.kotlin.load.java.JavaTypeEnhancementState
+import org.jetbrains.kotlin.load.java.JavaTypeQualifiersByElementType
 import org.jetbrains.kotlin.load.java.JvmAnnotationNames.DEFAULT_ANNOTATION_MEMBER_NAME
-import org.jetbrains.kotlin.load.java.lazy.NullabilityQualifierWithApplicability
-import org.jetbrains.kotlin.name.ClassId
-import org.jetbrains.kotlin.utils.Jsr305State
-import org.jetbrains.kotlin.utils.ReportLevel
-import org.jetbrains.kotlin.utils.addToStdlib.firstNotNullResult
+import org.jetbrains.kotlin.name.FqName
 
-class FirAnnotationTypeQualifierResolver(private val session: FirSession, private val jsr305State: Jsr305State) {
+class FirAnnotationTypeQualifierResolver(
+    private val session: FirSession,
+    javaTypeEnhancementState: JavaTypeEnhancementState,
+    private val javaModuleAnnotationsProvider: JavaModuleAnnotationsProvider,
+) : AbstractAnnotationTypeQualifierResolver<FirAnnotation>(javaTypeEnhancementState), FirSessionComponent {
 
-    class TypeQualifierWithApplicability(
-        private val typeQualifier: FirAnnotationCall,
-        private val applicability: Int
-    ) {
-        operator fun component1() = typeQualifier
-        operator fun component2() = AnnotationTypeQualifierResolver.QualifierApplicabilityType.values().filter(this::isApplicableTo)
+    override val FirAnnotation.metaAnnotations: Iterable<FirAnnotation>
+        get() = coneClassLikeType?.lookupTag?.toSymbol(session)?.fir?.annotations.orEmpty()
 
-        private fun isApplicableTo(elementType: AnnotationTypeQualifierResolver.QualifierApplicabilityType) =
-            isApplicableConsideringMask(AnnotationTypeQualifierResolver.QualifierApplicabilityType.TYPE_USE) || isApplicableConsideringMask(
-                elementType
-            )
+    override val FirAnnotation.key: Any
+        get() = coneClassLikeType!!.lookupTag
 
-        private fun isApplicableConsideringMask(elementType: AnnotationTypeQualifierResolver.QualifierApplicabilityType) =
-            (applicability and (1 shl elementType.ordinal)) != 0
-    }
+    override val FirAnnotation.fqName: FqName?
+        get() = coneClassLikeType?.lookupTag?.classId?.asSingleFqName()
 
-    // TODO: memoize this function
-    private fun computeTypeQualifierNickname(klass: FirRegularClass): FirAnnotationCall? {
-        if (klass.annotations.none { it.classId == TYPE_QUALIFIER_NICKNAME_ID }) return null
-
-        return klass.annotations.firstNotNullResult(this::resolveTypeQualifierAnnotation)
-    }
-
-    private fun resolveTypeQualifierNickname(klass: FirRegularClass): FirAnnotationCall? {
-        if (klass.classKind != ClassKind.ANNOTATION_CLASS) return null
-
-        return computeTypeQualifierNickname(klass)
-    }
-
-    private val FirAnnotationCall.resolvedClass: FirRegularClass?
-        get() = (coneClassLikeType?.lookupTag?.toSymbol(this@FirAnnotationTypeQualifierResolver.session) as? FirRegularClassSymbol)?.fir
-
-    fun resolveTypeQualifierAnnotation(annotationCall: FirAnnotationCall): FirAnnotationCall? {
-        if (jsr305State.disabled) {
-            return null
+    override fun FirAnnotation.enumArguments(onlyValue: Boolean): Iterable<String> =
+        argumentMapping.mapping.values.flatMap { argument ->
+            if (!onlyValue || argument !is FirNamedArgumentExpression || argument.name == DEFAULT_ANNOTATION_MEMBER_NAME)
+                argument.toEnumNames()
+            else
+                emptyList()
         }
 
-        val annotationClass = annotationCall.resolvedClass ?: return null
-        if (annotationClass.isAnnotatedWithTypeQualifier) return annotationCall
-
-        return resolveTypeQualifierNickname(annotationClass)
-    }
-
-    fun resolveQualifierBuiltInDefaultAnnotation(annotationCall: FirAnnotationCall): NullabilityQualifierWithApplicability? {
-        if (jsr305State.disabled) {
-            return null
-        }
-
-        val annotationClassId = annotationCall.classId
-        return BUILT_IN_TYPE_QUALIFIER_DEFAULT_ANNOTATION_IDS[annotationClassId]?.let { (qualifier, applicability) ->
-            val state = resolveJsr305ReportLevel(annotationCall).takeIf { it != ReportLevel.IGNORE } ?: return null
-            return NullabilityQualifierWithApplicability(qualifier.copy(isForWarningOnly = state.isWarning), applicability)
-        }
-    }
-
-    fun resolveTypeQualifierDefaultAnnotation(annotationCall: FirAnnotationCall): TypeQualifierWithApplicability? {
-        if (jsr305State.disabled) {
-            return null
-        }
-
-        val typeQualifierDefaultAnnotatedClass =
-            annotationCall.resolvedClass?.takeIf { klass ->
-                klass.annotations.any { it.classId == TYPE_QUALIFIER_DEFAULT_ID }
-            } ?: return null
-
-        val elementTypesMask =
-            annotationCall.resolvedClass!!
-                .annotations.find { it.classId == TYPE_QUALIFIER_DEFAULT_ID }!!
-                .arguments
-                .flatMap { argument ->
-                    if (argument !is FirNamedArgumentExpression || argument.name == DEFAULT_ANNOTATION_MEMBER_NAME)
-                        argument.mapConstantToQualifierApplicabilityTypes()
-                    else
-                        emptyList()
-                }
-                .fold(0) { acc: Int, applicabilityType -> acc or (1 shl applicabilityType.ordinal) }
-
-        val typeQualifier = typeQualifierDefaultAnnotatedClass.annotations.firstOrNull { resolveTypeQualifierAnnotation(it) != null }
-            ?: return null
-
-        return TypeQualifierWithApplicability(
-            typeQualifier,
-            elementTypesMask
-        )
-    }
-
-    fun resolveJsr305ReportLevel(annotationCall: FirAnnotationCall): ReportLevel {
-        resolveJsr305CustomLevel(annotationCall)?.let { return it }
-        return jsr305State.global
-    }
-
-    fun resolveJsr305CustomLevel(annotationCall: FirAnnotationCall): ReportLevel? {
-        jsr305State.user[annotationCall.classId?.run { packageFqName.asString() + "." + relativeClassName.asString() }]?.let { return it }
-        return annotationCall.resolvedClass?.migrationAnnotationStatus()
-    }
-
-    private fun FirRegularClass.migrationAnnotationStatus(): ReportLevel? {
-        val enumEntryName = annotations.find {
-            it.classId == MIGRATION_ANNOTATION_ID
-        }?.arguments?.firstOrNull()?.toResolvedCallableSymbol()?.callableId?.callableName ?: return null
-
-        jsr305State.migration?.let { return it }
-
-        return when (enumEntryName.asString()) {
-            "STRICT" -> ReportLevel.STRICT
-            "WARN" -> ReportLevel.WARN
-            "IGNORE" -> ReportLevel.IGNORE
-            else -> null
-        }
-    }
-
-    private fun FirExpression.mapConstantToQualifierApplicabilityTypes(): List<AnnotationTypeQualifierResolver.QualifierApplicabilityType> =
+    private fun FirExpression.toEnumNames(): List<String> =
         when (this) {
-            is FirArrayOfCall -> arguments.flatMap { it.mapConstantToQualifierApplicabilityTypes() }
-            else -> listOfNotNull(
-                when (toResolvedCallableSymbol()?.callableId?.callableName?.asString()) {
-                    "METHOD" -> AnnotationTypeQualifierResolver.QualifierApplicabilityType.METHOD_RETURN_TYPE
-                    "FIELD" -> AnnotationTypeQualifierResolver.QualifierApplicabilityType.FIELD
-                    "PARAMETER" -> AnnotationTypeQualifierResolver.QualifierApplicabilityType.VALUE_PARAMETER
-                    "TYPE_USE" -> AnnotationTypeQualifierResolver.QualifierApplicabilityType.TYPE_USE
-                    else -> null
-                }
-            )
+            is FirArrayOfCall -> arguments.flatMap { it.toEnumNames() }
+            is FirVarargArgumentsExpression -> arguments.flatMap { it.toEnumNames() }
+            else -> listOfNotNull(toResolvedCallableSymbol()?.callableId?.callableName?.asString())
         }
 
-    val disabled: Boolean = jsr305State.disabled
-
+    fun extractDefaultQualifiers(firClass: FirRegularClass): JavaTypeQualifiersByElementType? {
+        val classId = firClass.symbol.classId
+        val outerClassId = classId.outerClassId
+        val parentQualifiers = if (outerClassId != null) {
+            (session.symbolProvider.getClassLikeSymbolByClassId(outerClassId)?.fir as? FirRegularClass)
+                ?.let { extractDefaultQualifiers(it) }
+        } else {
+            val forModule = javaModuleAnnotationsProvider.getAnnotationsForModuleOwnerOfClass(classId)
+                ?.let { extractAndMergeDefaultQualifiers(null, it.convertAnnotationsToFir(session, JavaTypeParameterStack.EMPTY)) }
+            val forPackage = (firClass as? FirJavaClass)?.javaPackage
+                ?.let { extractAndMergeDefaultQualifiers(forModule, it.convertAnnotationsToFir(session, JavaTypeParameterStack.EMPTY)) }
+            forPackage ?: forModule
+        }
+        return extractAndMergeDefaultQualifiers(parentQualifiers, firClass.annotations)
+    }
 }
 
-private val FirRegularClass.isAnnotatedWithTypeQualifier: Boolean
-    get() = this.symbol.classId in BUILT_IN_TYPE_QUALIFIER_IDS ||
-            annotations.any { it.classId == TYPE_QUALIFIER_ID }
-
-private val TYPE_QUALIFIER_ID = ClassId.topLevel(TYPE_QUALIFIER_FQNAME)
-private val BUILT_IN_TYPE_QUALIFIER_IDS = BUILT_IN_TYPE_QUALIFIER_FQ_NAMES.map { ClassId.topLevel(it) }
-private val TYPE_QUALIFIER_DEFAULT_ID = ClassId.topLevel(TYPE_QUALIFIER_DEFAULT_FQNAME)
-private val MIGRATION_ANNOTATION_ID = ClassId.topLevel(MIGRATION_ANNOTATION_FQNAME)
-private val TYPE_QUALIFIER_NICKNAME_ID = ClassId.topLevel(TYPE_QUALIFIER_NICKNAME_FQNAME)
-
-private val BUILT_IN_TYPE_QUALIFIER_DEFAULT_ANNOTATION_IDS =
-    BUILT_IN_TYPE_QUALIFIER_DEFAULT_ANNOTATIONS.mapKeys { ClassId.topLevel(it.key) }
+val FirSession.javaAnnotationTypeQualifierResolver: FirAnnotationTypeQualifierResolver by FirSession.sessionComponentAccessor()

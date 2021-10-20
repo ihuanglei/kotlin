@@ -1,5 +1,5 @@
-// !LANGUAGE: +MultiPlatformProjects
-// !USE_EXPERIMENTAL: kotlin.ExperimentalMultiplatform
+// !LANGUAGE: +MultiPlatformProjects +UseGetterNameForPropertyAnnotationsMethodOnJvm
+// !OPT_IN: kotlin.ExperimentalMultiplatform
 // TARGET_BACKEND: JVM
 // WITH_RUNTIME
 

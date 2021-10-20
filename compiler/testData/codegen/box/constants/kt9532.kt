@@ -1,6 +1,5 @@
-// !LANGUAGE: -NoConstantValueAttributeForNonConstVals
-// IGNORE_BACKEND_FIR: JVM_IR
-// TODO: muted automatically, investigate should it be ran for JS or not
+// IGNORE_BACKEND: WASM
+// WASM_MUTE_REASON: MINOR: CONST_EQUIVALENCE
 // IGNORE_BACKEND: NATIVE
 
 object A {

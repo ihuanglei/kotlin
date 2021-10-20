@@ -17,9 +17,11 @@
 package org.jetbrains.kotlin.daemon
 
 import org.jetbrains.kotlin.cli.common.CLICompiler
+import org.jetbrains.kotlin.cli.common.CompilerSystemProperties
 import org.jetbrains.kotlin.cli.common.environment.setIdeaIoUseFallback
 import org.jetbrains.kotlin.cli.js.K2JSCompiler
 import org.jetbrains.kotlin.cli.jvm.K2JVMCompiler
+import org.jetbrains.kotlin.cli.jvm.compiler.setupIdeaStandaloneExecution
 import org.jetbrains.kotlin.cli.metadata.K2MetadataCompiler
 import org.jetbrains.kotlin.daemon.common.*
 import java.io.File
@@ -45,7 +47,7 @@ class LogStream(name: String) : OutputStream() {
     val lineBuf = StringBuilder()
 
     override fun write(byte: Int) {
-        if (byte.toChar() == '\n') flush()
+        if (byte == '\n'.code) flush()
         else lineBuf.append(byte.toChar())
     }
 
@@ -59,7 +61,7 @@ abstract class KotlinCompileDaemonBase {
     init {
         val logTime: String = SimpleDateFormat("yyyy-MM-dd.HH-mm-ss-SSS").format(Date())
         val (logPath: String, fileIsGiven: Boolean) =
-                System.getProperty(COMPILE_DAEMON_LOG_PATH_PROPERTY)?.trimQuotes()?.let { Pair(it, File(it).isFile) } ?: Pair("%t", false)
+            CompilerSystemProperties.COMPILE_DAEMON_LOG_PATH_PROPERTY.value?.trimQuotes()?.let { Pair(it, File(it).isFile) } ?: Pair("%t", false)
         val cfg: String =
             "handlers = java.util.logging.FileHandler\n" +
                     "java.util.logging.FileHandler.level     = ALL\n" +
@@ -112,6 +114,7 @@ abstract class KotlinCompileDaemonBase {
         log.info("daemon args: " + args.joinToString(" "))
 
         setIdeaIoUseFallback()
+        setupIdeaStandaloneExecution()
 
         val compilerId = CompilerId()
         val daemonOptions = DaemonOptions()

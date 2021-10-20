@@ -1,5 +1,5 @@
 /*
- * Copyright 2010-2019 JetBrains s.r.o. and Kotlin Programming Language contributors.
+ * Copyright 2010-2021 JetBrains s.r.o. and Kotlin Programming Language contributors.
  * Use of this source code is governed by the Apache 2.0 license that can be found in the license/LICENSE.txt file.
  */
 
@@ -8,6 +8,8 @@
 
 package kotlin.test
 
+import kotlin.contracts.InvocationKind
+import kotlin.contracts.contract
 import kotlin.internal.*
 import kotlin.reflect.*
 
@@ -25,7 +27,7 @@ internal actual fun <T : Throwable> checkResultIsFailure(exceptionClass: KClass<
                 return e as T
             }
 
-            asserter.fail(messagePrefix(message) + "Expected an exception of ${exceptionClass.java} to be thrown, but was $e")
+            asserter.fail(messagePrefix(message) + "Expected an exception of ${exceptionClass.java} to be thrown, but was $e", e)
         }
     )
 }
@@ -51,6 +53,43 @@ fun <T : Throwable> assertFailsWithNoInline(exceptionClass: KClass<T>, block: ()
 fun <T : Throwable> assertFailsWithNoInline(exceptionClass: KClass<T>, message: String?, block: () -> Unit): T =
     assertFailsWith(exceptionClass, message, block)
 
+@Deprecated("Provided for binary compatibility", level = DeprecationLevel.HIDDEN)
+@JvmName("assertTrue")
+fun assertTrueNoInline(message: String? = null, block: () -> Boolean) {
+    contract { callsInPlace(block, InvocationKind.EXACTLY_ONCE) }
+    assertTrue(block(), message)
+}
+
+@Deprecated("Provided for binary compatibility", level = DeprecationLevel.HIDDEN)
+@JvmName("assertFalse")
+fun assertFalseNoInline(message: String? = null, block: () -> Boolean) {
+    contract { callsInPlace(block, InvocationKind.EXACTLY_ONCE) }
+    assertFalse(block(), message)
+}
+
+@Deprecated("Provided for binary compatibility", level = DeprecationLevel.HIDDEN)
+@JvmName("assertNotNull")
+fun <T : Any, R> assertNotNullNoInline(actual: T?, message: String? = null, block: (T) -> R) {
+    contract { returns() implies (actual != null) }
+    asserter.assertNotNull(message, actual)
+    if (actual != null) {
+        block(actual)
+    }
+}
+
+@Deprecated("Provided for binary compatibility", level = DeprecationLevel.HIDDEN)
+@JvmName("expect")
+fun <T> expectNoInline(expected: T, block: () -> T) {
+    contract { callsInPlace(block, InvocationKind.EXACTLY_ONCE) }
+    assertEquals(expected, block())
+}
+
+@Deprecated("Provided for binary compatibility", level = DeprecationLevel.HIDDEN)
+@JvmName("expect")
+fun <T> expectNoInline(expected: T, message: String?, block: () -> T) {
+    contract { callsInPlace(block, InvocationKind.EXACTLY_ONCE) }
+    assertEquals(expected, block(), message)
+}
 
 /**
  * Takes the given [block] of test code and _doesn't_ execute it.
@@ -72,3 +111,10 @@ actual inline fun todo(@Suppress("UNUSED_PARAMETER") block: () -> Unit) {
 @InlineOnly
 inline fun currentStackTrace() = @Suppress("PLATFORM_CLASS_MAPPED_TO_KOTLIN") (java.lang.Exception() as java.lang.Throwable).stackTrace
 
+
+/** Platform-specific construction of AssertionError with cause */
+internal actual fun AssertionErrorWithCause(message: String?, cause: Throwable?): AssertionError {
+    val assertionError = if (message == null) AssertionError() else AssertionError(message)
+    assertionError.initCause(cause)
+    return assertionError
+}

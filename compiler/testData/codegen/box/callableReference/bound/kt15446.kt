@@ -1,5 +1,4 @@
-// IGNORE_BACKEND_FIR: JVM_IR
-// KJS_WITH_FULL_RUNTIME
+
 //WITH_RUNTIME
 fun box(): String {
     val a = intArrayOf(1, 2)

@@ -1,5 +1,5 @@
 // A
-
+// WITH_RUNTIME
 class A {
     @Synchronized
     @Strictfp
@@ -11,3 +11,5 @@ class A {
     @Volatile
     var c: String = ""
 }
+
+// FIR_COMPARISON

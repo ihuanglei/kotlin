@@ -25,8 +25,8 @@ import org.jetbrains.kotlin.cli.common.messages.MessageUtil
 import org.jetbrains.kotlin.cli.common.messages.OutputMessageUtil
 import org.jetbrains.kotlin.cli.jvm.compiler.EnvironmentConfigFiles
 import org.jetbrains.kotlin.cli.jvm.compiler.KotlinCoreEnvironment
+import org.jetbrains.kotlin.cli.jvm.config.K2MetadataConfigurationKeys
 import org.jetbrains.kotlin.cli.jvm.config.addJvmClasspathRoots
-import org.jetbrains.kotlin.cli.jvm.plugins.PluginCliParser
 import org.jetbrains.kotlin.codegen.CompilationException
 import org.jetbrains.kotlin.config.CommonConfigurationKeys
 import org.jetbrains.kotlin.config.CompilerConfiguration
@@ -39,7 +39,7 @@ import java.io.File
 
 class K2MetadataCompiler : CLICompiler<K2MetadataCompilerArguments>() {
 
-    override val performanceManager = K2MetadataCompilerPerformanceManager()
+    override val defaultPerformanceManager: CommonCompilerPerformanceManager = K2MetadataCompilerPerformanceManager()
 
     override fun createArguments() = K2MetadataCompilerArguments()
 
@@ -58,20 +58,27 @@ class K2MetadataCompiler : CLICompiler<K2MetadataCompilerArguments>() {
         paths: KotlinPaths?
     ): ExitCode {
         val collector = configuration.getNotNull(CLIConfigurationKeys.MESSAGE_COLLECTOR_KEY)
+        val performanceManager = configuration.getNotNull(CLIConfigurationKeys.PERF_MANAGER)
 
         val pluginLoadResult = loadPlugins(paths, arguments, configuration)
         if (pluginLoadResult != ExitCode.OK) return pluginLoadResult
 
+        val commonSources = arguments.commonSources?.toSet() ?: emptySet()
         for (arg in arguments.freeArgs) {
-            configuration.addKotlinSourceRoot(arg, isCommon = true)
+            configuration.addKotlinSourceRoot(arg, isCommon = arg in commonSources)
         }
         if (arguments.classpath != null) {
             configuration.addJvmClasspathRoots(arguments.classpath!!.split(File.pathSeparatorChar).map(::File))
         }
 
-        configuration.put(CommonConfigurationKeys.MODULE_NAME, arguments.moduleName ?: JvmProtoBufUtil.DEFAULT_MODULE_NAME)
+        val moduleName = arguments.moduleName ?: JvmProtoBufUtil.DEFAULT_MODULE_NAME
+        configuration.put(CommonConfigurationKeys.MODULE_NAME, moduleName)
 
         configuration.put(CLIConfigurationKeys.ALLOW_KOTLIN_PACKAGE, arguments.allowKotlinPackage)
+
+        configuration.putIfNotNull(K2MetadataConfigurationKeys.FRIEND_PATHS, arguments.friendPaths?.toList())
+        configuration.putIfNotNull(K2MetadataConfigurationKeys.REFINES_PATHS, arguments.refinesPaths?.toList())
+
 
         val destination = arguments.destination
         if (destination != null) {
@@ -88,6 +95,9 @@ class K2MetadataCompiler : CLICompiler<K2MetadataCompilerArguments>() {
         val environment =
             KotlinCoreEnvironment.createForProduction(rootDisposable, configuration, EnvironmentConfigFiles.METADATA_CONFIG_FILES)
 
+        val mode = if(arguments.expectActualLinker) "KLib" else "metadata"
+        performanceManager.notifyCompilerInitialized(environment.getSourceFiles(), "$mode mode for $moduleName module")
+
         if (environment.getSourceFiles().isEmpty()) {
             if (arguments.version) {
                 return ExitCode.OK
@@ -96,12 +106,16 @@ class K2MetadataCompiler : CLICompiler<K2MetadataCompilerArguments>() {
             return ExitCode.COMPILATION_ERROR
         }
 
-        checkKotlinPackageUsage(environment, environment.getSourceFiles())
+        checkKotlinPackageUsage(environment.configuration, environment.getSourceFiles())
 
         try {
             val metadataVersion =
                 configuration.get(CommonConfigurationKeys.METADATA_VERSION) as? BuiltInsBinaryVersion ?: BuiltInsBinaryVersion.INSTANCE
-            MetadataSerializer(metadataVersion, true).serialize(environment)
+            if (arguments.expectActualLinker) {
+                K2MetadataKlibSerializer(metadataVersion).serialize(environment)
+            } else {
+                MetadataSerializer(metadataVersion, true).serialize(environment)
+            }
         } catch (e: CompilationException) {
             collector.report(EXCEPTION, OutputMessageUtil.renderException(e), MessageUtil.psiElementToMessageLocation(e.element))
             return ExitCode.INTERNAL_ERROR

@@ -65,6 +65,72 @@ class Arrays {
     class Transformations {
 
         @Sample
+        fun associateArrayOfPrimitives() {
+            val charCodes = intArrayOf(72, 69, 76, 76, 79)
+
+            val byCharCode = charCodes.associate { it to Char(it) }
+
+            // 76=L only occurs once because only the last pair with the same key gets added
+            assertPrints(byCharCode, "{72=H, 69=E, 76=L, 79=O}")
+        }
+
+
+        @Sample
+        fun associateArrayOfPrimitivesBy() {
+            val charCodes = intArrayOf(72, 69, 76, 76, 79)
+
+            val byChar = charCodes.associateBy { Char(it) }
+
+            // L=76 only occurs once because only the last pair with the same key gets added
+            assertPrints(byChar, "{H=72, E=69, L=76, O=79}")
+        }
+
+        @Sample
+        fun associateArrayOfPrimitivesByWithValueTransform() {
+            val charCodes = intArrayOf(65, 65, 66, 67, 68, 69)
+
+            val byUpperCase = charCodes.associateBy({ Char(it) }, { Char(it + 32) })
+
+            // A=a only occurs once because only the last pair with the same key gets added
+            assertPrints(byUpperCase, "{A=a, B=b, C=c, D=d, E=e}")
+        }
+
+        @Sample
+        fun associateArrayOfPrimitivesByTo() {
+            val charCodes = intArrayOf(72, 69, 76, 76, 79)
+            val byChar = mutableMapOf<Char, Int>()
+
+            assertTrue(byChar.isEmpty())
+            charCodes.associateByTo(byChar) { Char(it) }
+
+            assertTrue(byChar.isNotEmpty())
+            // L=76 only occurs once because only the last pair with the same key gets added
+            assertPrints(byChar, "{H=72, E=69, L=76, O=79}")
+        }
+
+        @Sample
+        fun associateArrayOfPrimitivesByToWithValueTransform() {
+            val charCodes = intArrayOf(65, 65, 66, 67, 68, 69)
+
+            val byUpperCase = mutableMapOf<Char, Char>()
+            charCodes.associateByTo(byUpperCase, { Char(it) }, { Char(it + 32) })
+
+            // A=a only occurs once because only the last pair with the same key gets added
+            assertPrints(byUpperCase, "{A=a, B=b, C=c, D=d, E=e}")
+        }
+
+        @Sample
+        fun associateArrayOfPrimitivesTo() {
+            val charCodes = intArrayOf(72, 69, 76, 76, 79)
+
+            val byChar = mutableMapOf<Int, Char>()
+            charCodes.associateTo(byChar) { it to Char(it) }
+
+            // 76=L only occurs once because only the last pair with the same key gets added
+            assertPrints(byChar, "{72=H, 69=E, 76=L, 79=O}")
+        }
+
+        @Sample
         fun flattenArray() {
             val deepArray = arrayOf(
                 arrayOf(1),
@@ -79,6 +145,14 @@ class Arrays {
         fun unzipArray() {
             val array = arrayOf(1 to 'a', 2 to 'b', 3 to 'c')
             assertPrints(array.unzip(), "([1, 2, 3], [a, b, c])")
+        }
+
+        @Sample
+        fun partitionArrayOfPrimitives() {
+            val array = intArrayOf(1, 2, 3, 4, 5)
+            val (even, odd) = array.partition { it % 2 == 0 }
+            assertPrints(even, "[2, 4]")
+            assertPrints(odd, "[1, 3, 5]")
         }
     }
 

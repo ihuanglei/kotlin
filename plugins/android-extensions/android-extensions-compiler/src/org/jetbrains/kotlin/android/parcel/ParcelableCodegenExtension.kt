@@ -9,6 +9,7 @@ import kotlinx.android.parcel.TypeParceler
 import org.jetbrains.kotlin.android.parcel.ParcelableResolveExtension.Companion.createMethod
 import org.jetbrains.kotlin.android.parcel.serializers.*
 import org.jetbrains.kotlin.android.parcel.ParcelableSyntheticComponent.ComponentKind.*
+import org.jetbrains.kotlin.android.parcel.serializers.ParcelableExtensionBase.Companion.FILE_DESCRIPTOR_FQNAME
 import org.jetbrains.kotlin.builtins.KotlinBuiltIns
 import org.jetbrains.kotlin.codegen.*
 import org.jetbrains.kotlin.codegen.extensions.ExpressionCodegenExtension
@@ -27,12 +28,12 @@ import org.jetbrains.kotlin.codegen.writeSyntheticClassMetadata
 import org.jetbrains.kotlin.descriptors.annotations.Annotations
 import org.jetbrains.kotlin.descriptors.impl.ClassDescriptorImpl
 import org.jetbrains.kotlin.incremental.components.NoLookupLocation
-import org.jetbrains.kotlin.incremental.components.NoLookupLocation.WHEN_GET_ALL_DESCRIPTORS
 import org.jetbrains.kotlin.name.FqName
 import org.jetbrains.kotlin.psi.KtElement
 import org.jetbrains.kotlin.resolve.DescriptorFactory
 import org.jetbrains.kotlin.resolve.descriptorUtil.fqNameSafe
 import org.jetbrains.kotlin.resolve.descriptorUtil.module
+import org.jetbrains.kotlin.resolve.inline.InlineUtil
 import org.jetbrains.kotlin.resolve.jvm.diagnostics.JvmDeclarationOriginKind
 import org.jetbrains.kotlin.resolve.scopes.MemberScope
 import org.jetbrains.kotlin.storage.LockBasedStorageManager
@@ -41,14 +42,8 @@ import org.jetbrains.kotlin.types.TypeUtils
 import org.jetbrains.kotlin.types.Variance
 import org.jetbrains.org.objectweb.asm.Opcodes.*
 import org.jetbrains.org.objectweb.asm.Type
-import java.io.FileDescriptor
 
 open class ParcelableCodegenExtension : ParcelableExtensionBase, ExpressionCodegenExtension {
-
-    companion object {
-        private val FILE_DESCRIPTOR_FQNAME = FqName(FileDescriptor::class.java.canonicalName)
-    }
-
     @Deprecated(
         "@Parcelize is now available in non-experimental setups as well.",
         replaceWith = ReplaceWith("true"),
@@ -81,7 +76,7 @@ open class ParcelableCodegenExtension : ParcelableExtensionBase, ExpressionCodeg
             }
 
             if (!hasCreatorField()) {
-                writeCreatorAccessField(codegen)
+                writeCreatorAccessField(codegen, parcelableClass)
             }
         }
 
@@ -89,7 +84,10 @@ open class ParcelableCodegenExtension : ParcelableExtensionBase, ExpressionCodeg
             val parcelClassType = ParcelableResolveExtension.resolveParcelClassType(parcelableClass.module)
                                   ?: error("Can't resolve 'android.os.Parcel' class")
 
-            writeCreatorClass(codegen, parcelableClass, parcelClassType, PARCEL_TYPE, parcelerObject, propertiesToSerialize)
+            val parcelableCreatorClassType = ParcelableResolveExtension.resolveParcelableCreatorClassType(parcelableClass.module)
+                ?: error("Can't resolve 'android.os.Parcelable.Creator' class")
+
+            writeCreatorClass(codegen, parcelableClass, parcelClassType, parcelableCreatorClassType, PARCEL_TYPE, parcelerObject, propertiesToSerialize)
         }
     }
 
@@ -206,6 +204,7 @@ open class ParcelableCodegenExtension : ParcelableExtensionBase, ExpressionCodeg
     private fun writeCreateFromParcel(
             codegen: ImplementationBodyCodegen,
             parcelableClass: ClassDescriptor,
+            parcelableCreatorClassType: KotlinType,
             creatorClass: ClassDescriptorImpl,
             parcelClassType: KotlinType,
             parcelAsmType: Type,
@@ -215,16 +214,18 @@ open class ParcelableCodegenExtension : ParcelableExtensionBase, ExpressionCodeg
         val containerAsmType = codegen.typeMapper.mapType(parcelableClass)
         val creatorAsmType = codegen.typeMapper.mapType(creatorClass)
 
+        val overriddenFunction = parcelableCreatorClassType.findFunction(CREATE_FROM_PARCEL)
+            ?: error("Can't resolve 'android.os.Parcelable.Creator.${CREATE_FROM_PARCEL.methodName}' method")
         createMethod(
             creatorClass, CREATE_FROM_PARCEL, Modality.FINAL,
-            parcelableClass.builtIns.anyType, "in" to parcelClassType
-        ).write(codegen) {
+            parcelableClass.defaultType, "in" to parcelClassType
+        ).write(codegen, overriddenFunction) {
             if (parcelerObject != null) {
                 val (companionAsmType, companionFieldName) = getCompanionClassType(containerAsmType, parcelerObject)
 
                 v.getstatic(containerAsmType.internalName, companionFieldName, companionAsmType.descriptor)
                 v.load(1, PARCEL_TYPE)
-                v.invokevirtual(companionAsmType.internalName, "create", "(${PARCEL_TYPE.descriptor})Ljava/lang/Object;", false)
+                v.invokevirtual(companionAsmType.internalName, "create", "(${PARCEL_TYPE.descriptor})$containerAsmType", false)
             }
             else {
                 v.anew(containerAsmType)
@@ -266,17 +267,20 @@ open class ParcelableCodegenExtension : ParcelableExtensionBase, ExpressionCodeg
         }
     }
 
-    private fun writeCreatorAccessField(codegen: ImplementationBodyCodegen) {
+    private fun writeCreatorAccessField(codegen: ImplementationBodyCodegen, parcelableClass: ClassDescriptor) {
         val creatorType = Type.getObjectType("android/os/Parcelable\$Creator")
+        val parcelableType = codegen.typeMapper.mapType(parcelableClass)
+        val fieldSignature = "L${creatorType.internalName}<${parcelableType.descriptor}>;"
 
         codegen.v.newField(JvmDeclarationOrigin.NO_ORIGIN, ACC_STATIC or ACC_PUBLIC or ACC_FINAL, "CREATOR",
-                           creatorType.descriptor, null, null)
+                           creatorType.descriptor, fieldSignature, null)
     }
 
     private fun writeCreatorClass(
             codegen: ImplementationBodyCodegen,
             parcelableClass: ClassDescriptor,
             parcelClassType: KotlinType,
+            parcelableCreatorClassType: KotlinType,
             parcelAsmType: Type,
             parcelerObject: ClassDescriptor?,
             properties: List<PropertyToSerialize>
@@ -285,7 +289,7 @@ open class ParcelableCodegenExtension : ParcelableExtensionBase, ExpressionCodeg
         val creatorAsmType = Type.getObjectType(containerAsmType.internalName + "\$Creator")
 
         val creatorClass = ClassDescriptorImpl(
-                parcelableClass, Name.identifier("Creator"), Modality.FINAL, ClassKind.CLASS, emptyList(),
+                parcelableClass, Name.identifier("Creator"), Modality.FINAL, ClassKind.CLASS, listOf(parcelableCreatorClassType),
                 parcelableClass.source, false, LockBasedStorageManager.NO_LOCKS)
 
         creatorClass.initialize(
@@ -302,18 +306,19 @@ open class ParcelableCodegenExtension : ParcelableExtensionBase, ExpressionCodeg
         val codegenForCreator = ImplementationBodyCodegen(
                 codegen.myClass, classContextForCreator, classBuilderForCreator, codegen.state, codegen.parentCodegen, false)
 
+        val classSignature = "Ljava/lang/Object;Landroid/os/Parcelable\$Creator<${containerAsmType.descriptor}>;"
         classBuilderForCreator.defineClass(null, V1_6, ACC_PUBLIC or ACC_FINAL or ACC_SUPER,
-                              creatorAsmType.internalName, null, "java/lang/Object",
+                              creatorAsmType.internalName, classSignature, "java/lang/Object",
                               arrayOf("android/os/Parcelable\$Creator"))
 
         codegen.v.visitInnerClass(creatorAsmType.internalName, containerAsmType.internalName, "Creator", ACC_PUBLIC or ACC_STATIC)
         codegenForCreator.v.visitInnerClass(creatorAsmType.internalName, containerAsmType.internalName, "Creator", ACC_PUBLIC or ACC_STATIC)
 
-        writeSyntheticClassMetadata(classBuilderForCreator, codegen.state)
+        writeSyntheticClassMetadata(classBuilderForCreator, codegen.state, InlineUtil.isInPublicInlineScope(parcelableClass))
 
         writeCreatorConstructor(codegenForCreator, creatorClass, creatorAsmType)
-        writeNewArrayMethod(codegenForCreator, parcelableClass, creatorClass, parcelerObject)
-        writeCreateFromParcel(codegenForCreator, parcelableClass, creatorClass, parcelClassType, parcelAsmType, parcelerObject, properties)
+        writeNewArrayMethod(codegenForCreator, parcelableClass, parcelableCreatorClassType, creatorClass, parcelerObject)
+        writeCreateFromParcel(codegenForCreator, parcelableClass, parcelableCreatorClassType, creatorClass, parcelClassType, parcelAsmType, parcelerObject, properties)
 
         classBuilderForCreator.done()
     }
@@ -332,16 +337,19 @@ open class ParcelableCodegenExtension : ParcelableExtensionBase, ExpressionCodeg
     private fun writeNewArrayMethod(
             codegen: ImplementationBodyCodegen,
             parcelableClass: ClassDescriptor,
+            parcelableCreatorClassType: KotlinType,
             creatorClass: ClassDescriptorImpl,
             parcelerObject: ClassDescriptor?
     ) {
         val builtIns = parcelableClass.builtIns
         val parcelableAsmType = codegen.typeMapper.mapType(parcelableClass)
 
+        val overriddenFunction = parcelableCreatorClassType.findFunction(NEW_ARRAY)
+            ?: error("Can't resolve 'android.os.Parcelable.Creator.${NEW_ARRAY.methodName}' method")
         createMethod(creatorClass, NEW_ARRAY, Modality.FINAL,
-                builtIns.getArrayType(Variance.INVARIANT, builtIns.anyType),
+                builtIns.getArrayType(Variance.INVARIANT, parcelableClass.defaultType),
                 "size" to builtIns.intType
-        ).write(codegen) {
+        ).write(codegen, overriddenFunction) {
             if (parcelerObject != null) {
                 val newArrayMethod = parcelerObject.unsubstitutedMemberScope
                         .getContributedFunctions(Name.identifier("newArray"), NoLookupLocation.WHEN_GET_ALL_DESCRIPTORS)
@@ -358,8 +366,8 @@ open class ParcelableCodegenExtension : ParcelableExtensionBase, ExpressionCodeg
 
                     v.getstatic(containerAsmType.internalName, companionFieldName, companionAsmType.descriptor)
                     v.load(1, Type.INT_TYPE)
-                    v.invokevirtual(companionAsmType.internalName, "newArray", "(I)[Ljava/lang/Object;", false)
-                    v.areturn(Type.getType("[Ljava/lang/Object;"))
+                    v.invokevirtual(companionAsmType.internalName, "newArray", "(I)[$parcelableAsmType", false)
+                    v.areturn(Type.getType("[$parcelableAsmType"))
 
                     return@write
                 }
@@ -367,17 +375,26 @@ open class ParcelableCodegenExtension : ParcelableExtensionBase, ExpressionCodeg
 
             v.load(1, Type.INT_TYPE)
             v.newarray(parcelableAsmType)
-            v.areturn(Type.getType("[L$parcelableAsmType;"))
+            v.areturn(Type.getType("[$parcelableAsmType"))
         }
     }
 
-    private fun FunctionDescriptor.write(codegen: ImplementationBodyCodegen, code: ExpressionCodegen.() -> Unit) {
+    private fun FunctionDescriptor.write(codegen: ImplementationBodyCodegen, overriddenDescriptor: FunctionDescriptor? = null, code: ExpressionCodegen.() -> Unit) {
         val declarationOrigin = JvmDeclarationOrigin(JvmDeclarationOriginKind.OTHER, null, this)
+        if (overriddenDescriptor != null) {
+            this.overriddenDescriptors = listOf(overriddenDescriptor)
+        }
         codegen.functionCodegen.generateMethod(declarationOrigin, this, object : CodegenBased(codegen.state) {
             override fun doGenerateBody(e: ExpressionCodegen, signature: JvmMethodSignature) = with(e) {
                 e.code()
             }
         })
+    }
+
+    private fun KotlinType.findFunction(componentKind: ParcelableSyntheticComponent.ComponentKind): SimpleFunctionDescriptor? {
+        return memberScope
+            .getContributedFunctions(Name.identifier(componentKind.methodName), NoLookupLocation.WHEN_GET_ALL_DESCRIPTORS)
+            .firstOrNull()
     }
 }
 

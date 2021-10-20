@@ -36,8 +36,8 @@ import org.jetbrains.kotlin.descriptors.ParameterDescriptor
 import org.jetbrains.kotlin.descriptors.ReceiverParameterDescriptor
 import org.jetbrains.kotlin.name.Name
 import org.jetbrains.kotlin.psi.*
-import org.jetbrains.kotlin.resolve.calls.callUtil.getResolvedCall
-import org.jetbrains.kotlin.resolve.calls.callUtil.getType
+import org.jetbrains.kotlin.resolve.calls.util.getResolvedCall
+import org.jetbrains.kotlin.resolve.calls.util.getType
 import org.jetbrains.kotlin.storage.StorageManager
 
 internal class PsiContractParserDispatcher(
@@ -133,9 +133,18 @@ internal class PsiContractParserDispatcher(
             return null
         }
 
-        if (descriptor is ReceiverParameterDescriptor && descriptor.type.constructor.declarationDescriptor?.isFromContractDsl() == true) {
-            collector.badDescription("only references to parameters are allowed. Did you miss label on <this>?", expression)
-            return null
+        if (descriptor is ReceiverParameterDescriptor) {
+            if (descriptor.type.constructor.declarationDescriptor?.isFromContractDsl() == true) {
+                collector.badDescription("only references to parameters are allowed. Did you miss label on <this>?", expression)
+                return null
+            }
+            val directReceiver = callContext.functionDescriptor.let {
+                it.extensionReceiverParameter ?: it.dispatchReceiverParameter
+            }
+            if (descriptor != directReceiver) {
+                collector.badDescription("only references to direct <this> are allowed", expression)
+                return null
+            }
         }
 
         return if (KotlinBuiltIns.isBoolean(descriptor.type))

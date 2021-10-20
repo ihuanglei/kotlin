@@ -1,3 +1,6 @@
+// IGNORE_BACKEND_FIR: JVM_IR
+// This test checks, that different variables occupy the same slot
+// In JVM_IR, however, loop variable's lifetime goes beyond the loop itself, thus the test has no sense in JVM_IR
 // IGNORE_BACKEND: JVM_IR
 // WITH_COROUTINES
 
@@ -43,7 +46,11 @@ fun box(): String {
 }
 
 // 1 LOCALVARIABLE i I L.* 2
-// 1 LOCALVARIABLE s Ljava/lang/String; L.* 2
 // 0 PUTFIELD VarValueConflictsWithTableKt\$box\$1.I\$0 : I
 /* 2 loads in cycle */
 // 2 ILOAD 2
+
+// JVM_IR_TEMPLATES
+// 1 LOCALVARIABLE s Ljava/lang/String; L.* 2
+// JVM_TEMPLATES
+// 2 LOCALVARIABLE s Ljava/lang/String; L.* 2

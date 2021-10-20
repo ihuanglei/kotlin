@@ -8,46 +8,45 @@ package org.jetbrains.kotlin.ir.backend.js.export
 import org.jetbrains.kotlin.ir.backend.js.transformers.irToJs.JsAstUtils
 import org.jetbrains.kotlin.ir.backend.js.transformers.irToJs.defineProperty
 import org.jetbrains.kotlin.ir.backend.js.transformers.irToJs.jsAssignment
-import org.jetbrains.kotlin.ir.backend.js.utils.*
+import org.jetbrains.kotlin.ir.backend.js.utils.IrNamer
 import org.jetbrains.kotlin.js.backend.ast.*
 
-
 class ExportModelToJsStatements(
-    private val internalModuleName: JsName,
-    private val nameTables: NameTables
+    private val namer: IrNamer,
+    private val declareNewNamespace: (String) -> String
 ) {
     private val namespaceToRefMap = mutableMapOf<String, JsNameRef>()
-    private val globalNames = NameTable<String>(nameTables.globalNames)
 
-    fun generateModuleExport(module: ExportedModule): List<JsStatement> {
+    fun generateModuleExport(module: ExportedModule, internalModuleName: JsName): List<JsStatement> {
         return module.declarations.flatMap { generateDeclarationExport(it, JsNameRef(internalModuleName)) }
     }
 
-    private fun generateDeclarationExport(declaration: ExportedDeclaration, namespace: JsNameRef): List<JsStatement> {
+    fun generateDeclarationExport(declaration: ExportedDeclaration, namespace: JsNameRef?): List<JsStatement> {
         return when (declaration) {
             is ExportedNamespace -> {
+                require(namespace != null) { "Only namespaced namespaces are allowed" }
                 val statements = mutableListOf<JsStatement>()
                 val elements = declaration.name.split(".")
                 var currentNamespace = ""
-                var currentRef = namespace
+                var currentRef: JsNameRef = namespace
                 for (element in elements) {
                     val newNamespace = "$currentNamespace$$element"
                     val newNameSpaceRef = namespaceToRefMap.getOrPut(newNamespace) {
-                        val varName = globalNames.declareFreshName(newNamespace, newNamespace)
-                        val varRef = JsNameRef(varName)
+                        val varName = JsName(declareNewNamespace(newNamespace), false)
                         val namespaceRef = JsNameRef(element, currentRef)
                         statements += JsVars(
-                            JsVars.JsVar(JsName(varName),
-                                         JsAstUtils.or(
-                                             namespaceRef,
-                                             jsAssignment(
-                                                 namespaceRef,
-                                                 JsObjectLiteral()
-                                             )
-                                         )
+                            JsVars.JsVar(
+                                varName,
+                                JsAstUtils.or(
+                                    namespaceRef,
+                                    jsAssignment(
+                                        namespaceRef,
+                                        JsObjectLiteral()
+                                    )
+                                )
                             )
                         )
-                        varRef
+                        JsNameRef(varName)
                     }
                     currentRef = newNameSpaceRef
                     currentNamespace = newNamespace
@@ -56,19 +55,25 @@ class ExportModelToJsStatements(
             }
 
             is ExportedFunction -> {
-                listOf(
-                    jsAssignment(
-                        JsNameRef(declaration.name, namespace),
-                        JsNameRef(nameTables.getNameForStaticDeclaration(declaration.ir))
-                    ).makeStmt()
-                )
+                val name = namer.getNameForStaticDeclaration(declaration.ir)
+                if (namespace == null) {
+                    listOf(JsExport(name, alias = JsName(declaration.name, false)))
+                } else {
+                    listOf(
+                        jsAssignment(
+                            JsNameRef(declaration.name, namespace),
+                            JsNameRef(name)
+                        ).makeStmt()
+                    )
+                }
             }
 
             is ExportedConstructor -> emptyList()
 
             is ExportedProperty -> {
-                val getter = declaration.ir.getter?.let { JsNameRef(nameTables.getNameForStaticDeclaration(it)) }
-                val setter = declaration.ir.setter?.let { JsNameRef(nameTables.getNameForStaticDeclaration(it)) }
+                require(namespace != null) { "Only namespaced properties are allowed" }
+                val getter = declaration.irGetter?.let { JsNameRef(namer.getNameForStaticDeclaration(it)) }
+                val setter = declaration.irSetter?.let { JsNameRef(namer.getNameForStaticDeclaration(it)) }
                 listOf(defineProperty(namespace, declaration.name, getter, setter).makeStmt())
             }
 
@@ -77,15 +82,28 @@ class ExportModelToJsStatements(
             is ExportedClass -> {
                 if (declaration.isInterface) return emptyList()
                 val newNameSpace = JsNameRef(declaration.name, namespace)
-                val klassExport = jsAssignment(
-                    newNameSpace,
-                    JsNameRef(
-                        nameTables.getNameForStaticDeclaration(
-                            declaration.ir
-                        )
-                    )
-                ).makeStmt()
-                val staticsExport = declaration.statics.flatMap { generateDeclarationExport(it, newNameSpace) }
+                val name = namer.getNameForStaticDeclaration(declaration.ir)
+                val klassExport =
+                    if (namespace == null) {
+                        JsExport(name, alias = JsName(declaration.name, false))
+                    } else {
+                        jsAssignment(
+                            newNameSpace,
+                            JsNameRef(name)
+                        ).makeStmt()
+                    }
+
+                // These are only used when exporting secondary constructors annotated with @JsName
+                val staticFunctions = declaration.members.filter { it is ExportedFunction && it.isStatic }
+
+                // Nested objects are exported as static properties
+                val staticProperties = declaration.members.mapNotNull {
+                    (it as? ExportedProperty)?.takeIf { it.isStatic }
+                }
+
+                val staticsExport = (staticFunctions + staticProperties + declaration.nestedClasses)
+                    .flatMap { generateDeclarationExport(it, newNameSpace) }
+
                 listOf(klassExport) + staticsExport
             }
         }

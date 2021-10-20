@@ -5,23 +5,16 @@
 
 package org.jetbrains.kotlin.scripting.compiler.plugin
 
-import com.intellij.core.JavaCoreProjectEnvironment
-import org.jetbrains.kotlin.cli.common.CLIConfigurationKeys
 import org.jetbrains.kotlin.cli.common.arguments.CommonCompilerArguments
 import org.jetbrains.kotlin.cli.common.arguments.K2JSCompilerArguments
-import org.jetbrains.kotlin.cli.common.repl.ReplCompileResult
 import org.jetbrains.kotlin.cli.jvm.compiler.EnvironmentConfigFiles
 import org.jetbrains.kotlin.cli.jvm.compiler.KotlinCoreEnvironment
 import org.jetbrains.kotlin.config.CompilerConfiguration
-import org.jetbrains.kotlin.descriptors.ModuleDescriptor
-import org.jetbrains.kotlin.ir.backend.js.utils.NameTables
-import org.jetbrains.kotlin.ir.util.SymbolTable
 import org.jetbrains.kotlin.scripting.compiler.plugin.impl.JsScriptCompilerWithDependenciesProxy
-import org.jetbrains.kotlin.scripting.compiler.plugin.impl.withMessageCollector
 import org.jetbrains.kotlin.scripting.configuration.ScriptingConfigurationKeys
 import org.jetbrains.kotlin.scripting.definitions.ScriptDefinition
 import org.jetbrains.kotlin.scripting.definitions.platform
-import org.jetbrains.kotlin.scripting.repl.js.*
+import org.jetbrains.kotlin.scripting.repl.js.JsScriptEvaluator
 import kotlin.script.experimental.api.*
 import kotlin.script.experimental.host.ScriptingHostConfiguration
 import kotlin.script.experimental.jvm.JsDependency
@@ -31,7 +24,7 @@ import kotlin.script.experimental.jvm.JsDependency
 fun loadScriptConfiguration(configuration: CompilerConfiguration) {
     val scriptConfiguration = ScriptCompilationConfiguration {
         baseClass("kotlin.Any")
-        dependencies.append(JsDependency("compiler/ir/serialization.js/build/fullRuntime/klib"))
+        dependencies.append(JsDependency("libraries/stdlib/js-ir/build/classes/kotlin/js/main/"))
         platform.put("JS")
     }
     configuration.add(
@@ -42,12 +35,12 @@ fun loadScriptConfiguration(configuration: CompilerConfiguration) {
 
 class JsScriptEvaluationExtension : AbstractScriptEvaluationExtension() {
 
-    override fun setupScriptConfiguration(configuration: CompilerConfiguration, sourcePath: String) {
+    override fun setupScriptConfiguration(configuration: CompilerConfiguration) {
         loadScriptConfiguration(configuration)
     }
 
     override fun createEnvironment(
-        projectEnvironment: JavaCoreProjectEnvironment,
+        projectEnvironment: KotlinCoreEnvironment.ProjectEnvironment,
         configuration: CompilerConfiguration
     ): KotlinCoreEnvironment {
         return KotlinCoreEnvironment.createForProduction(

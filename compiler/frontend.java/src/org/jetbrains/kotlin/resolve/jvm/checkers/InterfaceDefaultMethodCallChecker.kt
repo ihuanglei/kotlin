@@ -17,6 +17,7 @@
 package org.jetbrains.kotlin.resolve.jvm.checkers
 
 import com.intellij.psi.PsiElement
+import org.jetbrains.kotlin.config.JvmAnalysisFlags
 import org.jetbrains.kotlin.config.JvmTarget
 import org.jetbrains.kotlin.config.LanguageFeature
 import org.jetbrains.kotlin.descriptors.CallableMemberDescriptor
@@ -31,11 +32,11 @@ import org.jetbrains.kotlin.psi.KtSuperExpression
 import org.jetbrains.kotlin.resolve.BindingContext
 import org.jetbrains.kotlin.resolve.DescriptorUtils
 import org.jetbrains.kotlin.resolve.DescriptorUtils.*
-import org.jetbrains.kotlin.resolve.calls.callResolverUtil.getSuperCallExpression
+import org.jetbrains.kotlin.resolve.calls.util.getSuperCallExpression
 import org.jetbrains.kotlin.resolve.calls.checkers.CallChecker
 import org.jetbrains.kotlin.resolve.calls.checkers.CallCheckerContext
 import org.jetbrains.kotlin.resolve.calls.model.ResolvedCall
-import org.jetbrains.kotlin.resolve.jvm.annotations.hasJvmDefaultAnnotation
+import org.jetbrains.kotlin.resolve.jvm.annotations.isCompiledToJvmDefault
 import org.jetbrains.kotlin.resolve.jvm.diagnostics.ErrorsJvm.*
 
 class InterfaceDefaultMethodCallChecker(val jvmTarget: JvmTarget) : CallChecker {
@@ -50,8 +51,7 @@ class InterfaceDefaultMethodCallChecker(val jvmTarget: JvmTarget) : CallChecker 
             isStaticDeclaration(descriptor) &&
             isInterface(descriptor.containingDeclaration) &&
             descriptor is JavaCallableMemberDescriptor) {
-            val diagnostic = if (isDefaultCallsProhibited(context)) INTERFACE_STATIC_METHOD_CALL_FROM_JAVA6_TARGET_ERROR else INTERFACE_STATIC_METHOD_CALL_FROM_JAVA6_TARGET
-            context.trace.report(diagnostic.on(reportOn))
+            context.trace.report(INTERFACE_STATIC_METHOD_CALL_FROM_JAVA6_TARGET.on(context.languageVersionSettings, reportOn))
         }
 
         val superCallExpression = getSuperCallExpression(resolvedCall.call) ?: return
@@ -61,22 +61,21 @@ class InterfaceDefaultMethodCallChecker(val jvmTarget: JvmTarget) : CallChecker 
         val realDescriptor = unwrapFakeOverride(descriptor)
         val realDescriptorOwner = realDescriptor.containingDeclaration as? ClassDescriptor ?: return
 
-        if (isInterface(realDescriptorOwner) && (realDescriptor is JavaCallableMemberDescriptor || realDescriptor.hasJvmDefaultAnnotation())) {
+        val jvmDefaultMode = context.languageVersionSettings.getFlag(JvmAnalysisFlags.jvmDefaultMode)
+        if (isInterface(realDescriptorOwner) && (realDescriptor is JavaCallableMemberDescriptor || realDescriptor.isCompiledToJvmDefault(jvmDefaultMode))) {
             val bindingContext = context.trace.bindingContext
             val thisForSuperCall = getSuperCallLabelTarget(bindingContext, superCallExpression)
 
             if (thisForSuperCall != null && DescriptorUtils.isInterface(thisForSuperCall)) {
                 val declarationWithCall = findInterfaceMember(thisForSuperCall, superCallExpression, bindingContext)
-                if (declarationWithCall?.hasJvmDefaultAnnotation() == false) {
+                if (declarationWithCall?.isCompiledToJvmDefault(jvmDefaultMode) == false) {
                     context.trace.report(INTERFACE_CANT_CALL_DEFAULT_METHOD_VIA_SUPER.on(reportOn))
                     return
                 }
             }
 
             if (!supportDefaults) {
-                val diagnostic =
-                    if (isDefaultCallsProhibited(context)) DEFAULT_METHOD_CALL_FROM_JAVA6_TARGET_ERROR else DEFAULT_METHOD_CALL_FROM_JAVA6_TARGET
-                context.trace.report(diagnostic.on(reportOn))
+                context.trace.report(DEFAULT_METHOD_CALL_FROM_JAVA6_TARGET.on(context.languageVersionSettings, reportOn))
             }
         }
     }
@@ -102,8 +101,6 @@ class InterfaceDefaultMethodCallChecker(val jvmTarget: JvmTarget) : CallChecker 
         return null
     }
 
-    private fun isDefaultCallsProhibited(context: CallCheckerContext) =
-        context.languageVersionSettings.supportsFeature(LanguageFeature.DefaultMethodsCallFromJava6TargetError)
 
     private fun getSuperCallLabelTarget(
         bindingContext: BindingContext,

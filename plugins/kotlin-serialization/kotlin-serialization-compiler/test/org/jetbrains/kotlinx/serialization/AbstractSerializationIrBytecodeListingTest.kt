@@ -5,6 +5,7 @@
 
 package org.jetbrains.kotlinx.serialization
 
+import org.jetbrains.kotlin.ObsoleteTestInfrastructure
 import org.jetbrains.kotlin.cli.jvm.compiler.KotlinCoreEnvironment
 import org.jetbrains.kotlin.cli.jvm.config.JvmClasspathRoot
 import org.jetbrains.kotlin.codegen.AbstractAsmLikeInstructionListingTest
@@ -12,17 +13,18 @@ import org.jetbrains.kotlin.test.TargetBackend
 import org.jetbrains.kotlinx.serialization.compiler.extensions.SerializationComponentRegistrar
 import java.io.File
 
+@OptIn(ObsoleteTestInfrastructure::class)
 abstract class AbstractSerializationIrBytecodeListingTest : AbstractAsmLikeInstructionListingTest() {
-    private val runtimeLibraryPath = getSerializationLibraryRuntimeJar()
+    private val coreLibraryPath = getSerializationCoreLibraryJar()
 
     override fun getExpectedTextFileName(wholeFile: File): String {
         return wholeFile.nameWithoutExtension + ".ir.txt"
     }
 
-    override fun getBackend(): TargetBackend = TargetBackend.JVM_IR
+    override val backend = TargetBackend.JVM_IR
 
     override fun setupEnvironment(environment: KotlinCoreEnvironment) {
         SerializationComponentRegistrar.registerExtensions(environment.project)
-        environment.updateClasspath(listOf(JvmClasspathRoot(runtimeLibraryPath!!)))
+        environment.updateClasspath(listOf(JvmClasspathRoot(coreLibraryPath!!)))
     }
 }

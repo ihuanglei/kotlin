@@ -1,43 +1,32 @@
-import com.moowork.gradle.node.yarn.YarnTask
+import com.github.gradle.node.yarn.task.YarnTask
 
 description = "Simple Kotlin/JS tests runner with TeamCity reporter"
 
 plugins {
     id("base")
-    id("com.github.node-gradle.node")
+    id("com.github.node-gradle.node") version "3.0.1"
 }
+
+publish()
 
 val default = configurations.getByName(Dependency.DEFAULT_CONFIGURATION)
-val archives = configurations.getByName(Dependency.ARCHIVES_CONFIGURATION)
-
-default.extendsFrom(archives)
-
-plugins.apply("maven")
-
-convention.getPlugin(MavenPluginConvention::class.java).also {
-    it.conf2ScopeMappings.addMapping(MavenPlugin.RUNTIME_PRIORITY, archives, Conf2ScopeMappingContainer.RUNTIME)
-}
-
-dependencies {
-    if (!kotlinBuildProperties.isInJpsBuildIdeaSync) {
-        archives(project(":kotlin-test:kotlin-test-js"))
-    }
-}
+default.extendsFrom(configurations.publishedRuntime.get())
 
 node {
-    version = "11.9.0"
-    download = true
-    nodeModulesDir = projectDir
+    version.set("16.2.0")
+    download.set(true)
+    nodeProjectDir.set(projectDir)
 }
 
 tasks {
     named("yarn") {
+        val nodeModulesDir = projectDir.resolve("node_modules")
         outputs.upToDateWhen {
-            projectDir.resolve("node_modules").isDirectory
+            nodeModulesDir.isDirectory
         }
         // Without it several yarns can works incorrectly
         (this as YarnTask).apply {
-            args = args + "--network-concurrency" + "1" + "--mutex" + "network"
+            args.set(args.get() + "--network-concurrency" + "1" + "--mutex" + "network")
         }
     }
 
@@ -45,17 +34,21 @@ tasks {
         group = "build"
 
         dependsOn("yarn")
-        setWorkingDir(projectDir)
-        args = listOf("build")
+        workingDir.set(projectDir)
+        args.set(listOf("build"))
 
         inputs.dir("src")
         inputs.files(
             "nodejs.ts",
+            "nodejs-idle.ts",
             "karma.ts",
             "karma-kotlin-reporter.js",
             "karma-debug-runner.js",
             "karma-debug-framework.js",
             "mocha-kotlin-reporter.js",
+            "tc-log-appender.js",
+            "tc-log-error-webpack.js",
+            "webpack-5-debug.js",
             "package.json",
             "rollup.config.js",
             "tsconfig.json",
@@ -85,12 +78,6 @@ val jar by tasks.creating(Jar::class) {
 }
 
 artifacts {
-    add(
-        "archives",
-        jar.archiveFile.get().asFile
-    ) {
-        builtBy(jar)
-    }
+    add(configurations.archives.name, jar)
+    add(configurations.publishedRuntime.name, jar)
 }
-
-publish()

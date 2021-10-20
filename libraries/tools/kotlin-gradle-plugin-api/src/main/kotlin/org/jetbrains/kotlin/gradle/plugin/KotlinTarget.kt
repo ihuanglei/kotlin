@@ -1,5 +1,5 @@
 /*
- * Copyright 2010-2018 JetBrains s.r.o. and Kotlin Programming Language contributors.
+ * Copyright 2010-2020 JetBrains s.r.o. and Kotlin Programming Language contributors.
  * Use of this source code is governed by the Apache 2.0 license that can be found in the license/LICENSE.txt file.
  */
 
@@ -15,12 +15,12 @@ import org.gradle.api.attributes.AttributeContainer
 import org.gradle.api.attributes.HasAttributes
 import org.gradle.api.component.SoftwareComponent
 import org.gradle.api.publish.maven.MavenPublication
-import org.gradle.util.ConfigureUtil
 import org.jetbrains.kotlin.gradle.dsl.KotlinCommonOptions
 
 interface KotlinTargetComponent : SoftwareComponent {
     val target: KotlinTarget
     val publishable: Boolean
+    val publishableOnCurrentHost: Boolean
     val defaultArtifactId: String
     val sourcesArtifacts: Set<PublishArtifact>
 }
@@ -28,6 +28,8 @@ interface KotlinTargetComponent : SoftwareComponent {
 interface KotlinTarget : Named, HasAttributes {
     val targetName: String
     val disambiguationClassifier: String? get() = targetName
+    val useDisambiguationClassifierAsSourceSetNamePrefix: Boolean
+    val overrideDisambiguationClassifierOnIdeImport: String?
 
     val platformType: KotlinPlatformType
 
@@ -49,7 +51,7 @@ interface KotlinTarget : Named, HasAttributes {
     fun mavenPublication(action: Action<MavenPublication>)
 
     fun attributes(configure: AttributeContainer.() -> Unit) = attributes.configure()
-    fun attributes(configure: Closure<*>) = attributes { ConfigureUtil.configure(configure, this) }
+    fun attributes(configure: Closure<*>) = attributes { project.configure(this, configure) }
 
     val preset: KotlinTargetPreset<out KotlinTarget>?
 

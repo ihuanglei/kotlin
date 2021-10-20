@@ -42,9 +42,11 @@ import org.jetbrains.org.objectweb.asm.Type;
 
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Objects;
 
-import static org.jetbrains.kotlin.codegen.AsmUtil.writeAnnotationData;
+import static org.jetbrains.kotlin.codegen.DescriptorAsmUtil.writeAnnotationData;
 import static org.jetbrains.kotlin.load.java.JvmAnnotationNames.METADATA_PACKAGE_NAME_FIELD_NAME;
+import static org.jetbrains.kotlin.name.JvmNames.JVM_SYNTHETIC_ANNOTATION_FQ_NAME;
 import static org.jetbrains.org.objectweb.asm.Opcodes.*;
 
 public class PackagePartCodegen extends MemberCodegen<KtFile> {
@@ -63,8 +65,20 @@ public class PackagePartCodegen extends MemberCodegen<KtFile> {
 
     @Override
     protected void generateDeclaration() {
+        boolean isSynthetic = false;
+        List<AnnotationDescriptor> fileAnnotationDescriptors = new ArrayList<>();
+        for (KtAnnotationEntry annotationEntry : element.getAnnotationEntries()) {
+            AnnotationDescriptor annotationDescriptor = state.getBindingContext().get(BindingContext.ANNOTATION, annotationEntry);
+            if (annotationDescriptor != null) {
+                fileAnnotationDescriptors.add(annotationDescriptor);
+                if (Objects.equals(annotationDescriptor.getFqName(), JVM_SYNTHETIC_ANNOTATION_FQ_NAME)) {
+                    isSynthetic = true;
+                }
+            }
+        }
+
         v.defineClass(element, state.getClassFileVersion(),
-                      ACC_PUBLIC | ACC_FINAL | ACC_SUPER,
+                      ACC_PUBLIC | ACC_FINAL | ACC_SUPER | (isSynthetic ? ACC_SYNTHETIC : 0),
                       packagePartType.getInternalName(),
                       null,
                       "java/lang/Object",
@@ -74,19 +88,8 @@ public class PackagePartCodegen extends MemberCodegen<KtFile> {
 
         generatePropertyMetadataArrayFieldIfNeeded(packagePartType);
 
-        generateAnnotationsForPartClass();
-    }
-
-    private void generateAnnotationsForPartClass() {
-        List<AnnotationDescriptor> fileAnnotationDescriptors = new ArrayList<>();
-        for (KtAnnotationEntry annotationEntry : element.getAnnotationEntries()) {
-            AnnotationDescriptor annotationDescriptor = state.getBindingContext().get(BindingContext.ANNOTATION, annotationEntry);
-            if (annotationDescriptor != null) {
-                fileAnnotationDescriptors.add(annotationDescriptor);
-            }
-        }
         Annotated annotatedFile = new AnnotatedImpl(Annotations.Companion.create(fileAnnotationDescriptors));
-        AnnotationCodegen.forClass(v.getVisitor(), this, state).genAnnotations(annotatedFile, null);
+        AnnotationCodegen.forClass(v.getVisitor(), this, state).genAnnotations(annotatedFile, null, null);
     }
 
     @Override
@@ -104,7 +107,7 @@ public class PackagePartCodegen extends MemberCodegen<KtFile> {
     protected void generateKotlinMetadataAnnotation() {
         Pair<DescriptorSerializer, ProtoBuf.Package> serializedPart = serializePackagePartMembers(this, packagePartType);
 
-        WriteAnnotationUtilKt.writeKotlinMetadata(v, state, KotlinClassHeader.Kind.FILE_FACADE, 0, av -> {
+        WriteAnnotationUtilKt.writeKotlinMetadata(v, state, KotlinClassHeader.Kind.FILE_FACADE, false, 0, av -> {
             writeAnnotationData(av, serializedPart.getFirst(), serializedPart.getSecond());
 
             FqName kotlinPackageFqName = element.getPackageFqName();

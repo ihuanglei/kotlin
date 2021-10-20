@@ -4,15 +4,12 @@ plugins {
 }
 
 dependencies {
-    compile(project(":compiler:psi"))
-    compile(project(":compiler:container"))
+    api(project(":compiler:config"))
+    api(project(":compiler:container"))
     compileOnly(intellijCoreDep()) { includeJars("intellij-core") }
 }
 
-
 sourceSets {
-    "main" {
-        projectDefault()
-    }
+    "main" { projectDefault() }
     "test" {}
 }

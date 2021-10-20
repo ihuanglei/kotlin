@@ -1,6 +1,7 @@
-// IGNORE_BACKEND_FIR: JVM_IR
+// DONT_TARGET_EXACT_BACKEND: WASM
+// WASM_MUTE_REASON: FLAKY
+
 // WITH_RUNTIME
-// KJS_WITH_FULL_RUNTIME
 fun foo(): Array<Boolean> {
     return arrayOf(
         19 < 20.0,

@@ -1,5 +1,5 @@
 /*
- * Copyright 2010-2019 JetBrains s.r.o. and Kotlin Programming Language contributors.
+ * Copyright 2010-2021 JetBrains s.r.o. and Kotlin Programming Language contributors.
  * Use of this source code is governed by the Apache 2.0 license that can be found in the license/LICENSE.txt file.
  */
 
@@ -18,8 +18,8 @@ import kotlin.random.*
 /**
  * Returns the greater of two values.
  */
-@SinceKotlin("1.3")
-@ExperimentalUnsignedTypes
+@SinceKotlin("1.5")
+@WasExperimental(ExperimentalUnsignedTypes::class)
 public fun maxOf(a: UInt, b: UInt): UInt {
     return if (a >= b) a else b
 }
@@ -27,8 +27,8 @@ public fun maxOf(a: UInt, b: UInt): UInt {
 /**
  * Returns the greater of two values.
  */
-@SinceKotlin("1.3")
-@ExperimentalUnsignedTypes
+@SinceKotlin("1.5")
+@WasExperimental(ExperimentalUnsignedTypes::class)
 public fun maxOf(a: ULong, b: ULong): ULong {
     return if (a >= b) a else b
 }
@@ -36,8 +36,8 @@ public fun maxOf(a: ULong, b: ULong): ULong {
 /**
  * Returns the greater of two values.
  */
-@SinceKotlin("1.3")
-@ExperimentalUnsignedTypes
+@SinceKotlin("1.5")
+@WasExperimental(ExperimentalUnsignedTypes::class)
 public fun maxOf(a: UByte, b: UByte): UByte {
     return if (a >= b) a else b
 }
@@ -45,8 +45,8 @@ public fun maxOf(a: UByte, b: UByte): UByte {
 /**
  * Returns the greater of two values.
  */
-@SinceKotlin("1.3")
-@ExperimentalUnsignedTypes
+@SinceKotlin("1.5")
+@WasExperimental(ExperimentalUnsignedTypes::class)
 public fun maxOf(a: UShort, b: UShort): UShort {
     return if (a >= b) a else b
 }
@@ -54,8 +54,8 @@ public fun maxOf(a: UShort, b: UShort): UShort {
 /**
  * Returns the greater of three values.
  */
-@SinceKotlin("1.3")
-@ExperimentalUnsignedTypes
+@SinceKotlin("1.5")
+@WasExperimental(ExperimentalUnsignedTypes::class)
 @kotlin.internal.InlineOnly
 public inline fun maxOf(a: UInt, b: UInt, c: UInt): UInt {
     return maxOf(a, maxOf(b, c))
@@ -64,8 +64,8 @@ public inline fun maxOf(a: UInt, b: UInt, c: UInt): UInt {
 /**
  * Returns the greater of three values.
  */
-@SinceKotlin("1.3")
-@ExperimentalUnsignedTypes
+@SinceKotlin("1.5")
+@WasExperimental(ExperimentalUnsignedTypes::class)
 @kotlin.internal.InlineOnly
 public inline fun maxOf(a: ULong, b: ULong, c: ULong): ULong {
     return maxOf(a, maxOf(b, c))
@@ -74,8 +74,8 @@ public inline fun maxOf(a: ULong, b: ULong, c: ULong): ULong {
 /**
  * Returns the greater of three values.
  */
-@SinceKotlin("1.3")
-@ExperimentalUnsignedTypes
+@SinceKotlin("1.5")
+@WasExperimental(ExperimentalUnsignedTypes::class)
 @kotlin.internal.InlineOnly
 public inline fun maxOf(a: UByte, b: UByte, c: UByte): UByte {
     return maxOf(a, maxOf(b, c))
@@ -84,18 +84,62 @@ public inline fun maxOf(a: UByte, b: UByte, c: UByte): UByte {
 /**
  * Returns the greater of three values.
  */
-@SinceKotlin("1.3")
-@ExperimentalUnsignedTypes
+@SinceKotlin("1.5")
+@WasExperimental(ExperimentalUnsignedTypes::class)
 @kotlin.internal.InlineOnly
 public inline fun maxOf(a: UShort, b: UShort, c: UShort): UShort {
     return maxOf(a, maxOf(b, c))
 }
 
 /**
+ * Returns the greater of the given values.
+ */
+@SinceKotlin("1.4")
+@ExperimentalUnsignedTypes
+public fun maxOf(a: UInt, vararg other: UInt): UInt {
+    var max = a
+    for (e in other) max = maxOf(max, e)
+    return max
+}
+
+/**
+ * Returns the greater of the given values.
+ */
+@SinceKotlin("1.4")
+@ExperimentalUnsignedTypes
+public fun maxOf(a: ULong, vararg other: ULong): ULong {
+    var max = a
+    for (e in other) max = maxOf(max, e)
+    return max
+}
+
+/**
+ * Returns the greater of the given values.
+ */
+@SinceKotlin("1.4")
+@ExperimentalUnsignedTypes
+public fun maxOf(a: UByte, vararg other: UByte): UByte {
+    var max = a
+    for (e in other) max = maxOf(max, e)
+    return max
+}
+
+/**
+ * Returns the greater of the given values.
+ */
+@SinceKotlin("1.4")
+@ExperimentalUnsignedTypes
+public fun maxOf(a: UShort, vararg other: UShort): UShort {
+    var max = a
+    for (e in other) max = maxOf(max, e)
+    return max
+}
+
+/**
  * Returns the smaller of two values.
  */
-@SinceKotlin("1.3")
-@ExperimentalUnsignedTypes
+@SinceKotlin("1.5")
+@WasExperimental(ExperimentalUnsignedTypes::class)
 public fun minOf(a: UInt, b: UInt): UInt {
     return if (a <= b) a else b
 }
@@ -103,8 +147,8 @@ public fun minOf(a: UInt, b: UInt): UInt {
 /**
  * Returns the smaller of two values.
  */
-@SinceKotlin("1.3")
-@ExperimentalUnsignedTypes
+@SinceKotlin("1.5")
+@WasExperimental(ExperimentalUnsignedTypes::class)
 public fun minOf(a: ULong, b: ULong): ULong {
     return if (a <= b) a else b
 }
@@ -112,8 +156,8 @@ public fun minOf(a: ULong, b: ULong): ULong {
 /**
  * Returns the smaller of two values.
  */
-@SinceKotlin("1.3")
-@ExperimentalUnsignedTypes
+@SinceKotlin("1.5")
+@WasExperimental(ExperimentalUnsignedTypes::class)
 public fun minOf(a: UByte, b: UByte): UByte {
     return if (a <= b) a else b
 }
@@ -121,8 +165,8 @@ public fun minOf(a: UByte, b: UByte): UByte {
 /**
  * Returns the smaller of two values.
  */
-@SinceKotlin("1.3")
-@ExperimentalUnsignedTypes
+@SinceKotlin("1.5")
+@WasExperimental(ExperimentalUnsignedTypes::class)
 public fun minOf(a: UShort, b: UShort): UShort {
     return if (a <= b) a else b
 }
@@ -130,8 +174,8 @@ public fun minOf(a: UShort, b: UShort): UShort {
 /**
  * Returns the smaller of three values.
  */
-@SinceKotlin("1.3")
-@ExperimentalUnsignedTypes
+@SinceKotlin("1.5")
+@WasExperimental(ExperimentalUnsignedTypes::class)
 @kotlin.internal.InlineOnly
 public inline fun minOf(a: UInt, b: UInt, c: UInt): UInt {
     return minOf(a, minOf(b, c))
@@ -140,8 +184,8 @@ public inline fun minOf(a: UInt, b: UInt, c: UInt): UInt {
 /**
  * Returns the smaller of three values.
  */
-@SinceKotlin("1.3")
-@ExperimentalUnsignedTypes
+@SinceKotlin("1.5")
+@WasExperimental(ExperimentalUnsignedTypes::class)
 @kotlin.internal.InlineOnly
 public inline fun minOf(a: ULong, b: ULong, c: ULong): ULong {
     return minOf(a, minOf(b, c))
@@ -150,8 +194,8 @@ public inline fun minOf(a: ULong, b: ULong, c: ULong): ULong {
 /**
  * Returns the smaller of three values.
  */
-@SinceKotlin("1.3")
-@ExperimentalUnsignedTypes
+@SinceKotlin("1.5")
+@WasExperimental(ExperimentalUnsignedTypes::class)
 @kotlin.internal.InlineOnly
 public inline fun minOf(a: UByte, b: UByte, c: UByte): UByte {
     return minOf(a, minOf(b, c))
@@ -160,10 +204,54 @@ public inline fun minOf(a: UByte, b: UByte, c: UByte): UByte {
 /**
  * Returns the smaller of three values.
  */
-@SinceKotlin("1.3")
-@ExperimentalUnsignedTypes
+@SinceKotlin("1.5")
+@WasExperimental(ExperimentalUnsignedTypes::class)
 @kotlin.internal.InlineOnly
 public inline fun minOf(a: UShort, b: UShort, c: UShort): UShort {
     return minOf(a, minOf(b, c))
+}
+
+/**
+ * Returns the smaller of the given values.
+ */
+@SinceKotlin("1.4")
+@ExperimentalUnsignedTypes
+public fun minOf(a: UInt, vararg other: UInt): UInt {
+    var min = a
+    for (e in other) min = minOf(min, e)
+    return min
+}
+
+/**
+ * Returns the smaller of the given values.
+ */
+@SinceKotlin("1.4")
+@ExperimentalUnsignedTypes
+public fun minOf(a: ULong, vararg other: ULong): ULong {
+    var min = a
+    for (e in other) min = minOf(min, e)
+    return min
+}
+
+/**
+ * Returns the smaller of the given values.
+ */
+@SinceKotlin("1.4")
+@ExperimentalUnsignedTypes
+public fun minOf(a: UByte, vararg other: UByte): UByte {
+    var min = a
+    for (e in other) min = minOf(min, e)
+    return min
+}
+
+/**
+ * Returns the smaller of the given values.
+ */
+@SinceKotlin("1.4")
+@ExperimentalUnsignedTypes
+public fun minOf(a: UShort, vararg other: UShort): UShort {
+    var min = a
+    for (e in other) min = minOf(min, e)
+    return min
 }
 

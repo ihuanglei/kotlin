@@ -25,14 +25,15 @@ import org.jetbrains.kotlin.psi.*
 import org.jetbrains.kotlin.resolve.BindingContext
 import org.jetbrains.kotlin.resolve.DescriptorEquivalenceForOverrides
 import org.jetbrains.kotlin.resolve.DescriptorUtils
-import org.jetbrains.kotlin.resolve.calls.callUtil.getResolvedCall
-import org.jetbrains.kotlin.resolve.calls.callUtil.isSafeCall
+import org.jetbrains.kotlin.resolve.calls.util.getResolvedCall
+import org.jetbrains.kotlin.resolve.calls.util.isSafeCall
 import org.jetbrains.kotlin.resolve.calls.smartcasts.DataFlowValue.Kind.OTHER
 import org.jetbrains.kotlin.resolve.calls.smartcasts.DataFlowValue.Kind.STABLE_VALUE
 import org.jetbrains.kotlin.resolve.scopes.receivers.ImplicitReceiver
 import org.jetbrains.kotlin.resolve.scopes.receivers.ReceiverValue
 import org.jetbrains.kotlin.resolve.scopes.receivers.TransientReceiver
 import org.jetbrains.kotlin.types.KotlinType
+import org.jetbrains.kotlin.types.checker.KotlinTypeRefiner
 
 interface IdentifierInfo {
 
@@ -63,7 +64,7 @@ interface IdentifierInfo {
         override fun equals(other: Any?) =
             other is Variable &&
                     DescriptorEquivalenceForOverrides.areCallableDescriptorsEquivalent(
-                        variable, other.variable, allowCopiesFromTheSameDeclaration = true
+                        variable, other.variable, allowCopiesFromTheSameDeclaration = true, kotlinTypeRefiner = KotlinTypeRefiner.Default
                     )
 
         override fun hashCode() = variable.name.hashCode() * 31 + variable.containingDeclaration.original.hashCode()
@@ -148,8 +149,10 @@ internal fun getIdForStableIdentifier(
         is KtQualifiedExpression -> {
             val receiverExpression = expression.receiverExpression
             val selectorExpression = expression.selectorExpression
-            val receiverInfo = getIdForStableIdentifier(receiverExpression, bindingContext, containingDeclarationOrModule, languageVersionSettings)
-            val selectorInfo = getIdForStableIdentifier(selectorExpression, bindingContext, containingDeclarationOrModule, languageVersionSettings)
+            val receiverInfo =
+                getIdForStableIdentifier(receiverExpression, bindingContext, containingDeclarationOrModule, languageVersionSettings)
+            val selectorInfo =
+                getIdForStableIdentifier(selectorExpression, bindingContext, containingDeclarationOrModule, languageVersionSettings)
 
             qualified(
                 receiverInfo, bindingContext.getType(receiverExpression),
@@ -265,7 +268,7 @@ private fun getIdForImplicitReceiver(receiverValue: ReceiverValue?, expression: 
 private fun getIdForThisReceiver(descriptorOfThisReceiver: DeclarationDescriptor?) = when (descriptorOfThisReceiver) {
     is CallableDescriptor -> {
         val receiverParameter = descriptorOfThisReceiver.extensionReceiverParameter
-                ?: error("'This' refers to the callable member without a receiver parameter: $descriptorOfThisReceiver")
+            ?: error("'This' refers to the callable member without a receiver parameter: $descriptorOfThisReceiver")
         IdentifierInfo.Receiver(receiverParameter.value)
     }
 

@@ -6,6 +6,7 @@
 package kotlin.script.experimental.jvmhost.jsr223
 
 import org.jetbrains.kotlin.cli.common.repl.*
+import java.lang.ref.WeakReference
 import java.util.concurrent.locks.ReentrantReadWriteLock
 import javax.script.ScriptContext
 import javax.script.ScriptEngineFactory
@@ -32,8 +33,9 @@ class KotlinJsr223ScriptEngineImpl(
     private var lastScriptContext: ScriptContext? = null
 
     val jsr223HostConfiguration = ScriptingHostConfiguration(defaultJvmScriptingHostConfiguration) {
+        val weakThis = WeakReference(this@KotlinJsr223ScriptEngineImpl)
         jsr223 {
-            getScriptContext { lastScriptContext ?: getContext() }
+            getScriptContext { weakThis.get()?.let { it.lastScriptContext ?: it.getContext() } }
         }
     }
 
@@ -61,7 +63,7 @@ class KotlinJsr223ScriptEngineImpl(
         }
     }
 
-    override val replCompiler: ReplCompiler by lazy {
+    override val replCompiler: ReplCompilerWithoutCheck by lazy {
         JvmReplCompiler(compilationConfiguration)
     }
 

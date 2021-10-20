@@ -6,7 +6,6 @@
 package org.jetbrains.kotlin.resolve
 
 import org.jetbrains.kotlin.config.AnalysisFlags
-import org.jetbrains.kotlin.config.KotlinCompilerVersion
 import org.jetbrains.kotlin.config.LanguageFeature
 import org.jetbrains.kotlin.config.LanguageVersionSettings
 import org.jetbrains.kotlin.serialization.deserialization.DeserializationConfiguration
@@ -14,14 +13,16 @@ import org.jetbrains.kotlin.serialization.deserialization.DeserializationConfigu
 class CompilerDeserializationConfiguration(languageVersionSettings: LanguageVersionSettings) : DeserializationConfiguration {
     override val skipMetadataVersionCheck = languageVersionSettings.getFlag(AnalysisFlags.skipMetadataVersionCheck)
 
+    override val skipPrereleaseCheck = languageVersionSettings.getFlag(AnalysisFlags.skipPrereleaseCheck)
+
     override val reportErrorsOnPreReleaseDependencies =
-        !skipMetadataVersionCheck && !languageVersionSettings.isPreRelease() && !KotlinCompilerVersion.isPreRelease()
+        !skipPrereleaseCheck && !languageVersionSettings.isPreRelease()
+
+    override val allowUnstableDependencies = languageVersionSettings.getFlag(AnalysisFlags.allowUnstableDependencies)
 
     override val typeAliasesAllowed = languageVersionSettings.supportsFeature(LanguageFeature.TypeAliases)
 
     override val isJvmPackageNameSupported = languageVersionSettings.supportsFeature(LanguageFeature.JvmPackageName)
 
     override val readDeserializedContracts: Boolean = languageVersionSettings.supportsFeature(LanguageFeature.ReadDeserializedContracts)
-
-    override val releaseCoroutines: Boolean = languageVersionSettings.supportsFeature(LanguageFeature.ReleaseCoroutines)
 }

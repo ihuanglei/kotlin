@@ -3,8 +3,13 @@ import java.lang.System;
 @kotlin.Metadata()
 public final class Boo {
     @org.jetbrains.annotations.NotNull()
-    private static final java.lang.String z = null;
     public static final Boo INSTANCE = null;
+    @org.jetbrains.annotations.NotNull()
+    private static final java.lang.String z = null;
+
+    private Boo() {
+        super();
+    }
 
     @org.jetbrains.annotations.NotNull()
     public final java.lang.String getZ() {
@@ -15,10 +20,6 @@ public final class Boo {
     public final java.lang.String foo() {
         return null;
     }
-
-    private Boo() {
-        super();
-    }
 }
 
 ////////////////////
@@ -28,6 +29,8 @@ import java.lang.System;
 
 @kotlin.Metadata()
 public final class Foo {
+    @org.jetbrains.annotations.NotNull()
+    public static final Foo INSTANCE = null;
     @org.jetbrains.annotations.NotNull()
     public static final java.lang.String aString = "foo";
     public static final int aInt = 3;
@@ -49,7 +52,10 @@ public final class Foo {
     private static final java.lang.String j = null;
     @org.jetbrains.annotations.NotNull()
     private static final java.lang.String k = null;
-    public static final Foo INSTANCE = null;
+
+    private Foo() {
+        super();
+    }
 
     @org.jetbrains.annotations.NotNull()
     public final java.lang.String getBString() {
@@ -111,8 +117,116 @@ public final class Foo {
     public final java.lang.String getK() {
         return null;
     }
+}
 
-    private Foo() {
+////////////////////
+
+
+import java.lang.System;
+
+@kotlin.Metadata()
+public final class HavingState {
+    @org.jetbrains.annotations.NotNull()
+    private final State state = State.START;
+    @org.jetbrains.annotations.NotNull()
+    private final State[] stateArray = {State.START};
+    @org.jetbrains.annotations.NotNull()
+    private final java.lang.String[] stringArray = {"foo"};
+    @org.jetbrains.annotations.NotNull()
+    private final java.util.List<java.lang.String> stringList = null;
+    @org.jetbrains.annotations.NotNull()
+    private final java.lang.Integer[] intArray = {1};
+    @org.jetbrains.annotations.NotNull()
+    private final float[] floatArray = {-1.0F};
+    @org.jetbrains.annotations.NotNull()
+    private final java.util.List<java.lang.Integer> intList = null;
+    private final int uint = 1;
+    @org.jetbrains.annotations.NotNull()
+    private final kotlin.UInt[] uintArray = {1};
+    @org.jetbrains.annotations.NotNull()
+    private final java.util.List<kotlin.UInt> uintList = null;
+    @org.jetbrains.annotations.NotNull()
+    private final kotlin.reflect.KClass<State> clazz = null;
+    @org.jetbrains.annotations.NotNull()
+    private final java.lang.Class<State> javaClass = null;
+    @org.jetbrains.annotations.NotNull()
+    private final kotlin.reflect.KClass<? extends java.lang.Object> anonymous = null;
+
+    public HavingState() {
         super();
+    }
+
+    @org.jetbrains.annotations.NotNull()
+    public final State getState() {
+        return null;
+    }
+
+    @org.jetbrains.annotations.NotNull()
+    public final State[] getStateArray() {
+        return null;
+    }
+
+    @org.jetbrains.annotations.NotNull()
+    public final java.lang.String[] getStringArray() {
+        return null;
+    }
+
+    @org.jetbrains.annotations.NotNull()
+    public final java.util.List<java.lang.String> getStringList() {
+        return null;
+    }
+
+    @org.jetbrains.annotations.NotNull()
+    public final java.lang.Integer[] getIntArray() {
+        return null;
+    }
+
+    @org.jetbrains.annotations.NotNull()
+    public final float[] getFloatArray() {
+        return null;
+    }
+
+    @org.jetbrains.annotations.NotNull()
+    public final java.util.List<java.lang.Integer> getIntList() {
+        return null;
+    }
+
+    @org.jetbrains.annotations.NotNull()
+    public final kotlin.UInt[] getUintArray() {
+        return null;
+    }
+
+    @org.jetbrains.annotations.NotNull()
+    public final java.util.List<kotlin.UInt> getUintList() {
+        return null;
+    }
+
+    @org.jetbrains.annotations.NotNull()
+    public final kotlin.reflect.KClass<State> getClazz() {
+        return null;
+    }
+
+    @org.jetbrains.annotations.NotNull()
+    public final java.lang.Class<State> getJavaClass() {
+        return null;
+    }
+
+    @org.jetbrains.annotations.NotNull()
+    public final kotlin.reflect.KClass<? extends java.lang.Object> getAnonymous() {
+        return null;
+    }
+}
+
+////////////////////
+
+
+import java.lang.System;
+
+@kotlin.Metadata()
+public enum State {
+    /*public static final*/ START /* = new State() */,
+    /*public static final*/ FINISH /* = new State() */;
+
+    State() {
     }
 }

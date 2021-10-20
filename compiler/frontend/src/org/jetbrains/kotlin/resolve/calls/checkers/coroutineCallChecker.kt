@@ -6,19 +6,20 @@
 package org.jetbrains.kotlin.resolve.calls.checkers
 
 import com.intellij.psi.PsiElement
+import org.jetbrains.kotlin.builtins.StandardNames
 import org.jetbrains.kotlin.config.*
 import org.jetbrains.kotlin.coroutines.hasSuspendFunctionType
 import org.jetbrains.kotlin.descriptors.*
 import org.jetbrains.kotlin.diagnostics.DiagnosticSink
 import org.jetbrains.kotlin.diagnostics.Errors
+import org.jetbrains.kotlin.name.FqName
 import org.jetbrains.kotlin.name.Name
 import org.jetbrains.kotlin.psi.KtCodeFragment
 import org.jetbrains.kotlin.psi.KtExpression
 import org.jetbrains.kotlin.psi.KtThisExpression
 import org.jetbrains.kotlin.psi.psiUtil.getParentOfType
 import org.jetbrains.kotlin.resolve.BindingContext
-import org.jetbrains.kotlin.resolve.DescriptorUtils
-import org.jetbrains.kotlin.resolve.calls.callUtil.isCallableReference
+import org.jetbrains.kotlin.resolve.calls.util.isCallableReference
 import org.jetbrains.kotlin.resolve.calls.model.ResolvedCall
 import org.jetbrains.kotlin.resolve.descriptorUtil.fqNameSafe
 import org.jetbrains.kotlin.resolve.inline.InlineUtil
@@ -33,48 +34,39 @@ import org.jetbrains.kotlin.types.typeUtil.supertypes
 import org.jetbrains.kotlin.utils.addToStdlib.cast
 import org.jetbrains.kotlin.utils.addToStdlib.safeAs
 
-val COROUTINE_CONTEXT_1_2_20_FQ_NAME =
-    DescriptorUtils.COROUTINES_INTRINSICS_PACKAGE_FQ_NAME_EXPERIMENTAL.child(Name.identifier("coroutineContext"))
+val COROUTINE_CONTEXT_FQ_NAME =
+    StandardNames.COROUTINES_PACKAGE_FQ_NAME.child(Name.identifier("coroutineContext"))
 
-val COROUTINE_CONTEXT_1_2_30_FQ_NAME =
-    DescriptorUtils.COROUTINES_PACKAGE_FQ_NAME_EXPERIMENTAL.child(Name.identifier("coroutineContext"))
+fun FqName.isBuiltInCoroutineContext(): Boolean =
+    this == StandardNames.COROUTINES_PACKAGE_FQ_NAME.child(Name.identifier("coroutineContext"))
 
-val COROUTINE_CONTEXT_1_3_FQ_NAME =
-    DescriptorUtils.COROUTINES_PACKAGE_FQ_NAME_RELEASE.child(Name.identifier("coroutineContext"))
+fun FunctionDescriptor.isBuiltInCoroutineContext() =
+    (this as? PropertyGetterDescriptor)?.correspondingProperty?.fqNameSafe?.isBuiltInCoroutineContext() == true
 
-fun FunctionDescriptor.isBuiltInCoroutineContext(languageVersionSettings: LanguageVersionSettings) =
-    (this as? PropertyGetterDescriptor)?.correspondingProperty?.fqNameSafe?.isBuiltInCoroutineContext(languageVersionSettings) == true
-
-fun PropertyDescriptor.isBuiltInCoroutineContext(languageVersionSettings: LanguageVersionSettings) =
-    this.fqNameSafe.isBuiltInCoroutineContext(languageVersionSettings)
+fun PropertyDescriptor.isBuiltInCoroutineContext() =
+    fqNameSafe.isBuiltInCoroutineContext()
 
 private val ALLOWED_SCOPE_KINDS = setOf(LexicalScopeKind.FUNCTION_INNER_SCOPE, LexicalScopeKind.FUNCTION_HEADER_FOR_DESTRUCTURING)
 
-fun findEnclosingSuspendFunction(context: CallCheckerContext): FunctionDescriptor? = context.scope
-    .parentsWithSelf.firstOrNull {
-    it is LexicalScope && it.kind in ALLOWED_SCOPE_KINDS &&
-            it.ownerDescriptor.safeAs<FunctionDescriptor>()?.isSuspend == true
-}?.cast<LexicalScope>()?.ownerDescriptor?.cast()
+fun findEnclosingSuspendFunction(context: CallCheckerContext): FunctionDescriptor? =
+    context.scope.parentsWithSelf.firstOrNull {
+        it is LexicalScope && it.kind in ALLOWED_SCOPE_KINDS && it.ownerDescriptor.safeAs<FunctionDescriptor>()?.isSuspend == true
+    }?.cast<LexicalScope>()?.ownerDescriptor?.cast()
 
 object CoroutineSuspendCallChecker : CallChecker {
     override fun check(resolvedCall: ResolvedCall<*>, reportOn: PsiElement, context: CallCheckerContext) {
         val descriptor = resolvedCall.candidateDescriptor
         when (descriptor) {
             is FunctionDescriptor -> if (!descriptor.isSuspend) return
-            is PropertyDescriptor -> when (descriptor.fqNameSafe) {
-                COROUTINE_CONTEXT_1_2_20_FQ_NAME, COROUTINE_CONTEXT_1_2_30_FQ_NAME, COROUTINE_CONTEXT_1_3_FQ_NAME -> {
-                }
-                else -> return
-            }
+            is PropertyDescriptor -> if (descriptor.fqNameSafe != COROUTINE_CONTEXT_FQ_NAME) return
             else -> return
         }
 
+        val callElement = resolvedCall.call.callElement as KtExpression
         val enclosingSuspendFunction = findEnclosingSuspendFunction(context)
 
         when {
             enclosingSuspendFunction != null -> {
-                val callElement = resolvedCall.call.callElement as KtExpression
-
                 if (!InlineUtil.checkNonLocalReturnUsage(enclosingSuspendFunction, callElement, context.resolutionContext)) {
                     var shouldReport = true
 
@@ -92,17 +84,6 @@ object CoroutineSuspendCallChecker : CallChecker {
                     }
                 } else if (context.scope.parentsWithSelf.any { it.isScopeForDefaultParameterValuesOf(enclosingSuspendFunction) }) {
                     context.trace.report(Errors.UNSUPPORTED.on(reportOn, "suspend function calls in a context of default parameter value"))
-                }
-
-                if ((descriptor.fqNameSafe == COROUTINE_CONTEXT_1_2_20_FQ_NAME || descriptor.fqNameSafe == COROUTINE_CONTEXT_1_2_30_FQ_NAME) &&
-                    context.languageVersionSettings.supportsFeature(LanguageFeature.ReleaseCoroutines)
-                ) {
-                    context.trace.report(
-                        Errors.UNSUPPORTED.on(
-                            reportOn,
-                            "experimental coroutineContext of release coroutine: use kotlin.coroutines.coroutineContext instead"
-                        )
-                    )
                 }
 
                 context.trace.record(
@@ -155,24 +136,12 @@ fun checkCoroutinesFeature(languageVersionSettings: LanguageVersionSettings, dia
         }
         return
     }
-    val diagnosticData = LanguageFeature.Coroutines to languageVersionSettings
-    when (languageVersionSettings.getFeatureSupport(LanguageFeature.Coroutines)) {
-        LanguageFeature.State.ENABLED -> {
-        }
-        LanguageFeature.State.ENABLED_WITH_WARNING -> {
-            diagnosticHolder.report(Errors.EXPERIMENTAL_FEATURE_WARNING.on(reportOn, diagnosticData))
-        }
-        LanguageFeature.State.ENABLED_WITH_ERROR -> {
-            diagnosticHolder.report(Errors.EXPERIMENTAL_FEATURE_ERROR.on(reportOn, diagnosticData))
-        }
-        LanguageFeature.State.DISABLED -> {
-            diagnosticHolder.report(Errors.UNSUPPORTED_FEATURE.on(reportOn, diagnosticData))
-        }
-    }
 }
 
-fun KotlinType.isRestrictsSuspensionReceiver(languageVersionSettings: LanguageVersionSettings) = (listOf(this) + this.supertypes()).any {
-    it.constructor.declarationDescriptor?.annotations?.hasAnnotation(languageVersionSettings.restrictsSuspensionFqName()) == true
+fun KotlinType.isRestrictsSuspensionReceiver() = (listOf(this) + this.supertypes()).any {
+    it.constructor.declarationDescriptor?.annotations?.hasAnnotation(
+        StandardNames.COROUTINES_PACKAGE_FQ_NAME.child(Name.identifier("RestrictsSuspension"))
+    ) == true
 }
 
 private fun checkRestrictsSuspension(
@@ -181,7 +150,7 @@ private fun checkRestrictsSuspension(
     reportOn: PsiElement,
     context: CallCheckerContext
 ) {
-    fun ReceiverValue.isRestrictsSuspensionReceiver() = type.isRestrictsSuspensionReceiver(context.languageVersionSettings)
+    fun ReceiverValue.isRestrictsSuspensionReceiver() = type.isRestrictsSuspensionReceiver()
 
     infix fun ReceiverValue.sameInstance(other: ReceiverValue?): Boolean {
         if (other == null) return false

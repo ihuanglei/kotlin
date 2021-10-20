@@ -1,5 +1,3 @@
-// IGNORE_BACKEND_FIR: JVM_IR
-// KJS_WITH_FULL_RUNTIME
 // WITH_RUNTIME
 
 class CountingIterable<out T>(private val s: Iterable<T>) : Iterable<T> {

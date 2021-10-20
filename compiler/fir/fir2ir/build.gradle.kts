@@ -1,7 +1,4 @@
-/*
- * Copyright 2000-2018 JetBrains s.r.o. and Kotlin Programming Language contributors.
- * Use of this source code is governed by the Apache 2.0 license that can be found in the license/LICENSE.txt file.
- */
+import org.jetbrains.kotlin.ideaExt.idea
 
 plugins {
     kotlin("jvm")
@@ -10,8 +7,11 @@ plugins {
 
 dependencies {
     compileOnly(project(":core:descriptors"))
+    compileOnly(project(":core:descriptors.jvm"))
     compileOnly(project(":compiler:fir:cones"))
     compileOnly(project(":compiler:fir:resolve"))
+    compileOnly(project(":compiler:fir:providers"))
+    compileOnly(project(":compiler:fir:semantics"))
     compileOnly(project(":compiler:fir:tree"))
     compileOnly(project(":compiler:ir.tree"))
     compileOnly(project(":compiler:ir.psi2ir"))
@@ -19,33 +19,64 @@ dependencies {
 
     compileOnly(intellijCoreDep()) { includeJars("intellij-core") }
 
-    testCompileOnly(intellijDep())
-
-    testRuntime(intellijDep())
-
-    testCompile(commonDep("junit:junit"))
     testCompileOnly(project(":kotlin-test:kotlin-test-jvm"))
     testCompileOnly(project(":kotlin-test:kotlin-test-junit"))
-    testCompile(projectTests(":compiler:tests-common"))
-    testCompile(projectTests(":compiler:fir:resolve"))
+    testApi(projectTests(":compiler:test-infrastructure"))
+    testApi(projectTests(":compiler:test-infrastructure-utils"))
+    testApi(projectTests(":compiler:tests-compiler-utils"))
+    testApi(projectTests(":compiler:tests-common-new"))
+    testApi(projectTests(":compiler:fir:analysis-tests"))
+    testApi(project(":compiler:fir:fir-serialization"))
+
+    testApiJUnit5()
 
     testCompileOnly(project(":kotlin-reflect-api"))
-    testRuntime(project(":kotlin-reflect"))
-    testRuntime(project(":core:descriptors.runtime"))
+    testRuntimeOnly(project(":kotlin-reflect"))
+    testRuntimeOnly(project(":core:deserialization"))
+    testRuntimeOnly(project(":core:descriptors.runtime"))
+    testRuntimeOnly(project(":core:descriptors.jvm"))
+    testRuntimeOnly(project(":compiler:fir:fir2ir:jvm-backend"))
+    testRuntimeOnly(project(":generators"))
 
-    Platform[192].orHigher {
-        testCompileOnly(intellijCoreDep()) { includeJars("intellij-core") }
-        testRuntimeOnly(intellijCoreDep()) { includeJars("intellij-core") }
+    testCompileOnly(intellijCoreDep()) { includeJars("intellij-core") }
+    testRuntimeOnly(intellijCoreDep()) { includeJars("intellij-core") }
+
+    testRuntimeOnly(intellijDep()) {
+        includeJars("jna", rootProject = rootProject)
     }
+
+    testRuntimeOnly(intellijDep()) { includeJars("intellij-deps-fastutil-8.4.1-4", "jps-model", "streamex", rootProject = rootProject) }
 }
+
+val generationRoot = projectDir.resolve("tests-gen")
 
 sourceSets {
     "main" { projectDefault() }
-    "test" { projectDefault() }
+    "test" {
+        projectDefault()
+        this.java.srcDir(generationRoot.name)
+    }
 }
 
-projectTest(parallel = true) {
+tasks {
+    val compileKotlin by existing(org.jetbrains.kotlin.gradle.tasks.KotlinCompile::class) {
+        kotlinOptions {
+            freeCompilerArgs += "-opt-in=org.jetbrains.kotlin.ir.ObsoleteDescriptorBasedAPI"
+        }
+    }
+}
+
+if (kotlinBuildProperties.isInJpsBuildIdeaSync) {
+    apply(plugin = "idea")
+    idea {
+        this.module.generatedSourceDirs.add(generationRoot)
+    }
+}
+
+projectTest(jUnit5Enabled = true) {
+    dependsOn(":dist")
     workingDir = rootDir
+    useJUnitPlatform()
 }
 
 testsJar()

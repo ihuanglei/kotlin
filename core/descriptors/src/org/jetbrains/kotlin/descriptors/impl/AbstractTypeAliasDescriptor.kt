@@ -21,19 +21,18 @@ import org.jetbrains.kotlin.descriptors.*
 import org.jetbrains.kotlin.descriptors.annotations.Annotations
 import org.jetbrains.kotlin.name.Name
 import org.jetbrains.kotlin.resolve.descriptorUtil.builtIns
-import org.jetbrains.kotlin.resolve.descriptorUtil.classId
 import org.jetbrains.kotlin.resolve.scopes.MemberScope
 import org.jetbrains.kotlin.storage.StorageManager
 import org.jetbrains.kotlin.types.*
 import org.jetbrains.kotlin.types.checker.KotlinTypeRefiner
-import org.jetbrains.kotlin.types.refinement.TypeRefinement
+import org.jetbrains.kotlin.types.TypeRefinement
 
 abstract class AbstractTypeAliasDescriptor(
     containingDeclaration: DeclarationDescriptor,
     annotations: Annotations,
     name: Name,
     sourceElement: SourceElement,
-    private val visibilityImpl: Visibility
+    private val visibilityImpl: DescriptorVisibility
 ) : DeclarationDescriptorNonRootImpl(containingDeclaration, annotations, name, sourceElement),
     TypeAliasDescriptor {
 
@@ -92,7 +91,7 @@ abstract class AbstractTypeAliasDescriptor(
 
     protected abstract fun getTypeConstructorTypeParameters(): List<TypeParameterDescriptor>
 
-    @UseExperimental(TypeRefinement::class)
+    @OptIn(TypeRefinement::class)
     protected fun computeDefaultType(): SimpleType =
         TypeUtils.makeUnsubstitutedType(this, classDescriptor?.unsubstitutedMemberScope ?: MemberScope.Empty) { kotlinTypeRefiner ->
             kotlinTypeRefiner.refineDescriptor(this)?.defaultType
@@ -121,7 +120,7 @@ abstract class AbstractTypeAliasDescriptor(
 
         // There must be @TypeRefinement, but there is a bug with anonymous objects and experimental annotations
         // See KT-31728
-        @UseExperimental(TypeRefinement::class)
+        @OptIn(TypeRefinement::class)
         override fun refine(kotlinTypeRefiner: KotlinTypeRefiner): TypeConstructor = this
     }
 }

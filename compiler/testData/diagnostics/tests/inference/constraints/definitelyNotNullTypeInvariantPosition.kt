@@ -1,8 +1,9 @@
-// !DIAGNOSTICS: -UNUSED_PARAMETER -UNUSED_EXPRESSION
+// FIR_IDENTICAL
+// !DIAGNOSTICS: -UNUSED_PARAMETER -UNUSED_EXPRESSION -UNUSED_VARIABLE
 
 class Inv<T>(val x: T?)
 
-fun <K> create(y: K) = Inv(y)
+fun <K> create(y: K) = <!DEBUG_INFO_EXPRESSION_TYPE("Inv<K>")!>Inv(y)<!>
 fun <K> createPrivate(y: K) = Inv(y)
 
 fun takeInvInt(i: Inv<Int>) {}

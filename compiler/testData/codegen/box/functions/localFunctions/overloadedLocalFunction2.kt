@@ -1,4 +1,5 @@
-// IGNORE_BACKEND_FIR: JVM_IR
+fun <T> eval(fn: () -> T) = fn()
+
 fun box(): String {
     var s = ""
     var foo = "K"
@@ -12,10 +13,10 @@ fun box(): String {
             s += x
         }
 
-        {
+        eval {
             foo("O")
             foo(foo, 1)
-        }()
+        }
     }
 
     test()

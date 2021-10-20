@@ -1,12 +1,9 @@
-// IGNORE_BACKEND: JVM_IR
-// IGNORE_BACKEND_MULTI_MODULE: JVM_IR
-// FILE: test.kt
-// COMMON_COROUTINES_TEST
-// WITH_RUNTIME
 // WITH_COROUTINES
 // NO_CHECK_LAMBDA_INLINING
+// WITH_RUNTIME
+// FILE: test.kt
 
-import COROUTINES_PACKAGE.*
+import kotlin.coroutines.*
 import helpers.*
 
 // Block is allowed to be called inside the body of owner inline function
@@ -21,9 +18,7 @@ class Controller {
 }
 
 // FILE: box.kt
-// COMMON_COROUTINES_TEST
-
-import COROUTINES_PACKAGE.*
+import kotlin.coroutines.*
 import helpers.*
 
 fun builder(controller: Controller, c: suspend Controller.() -> Unit) {

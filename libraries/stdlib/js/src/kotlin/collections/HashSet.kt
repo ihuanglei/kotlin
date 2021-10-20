@@ -12,9 +12,11 @@ package kotlin.collections
 /**
  * The implementation of the [MutableSet] interface, backed by a [HashMap] instance.
  */
+// Classes that extend HashSet and implement `build()` (freezing) operation
+// have to make sure mutating methods check `checkIsMutable`.
 public actual open class HashSet<E> : AbstractMutableSet<E>, MutableSet<E> {
 
-    private val map: HashMap<E, Any>
+    internal val map: HashMap<E, Any>
 
     /**
      * Constructs a new empty [HashSet].
@@ -39,8 +41,7 @@ public actual open class HashSet<E> : AbstractMutableSet<E>, MutableSet<E> {
      *
      * @throws IllegalArgumentException if the initial capacity or load factor are negative
      */
-    @Suppress("ACTUAL_FUNCTION_WITH_DEFAULT_ARGUMENTS")
-    actual constructor(initialCapacity: Int, loadFactor: Float = 0.0f) {
+    actual constructor(initialCapacity: Int, loadFactor: Float) {
         map = HashMap<E, Any>(initialCapacity, loadFactor)
     }
 

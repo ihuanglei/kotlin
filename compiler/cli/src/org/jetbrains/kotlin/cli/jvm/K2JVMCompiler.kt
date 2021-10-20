@@ -31,16 +31,17 @@ import org.jetbrains.kotlin.cli.common.messages.MessageUtil
 import org.jetbrains.kotlin.cli.common.messages.OutputMessageUtil
 import org.jetbrains.kotlin.cli.common.modules.ModuleBuilder
 import org.jetbrains.kotlin.cli.common.modules.ModuleChunk
+import org.jetbrains.kotlin.cli.common.profiling.ProfilingCompilerPerformanceManager
 import org.jetbrains.kotlin.cli.jvm.compiler.CompileEnvironmentUtil
 import org.jetbrains.kotlin.cli.jvm.compiler.EnvironmentConfigFiles
 import org.jetbrains.kotlin.cli.jvm.compiler.KotlinCoreEnvironment
 import org.jetbrains.kotlin.cli.jvm.compiler.KotlinToJVMBytecodeCompiler
-import org.jetbrains.kotlin.cli.jvm.plugins.PluginCliParser
+import org.jetbrains.kotlin.cli.jvm.config.ClassicFrontendSpecificJvmConfigurationKeys
 import org.jetbrains.kotlin.codegen.CompilationException
-import org.jetbrains.kotlin.compiler.plugin.ComponentRegistrar
 import org.jetbrains.kotlin.config.*
 import org.jetbrains.kotlin.incremental.components.ExpectActualTracker
 import org.jetbrains.kotlin.incremental.components.LookupTracker
+import org.jetbrains.kotlin.incremental.components.InlineConstTracker
 import org.jetbrains.kotlin.load.java.JavaClassesTracker
 import org.jetbrains.kotlin.load.kotlin.incremental.components.IncrementalCompilationComponents
 import org.jetbrains.kotlin.metadata.deserialization.BinaryVersion
@@ -48,13 +49,9 @@ import org.jetbrains.kotlin.metadata.jvm.deserialization.JvmMetadataVersion
 import org.jetbrains.kotlin.metadata.jvm.deserialization.JvmProtoBufUtil
 import org.jetbrains.kotlin.modules.JavaRootPath
 import org.jetbrains.kotlin.utils.KotlinPaths
-import org.jetbrains.kotlin.utils.PathUtil
 import java.io.File
-import java.util.*
 
 class K2JVMCompiler : CLICompiler<K2JVMCompilerArguments>() {
-
-    override val performanceManager = K2JVMCompilerPerformanceManager()
 
     override fun doExecute(
         arguments: K2JVMCompilerArguments,
@@ -64,6 +61,7 @@ class K2JVMCompiler : CLICompiler<K2JVMCompilerArguments>() {
     ): ExitCode {
         val messageCollector = configuration.getNotNull(CLIConfigurationKeys.MESSAGE_COLLECTOR_KEY)
 
+        configuration.putIfNotNull(CLIConfigurationKeys.REPEAT_COMPILE_MODULES, arguments.repeatCompileModules?.toIntOrNull())
         configuration.put(CLIConfigurationKeys.PHASE_CONFIG, createPhaseConfig(jvmPhases, arguments, messageCollector))
 
         if (!configuration.configureJdkHome(arguments)) return COMPILATION_ERROR
@@ -79,8 +77,11 @@ class K2JVMCompiler : CLICompiler<K2JVMCompilerArguments>() {
         configuration.configureExplicitContentRoots(arguments)
         configuration.configureStandardLibs(paths, arguments)
         configuration.configureAdvancedJvmOptions(arguments)
+        configuration.configureKlibPaths(arguments)
 
-        if (arguments.buildFile == null && !arguments.version  && !arguments.allowNoSourceFiles && (arguments.script || arguments.freeArgs.isEmpty())) {
+        if (arguments.buildFile == null && !arguments.version  && !arguments.allowNoSourceFiles &&
+            (arguments.script || arguments.expression != null || arguments.freeArgs.isEmpty())) {
+
             // script or repl
             if (arguments.script && arguments.freeArgs.isEmpty()) {
                 messageCollector.report(ERROR, "Specify script source path to evaluate")
@@ -90,11 +91,12 @@ class K2JVMCompiler : CLICompiler<K2JVMCompilerArguments>() {
             val projectEnvironment =
                 KotlinCoreEnvironment.ProjectEnvironment(
                     rootDisposable,
-                    KotlinCoreEnvironment.getOrCreateApplicationEnvironmentForProduction(rootDisposable, configuration)
+                    KotlinCoreEnvironment.getOrCreateApplicationEnvironmentForProduction(rootDisposable, configuration),
+                    configuration
                 )
             projectEnvironment.registerExtensionsFromPlugins(configuration)
 
-            if (arguments.script) {
+            if (arguments.script || arguments.expression != null) {
                 val scriptingEvaluator = ScriptEvaluationExtension.getInstances(projectEnvironment.project).find { it.isAccepted(arguments) }
                 if (scriptingEvaluator == null) {
                     messageCollector.report(ERROR, "Unable to evaluate script, no scripting plugin loaded")
@@ -148,9 +150,14 @@ class K2JVMCompiler : CLICompiler<K2JVMCompilerArguments>() {
                 ModuleChunk(listOf(module))
             }
 
-            KotlinToJVMBytecodeCompiler.configureSourceRoots(configuration, moduleChunk.modules, buildFile)
-            val environment = createCoreEnvironment(rootDisposable, configuration, messageCollector)
-                ?: return COMPILATION_ERROR
+            val chunk = moduleChunk.modules
+            KotlinToJVMBytecodeCompiler.configureSourceRoots(configuration, chunk, buildFile)
+            val environment = createCoreEnvironment(
+                rootDisposable, configuration, messageCollector,
+                chunk.map { input -> input.getModuleName() + "-" + input.getModuleType() }.let { names ->
+                    names.singleOrNull() ?: names.joinToString()
+                }
+            ) ?: return COMPILATION_ERROR
             environment.registerJavacIfNeeded(arguments).let {
                 if (!it) return COMPILATION_ERROR
             }
@@ -162,7 +169,7 @@ class K2JVMCompiler : CLICompiler<K2JVMCompilerArguments>() {
                 return COMPILATION_ERROR
             }
 
-            KotlinToJVMBytecodeCompiler.compileModules(environment, buildFile, moduleChunk.modules)
+            KotlinToJVMBytecodeCompiler.compileModules(environment, buildFile, chunk)
             return OK
         } catch (e: CompilationException) {
             messageCollector.report(
@@ -214,13 +221,17 @@ class K2JVMCompiler : CLICompiler<K2JVMCompilerArguments>() {
     private fun createCoreEnvironment(
         rootDisposable: Disposable,
         configuration: CompilerConfiguration,
-        messageCollector: MessageCollector
+        messageCollector: MessageCollector,
+        targetDescription: String
     ): KotlinCoreEnvironment? {
         if (messageCollector.hasErrors()) return null
 
         val environment = KotlinCoreEnvironment.createForProduction(rootDisposable, configuration, EnvironmentConfigFiles.JVM_CONFIG_FILES)
 
-        performanceManager.notifyCompilerInitialized()
+        val sourceFiles = environment.getSourceFiles()
+        configuration[CLIConfigurationKeys.PERF_MANAGER]?.notifyCompilerInitialized(
+            sourceFiles, targetDescription
+        )
 
         return if (messageCollector.hasErrors()) null else environment
     }
@@ -234,12 +245,14 @@ class K2JVMCompiler : CLICompiler<K2JVMCompilerArguments>() {
 
                 putIfNotNull(CommonConfigurationKeys.EXPECT_ACTUAL_TRACKER, services[ExpectActualTracker::class.java])
 
+                putIfNotNull(CommonConfigurationKeys.INLINE_CONST_TRACKER, services[InlineConstTracker::class.java])
+
                 putIfNotNull(
                     JVMConfigurationKeys.INCREMENTAL_COMPILATION_COMPONENTS,
                     services[IncrementalCompilationComponents::class.java]
                 )
 
-                putIfNotNull(JVMConfigurationKeys.JAVA_CLASSES_TRACKER, services[JavaClassesTracker::class.java])
+                putIfNotNull(ClassicFrontendSpecificJvmConfigurationKeys.JAVA_CLASSES_TRACKER, services[JavaClassesTracker::class.java])
             }
             setupJvmSpecificArguments(arguments)
         }
@@ -263,6 +276,15 @@ class K2JVMCompiler : CLICompiler<K2JVMCompilerArguments>() {
             CLITool.doMain(K2JVMCompiler(), args)
         }
 
+    }
+
+    override val defaultPerformanceManager: CommonCompilerPerformanceManager = K2JVMCompilerPerformanceManager()
+
+    override fun createPerformanceManager(arguments: K2JVMCompilerArguments, services: Services): CommonCompilerPerformanceManager {
+        val externalManager = services[CommonCompilerPerformanceManager::class.java]
+        if (externalManager != null) return externalManager
+        val argument = arguments.profileCompilerCommand ?: return defaultPerformanceManager
+        return ProfilingCompilerPerformanceManager.create(argument)
     }
 }
 

@@ -1,0 +1,18 @@
+package interop
+
+object Definitions {
+  private constructor() /* primary */ {
+    super/*Any*/()
+    /* <init>() */
+
+  }
+
+  const val KT_CONSTANT: @FlexibleNullability String?
+    field = "constant"
+    get
+
+  val ktValue: @FlexibleNullability String?
+    field = #CONSTANT
+    get
+
+}

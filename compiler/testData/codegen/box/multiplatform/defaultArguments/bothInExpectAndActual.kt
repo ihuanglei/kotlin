@@ -1,6 +1,6 @@
 // !LANGUAGE: +MultiPlatformProjects
-// IGNORE_BACKEND_FIR: JVM_IR
 // IGNORE_BACKEND: NATIVE
+// IGNORE_BACKEND_FIR: JVM_IR
 // FILE: common.kt
 
 public expect fun <T> Array<out T>.copyInto(

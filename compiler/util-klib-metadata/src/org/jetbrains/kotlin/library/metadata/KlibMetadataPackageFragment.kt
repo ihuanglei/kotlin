@@ -6,6 +6,7 @@
 package org.jetbrains.kotlin.library.metadata
 
 import org.jetbrains.kotlin.backend.common.serialization.metadata.KlibMetadataVersion
+import org.jetbrains.kotlin.builtins.BuiltInsPackageFragment
 import org.jetbrains.kotlin.descriptors.ModuleDescriptor
 import org.jetbrains.kotlin.library.KotlinLibrary
 import org.jetbrains.kotlin.metadata.ProtoBuf
@@ -18,8 +19,9 @@ import org.jetbrains.kotlin.serialization.deserialization.descriptors.Deserializ
 import org.jetbrains.kotlin.serialization.deserialization.getClassId
 import org.jetbrains.kotlin.serialization.deserialization.getName
 import org.jetbrains.kotlin.storage.StorageManager
+import java.lang.ref.SoftReference
 
-class KlibMetadataDeserializedPackageFragment(
+open class KlibMetadataDeserializedPackageFragment(
     fqName: FqName,
     private val library: KotlinLibrary,
     private val packageAccessHandler: PackageAccessHandler?,
@@ -30,8 +32,17 @@ class KlibMetadataDeserializedPackageFragment(
 
     // The proto field is lazy so that we can load only needed
     // packages from the library.
-    override val protoForNames: ProtoBuf.PackageFragment by lazy {
-        (packageAccessHandler ?: SimplePackageAccessHandler).loadPackageFragment(library, fqName.asString(), partName)
+    override val protoForNames: ProtoBuf.PackageFragment get() = ensureStorage()
+
+    private var protoForNamesStorage: SoftReference<ProtoBuf.PackageFragment> = SoftReference(null)
+
+    private fun ensureStorage(): ProtoBuf.PackageFragment {
+        var tmp = protoForNamesStorage.get()
+        if (tmp == null) {
+            tmp = (packageAccessHandler ?: SimplePackageAccessHandler).loadPackageFragment(library, fqName.asString(), partName)
+            protoForNamesStorage = SoftReference(tmp)
+        }
+        return tmp
     }
 
     override val proto: ProtoBuf.PackageFragment
@@ -39,6 +50,20 @@ class KlibMetadataDeserializedPackageFragment(
             packageAccessHandler?.markNeededForLink(library, fqName.asString())
             return protoForNames
         }
+}
+
+class BuiltInKlibMetadataDeserializedPackageFragment(
+    fqName: FqName,
+    library: KotlinLibrary,
+    packageAccessHandler: PackageAccessHandler?,
+    storageManager: StorageManager,
+    module: ModuleDescriptor,
+    partName: String
+) : KlibMetadataDeserializedPackageFragment(fqName, library, packageAccessHandler, storageManager, module, partName),
+    BuiltInsPackageFragment {
+
+    override val isFallback: Boolean
+        get() = false
 }
 
 class KlibMetadataCachedPackageFragment(
@@ -84,10 +109,9 @@ abstract class KlibMetadataPackageFragment(
             nameResolver,
             KlibMetadataVersion.INSTANCE,
             /* containerSource = */ null,
-            components
-        ) {
-            loadClassNames()
-        }
+            components,
+            "scope for $this"
+        ) { loadClassNames() }
     }
 
     override fun getMemberScope(): DeserializedPackageMemberScope = _memberScope

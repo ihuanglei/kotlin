@@ -8,26 +8,22 @@ package org.jetbrains.kotlin.analyzer
 import com.intellij.openapi.util.ModificationTracker
 import org.jetbrains.kotlin.builtins.KotlinBuiltIns
 import org.jetbrains.kotlin.context.ProjectContext
-import org.jetbrains.kotlin.context.withModule
-import org.jetbrains.kotlin.descriptors.ModuleDescriptor
-import org.jetbrains.kotlin.descriptors.PackageFragmentDescriptor
-import org.jetbrains.kotlin.descriptors.PackageFragmentProvider
+import org.jetbrains.kotlin.descriptors.*
 import org.jetbrains.kotlin.descriptors.impl.ModuleDescriptorImpl
 import org.jetbrains.kotlin.name.FqName
 import org.jetbrains.kotlin.name.Name
-import org.jetbrains.kotlin.platform.TargetPlatform
-import org.jetbrains.kotlin.psi.KtFile
+import org.jetbrains.kotlin.utils.checkWithAttachment
 
 abstract class AbstractResolverForProject<M : ModuleInfo>(
     private val debugName: String,
     protected val projectContext: ProjectContext,
     modules: Collection<M>,
-    private val fallbackModificationTracker: ModificationTracker? = null,
+    protected val fallbackModificationTracker: ModificationTracker? = null,
     private val delegateResolver: ResolverForProject<M> = EmptyResolverForProject(),
     private val packageOracleFactory: PackageOracleFactory = PackageOracleFactory.OptimisticFactory
 ) : ResolverForProject<M>() {
 
-    private class ModuleData(
+    protected class ModuleData(
         val moduleDescriptor: ModuleDescriptorImpl,
         val modificationTracker: ModificationTracker?
     ) {
@@ -40,7 +36,7 @@ abstract class AbstractResolverForProject<M : ModuleInfo>(
     }
 
     // Protected by ("projectContext.storageManager.lock")
-    private val descriptorByModule = mutableMapOf<M, ModuleData>()
+    protected val descriptorByModule = mutableMapOf<M, ModuleData>()
 
     // Protected by ("projectContext.storageManager.lock")
     private val moduleInfoByDescriptor = mutableMapOf<ModuleDescriptorImpl, M>()
@@ -57,7 +53,6 @@ abstract class AbstractResolverForProject<M : ModuleInfo>(
     abstract fun modulesContent(module: M): ModuleContent<M>
     abstract fun builtInsForModule(module: M): KotlinBuiltIns
     abstract fun createResolverForModule(descriptor: ModuleDescriptor, moduleInfo: M): ResolverForModule
-
     override fun tryGetResolverForModule(moduleInfo: M): ResolverForModule? {
         if (!isCorrectModuleInfo(moduleInfo)) {
             return null
@@ -94,16 +89,46 @@ abstract class AbstractResolverForProject<M : ModuleInfo>(
     override val name: String
         get() = "Resolver for '$debugName'"
 
-    private fun isCorrectModuleInfo(moduleInfo: M) = moduleInfo in allModules
+    private fun isCorrectModuleInfo(moduleInfo: M): Boolean =
+        ((moduleInfo as? DerivedModuleInfo)?.originalModule ?: moduleInfo) in allModules
 
-    override fun resolverForModuleDescriptor(descriptor: ModuleDescriptor): ResolverForModule {
+    final override fun resolverForModuleDescriptor(descriptor: ModuleDescriptor): ResolverForModule {
+        val moduleResolver = resolverForModuleDescriptorImpl(descriptor)
+
+        // Please, attach exceptions from here to EA-214260 (see `resolverForModuleDescriptorImpl` comment)
+        checkWithAttachment(
+            moduleResolver != null,
+            lazyMessage = { "$descriptor is not contained in resolver $name" },
+            attachments = {
+                it.withAttachment(
+                    "resolverContents.txt",
+                    "Expected module descriptor: $descriptor\n\n${renderResolversChainContents()}"
+                )
+            }
+        )
+
+        return moduleResolver
+    }
+
+    /**
+     * We have a problem investigating EA-214260 (KT-40301), that is why we separated searching the
+     * [ResolverForModule] and reporting the problem in [resolverForModuleDescriptor] (so we can tweak the reported information more
+     * accurately).
+     *
+     * We use the fact that [ResolverForProject] have only two inheritors: [EmptyResolverForProject] and [AbstractResolverForProject].
+     * So if the [delegateResolver] is not an [EmptyResolverForProject], it has to be [AbstractResolverForProject].
+     *
+     * Knowing that, we can safely use [resolverForModuleDescriptorImpl] recursively, and get the same result
+     * as with [resolverForModuleDescriptor].
+     */
+    private fun resolverForModuleDescriptorImpl(descriptor: ModuleDescriptor): ResolverForModule? {
         return projectContext.storageManager.compute {
             val module = moduleInfoByDescriptor[descriptor]
             if (module == null) {
                 if (delegateResolver is EmptyResolverForProject<*>) {
-                    throw IllegalStateException("$descriptor is not contained in resolver $name")
+                    return@compute null
                 }
-                return@compute delegateResolver.resolverForModuleDescriptor(descriptor)
+                return@compute (delegateResolver as AbstractResolverForProject<M>).resolverForModuleDescriptorImpl(descriptor)
             }
             resolverByModuleDescriptor.getOrPut(descriptor) {
                 checkModuleIsCorrect(module)
@@ -125,8 +150,12 @@ abstract class AbstractResolverForProject<M : ModuleInfo>(
         return doGetDescriptorForModule(moduleInfo)
     }
 
+    override fun moduleInfoForModuleDescriptor(moduleDescriptor: ModuleDescriptor): M {
+        return moduleInfoByDescriptor[moduleDescriptor] ?: delegateResolver.moduleInfoForModuleDescriptor(moduleDescriptor)
+    }
+
     override fun diagnoseUnknownModuleInfo(infos: List<ModuleInfo>): Nothing {
-        DiagnoseUnknownModuleInfoReporter.report(name, infos)
+        DiagnoseUnknownModuleInfoReporter.report(name, infos, allModules)
     }
 
     private fun checkModuleIsCorrect(moduleInfo: M) {
@@ -136,8 +165,10 @@ abstract class AbstractResolverForProject<M : ModuleInfo>(
     }
 
     private fun doGetDescriptorForModule(module: M): ModuleDescriptorImpl {
-        val moduleFromThisResolver = moduleInfoToResolvableInfo[module]
-            ?: return delegateResolver.descriptorForModule(module) as ModuleDescriptorImpl
+        val moduleFromThisResolver =
+            module.takeIf { it is DerivedModuleInfo && it.originalModule in moduleInfoToResolvableInfo }
+                ?: moduleInfoToResolvableInfo[module]
+                ?: return delegateResolver.descriptorForModule(module) as ModuleDescriptorImpl
 
         return projectContext.storageManager.compute {
             var moduleData = descriptorByModule.getOrPut(moduleFromThisResolver) {
@@ -156,12 +187,16 @@ abstract class AbstractResolverForProject<M : ModuleInfo>(
             oldDescriptor.isValid = false
             moduleInfoByDescriptor.remove(oldDescriptor)
             resolverByModuleDescriptor.remove(oldDescriptor)
+            projectContext.project.messageBus.syncPublisher(ModuleDescriptorListener.TOPIC).moduleDescriptorInvalidated(oldDescriptor)
         }
 
         val moduleData = createModuleDescriptor(module)
         descriptorByModule[module] = moduleData
+
         return moduleData
     }
+
+    protected open fun getAdditionalCapabilities(): Map<ModuleCapability<*>, Any?> = emptyMap()
 
     private fun createModuleDescriptor(module: M): ModuleData {
         val moduleDescriptor = ModuleDescriptorImpl(
@@ -169,13 +204,32 @@ abstract class AbstractResolverForProject<M : ModuleInfo>(
             projectContext.storageManager,
             builtInsForModule(module),
             module.platform,
-            module.capabilities,
-            module.stableName
+            module.capabilities + getAdditionalCapabilities(),
+            module.stableName,
         )
         moduleInfoByDescriptor[moduleDescriptor] = module
         setupModuleDescriptor(module, moduleDescriptor)
         val modificationTracker = (module as? TrackableModuleInfo)?.createModificationTracker() ?: fallbackModificationTracker
         return ModuleData(moduleDescriptor, modificationTracker)
+    }
+
+    private fun renderResolversChainContents(): String {
+        val resolversChain = generateSequence(this) { it.delegateResolver as? AbstractResolverForProject<M> }
+
+        return resolversChain.joinToString("\n\n") { resolver ->
+            "Resolver: ${resolver.name}\n'moduleInfoByDescriptor' content:\n[${resolver.renderResolverModuleInfos()}]"
+        }
+    }
+
+    private fun renderResolverModuleInfos(): String = projectContext.storageManager.compute {
+        moduleInfoByDescriptor.entries.joinToString(",\n") { (descriptor, moduleInfo) ->
+            """
+            {
+                moduleDescriptor: $descriptor
+                moduleInfo: $moduleInfo
+            }
+            """.trimIndent()
+        }
     }
 }
 
@@ -184,13 +238,27 @@ private class DelegatingPackageFragmentProvider<M : ModuleInfo>(
     private val module: ModuleDescriptor,
     moduleContent: ModuleContent<M>,
     private val packageOracle: PackageOracle
-) : PackageFragmentProvider {
+) : PackageFragmentProviderOptimized {
     private val syntheticFilePackages = moduleContent.syntheticFiles.map { it.packageFqName }.toSet()
 
+    @Suppress("OverridingDeprecatedMember", "OVERRIDE_DEPRECATION")
     override fun getPackageFragments(fqName: FqName): List<PackageFragmentDescriptor> {
         if (certainlyDoesNotExist(fqName)) return emptyList()
 
+        @Suppress("DEPRECATION")
         return resolverForProject.resolverForModuleDescriptor(module).packageFragmentProvider.getPackageFragments(fqName)
+    }
+
+    override fun collectPackageFragments(fqName: FqName, packageFragments: MutableCollection<PackageFragmentDescriptor>) {
+        if (certainlyDoesNotExist(fqName)) return
+
+        resolverForProject.resolverForModuleDescriptor(module).packageFragmentProvider.collectPackageFragmentsOptimizedIfPossible(fqName, packageFragments)
+    }
+
+    override fun isEmpty(fqName: FqName): Boolean {
+        if (certainlyDoesNotExist(fqName)) return true
+
+        return resolverForProject.resolverForModuleDescriptor(module).packageFragmentProvider.isEmpty(fqName)
     }
 
     override fun getSubPackagesOf(fqName: FqName, nameFilter: (Name) -> Boolean): Collection<FqName> {
@@ -204,11 +272,15 @@ private class DelegatingPackageFragmentProvider<M : ModuleInfo>(
 
         return !packageOracle.packageExists(fqName) && fqName !in syntheticFilePackages
     }
+
+    override fun toString(): String {
+        return "DelegatingProvider for $module in ${resolverForProject.name}"
+    }
 }
 
 private object DiagnoseUnknownModuleInfoReporter {
-    fun report(name: String, infos: List<ModuleInfo>): Nothing {
-        val message = "$name does not know how to resolve $infos"
+    fun report(name: String, infos: List<ModuleInfo>, allModules: Collection<ModuleInfo>): Nothing {
+        val message = "$name does not know how to resolve $infos, allModules: $allModules"
         when {
             name.contains(ResolverForProject.resolverForSdkName) -> errorInSdkResolver(message)
             name.contains(ResolverForProject.resolverForLibrariesName) -> errorInLibrariesResolver(message)
@@ -223,7 +295,7 @@ private object DiagnoseUnknownModuleInfoReporter {
                             else -> errorInModulesResolver(message)
                         }
                     }
-                    else -> throw errorInModulesResolver(message)
+                    else -> errorInModulesResolver(message)
                 }
             }
             name.contains(ResolverForProject.resolverForScriptDependenciesName) -> errorInScriptDependenciesInfoResolver(message)

@@ -1,3 +1,4 @@
+import TaskUtils.useAndroidEmulator
 
 plugins {
     kotlin("jvm")
@@ -5,35 +6,41 @@ plugins {
 }
 
 dependencies {
-    compile(project(":compiler:util"))
-    compile(project(":compiler:cli"))
-    compile(project(":compiler:frontend"))
-    compile(project(":compiler:backend"))
-    compile(kotlinStdlib())
-    compile(project(":kotlin-reflect"))
-    compile(projectTests(":compiler:tests-common"))
-    compile(commonDep("junit:junit"))
-    compileOnly(intellijDep()) { includeJars("openapi") }
+    testApi(project(":core:descriptors"))
+    testApi(project(":core:descriptors.jvm"))
+    testApi(project(":compiler:util"))
+    testApi(project(":compiler:cli"))
+    testApi(project(":compiler:frontend"))
+    testApi(project(":compiler:backend"))
+    testApi(project(":compiler:incremental-compilation-impl"))
+    testApi(project(":compiler:frontend.java"))
 
-    testCompile(project(":compiler:incremental-compilation-impl"))
-    testCompile(project(":core:descriptors"))
-    testCompile(project(":core:descriptors.jvm"))
-    testCompile(project(":compiler:frontend.java"))
-    testCompile(projectTests(":jps-plugin"))
-    testCompile(commonDep("junit:junit"))
-    testCompile(intellijDep()) { includeJars("openapi", "util", "idea", "idea_rt", "groovy-all", rootProject = rootProject) }
-    Platform[191].orLower {
-        testCompile(intellijDep()) { includeJars("jps-builders") }
-    }
-    Platform[192].orHigher {
-        testCompile(intellijPluginDep("java")) { includeJars("jps-builders") }
-    }
-    testCompile(jpsStandalone()) { includeJars("jps-model") }
-    testCompile(jpsBuildTest())
+    testApi(kotlinStdlib())
+    testApi(project(":kotlin-reflect"))
+    testApi(projectTests(":compiler:tests-common"))
+    testApi(commonDep("junit:junit"))
+    testApi(projectTests(":compiler:test-infrastructure"))
+    testApi(projectTests(":compiler:test-infrastructure-utils"))
+    testApi(projectTests(":compiler:tests-compiler-utils"))
+    testApi(projectTests(":compiler:tests-common-new"))
+
+    testApi(commonDep("junit:junit"))
+
+    testApi(intellijDep()) { includeJars("util", "idea", "idea_rt", rootProject = rootProject) }
+    testApi(intellijDep()) { includeJars("groovy", rootProject = rootProject) }
+
+    testApi(intellijPluginDep("java")) { includeJars("jps-builders") }
+    testApi(jpsStandalone()) { includeJars("jps-model") }
+    testApi(jpsBuildTest())
+
+    testRuntimeOnly(intellijCoreDep()) { includeJars("intellij-core") }
+    testRuntimeOnly(intellijDep()) { includeJars("jna", rootProject = rootProject) }
+
+    testApi("org.junit.platform:junit-platform-launcher:${commonVer("org.junit.platform", "")}")
 }
 
 sourceSets {
-    "main" { projectDefault() }
+    "main" { }
     "test" { projectDefault() }
 }
 
@@ -52,9 +59,10 @@ projectTest {
     }
 
     workingDir = rootDir
+    useAndroidEmulator(this)
 }
 
-val generateTests by generator("org.jetbrains.kotlin.android.tests.CodegenTestsOnAndroidGenerator")
+val generateAndroidTests by generator("org.jetbrains.kotlin.android.tests.CodegenTestsOnAndroidGenerator")
 
-generateTests.workingDir = rootDir
-generateTests.dependsOn(rootProject.tasks.named("dist"))
+generateAndroidTests.workingDir = rootDir
+generateAndroidTests.dependsOn(rootProject.tasks.named("dist"))

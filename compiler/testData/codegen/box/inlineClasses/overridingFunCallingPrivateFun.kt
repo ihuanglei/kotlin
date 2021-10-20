@@ -1,11 +1,12 @@
-// !LANGUAGE: +InlineClasses
-// IGNORE_BACKEND_FIR: JVM_IR
+// WITH_RUNTIME
 
 interface IFoo {
     fun foo(): String
 }
 
-inline class IC(val x: String) : IFoo {
+@Suppress("OPTIONAL_DECLARATION_USAGE_IN_NON_COMMON_SOURCE")
+@kotlin.jvm.JvmInline
+value class IC(val x: String) : IFoo {
     private fun privateFun() = x
     override fun foo() = privateFun()
 }

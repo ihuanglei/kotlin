@@ -7,9 +7,11 @@ package org.jetbrains.kotlin.scripting.compiler.plugin
 
 import com.intellij.openapi.Disposable
 import com.intellij.openapi.util.Disposer
-import junit.framework.Assert
 import org.jetbrains.kotlin.cli.common.CLITool
 import org.jetbrains.kotlin.cli.jvm.K2JVMCompiler
+import org.jetbrains.kotlin.config.CompilerConfiguration
+import org.jetbrains.kotlin.scripting.compiler.plugin.impl.updateWithCompilerOptions
+import org.junit.Assert
 import java.io.ByteArrayOutputStream
 import java.io.File
 import java.io.InputStream
@@ -18,18 +20,37 @@ import java.nio.file.Files
 import java.util.concurrent.TimeUnit
 import kotlin.concurrent.thread
 
+const val SCRIPT_TEST_BASE_COMPILER_ARGUMENTS_PROPERTY = "kotlin.script.test.base.compiler.arguments"
+
+private fun getBaseCompilerArgumentsFromProperty(): List<String>? =
+    System.getProperty(SCRIPT_TEST_BASE_COMPILER_ARGUMENTS_PROPERTY)?.takeIf { it.isNotBlank() }?.split(' ')
+
 // TODO: partially copypasted from LauncherReplTest, consider extracting common parts to some (new) test util module
 fun runWithKotlinc(
     scriptPath: String,
     expectedOutPatterns: List<String> = emptyList(),
     expectedExitCode: Int = 0,
     workDirectory: File? = null,
-    classpath: List<File> = emptyList()
+    classpath: List<File> = emptyList(),
+    additionalEnvVars: Iterable<Pair<String, String>>? = null
 ) {
-    val executableName = "kotlinc"
-    // TODO:
+    runWithKotlinc(
+        arrayOf("-script", scriptPath),
+        expectedOutPatterns, expectedExitCode, workDirectory, classpath, additionalEnvVars
+    )
+}
+
+fun runWithKotlinLauncherScript(
+    launcherScriptName: String,
+    compilerArgs: Iterable<String>,
+    expectedOutPatterns: List<String> = emptyList(),
+    expectedExitCode: Int = 0,
+    workDirectory: File? = null,
+    classpath: List<File> = emptyList(),
+    additionalEnvVars: Iterable<Pair<String, String>>? = null
+) {
     val executableFileName =
-        if (System.getProperty("os.name").contains("windows", ignoreCase = true)) "$executableName.bat" else executableName
+        if (System.getProperty("os.name").contains("windows", ignoreCase = true)) "$launcherScriptName.bat" else launcherScriptName
     val launcherFile = File("dist/kotlinc/bin/$executableFileName")
     Assert.assertTrue("Launcher script not found, run dist task: ${launcherFile.absolutePath}", launcherFile.exists())
 
@@ -38,12 +59,39 @@ fun runWithKotlinc(
             add("-cp")
             add(classpath.joinToString(File.pathSeparator))
         }
-        add("-script")
-        add(scriptPath)
+        getBaseCompilerArgumentsFromProperty()?.let { addAll(it) }
+        addAll(compilerArgs)
     }
+
+    runAndCheckResults(args, expectedOutPatterns, expectedExitCode, workDirectory, additionalEnvVars)
+}
+
+fun runWithKotlinc(
+    compilerArgs: Array<String>,
+    expectedOutPatterns: List<String> = emptyList(),
+    expectedExitCode: Int = 0,
+    workDirectory: File? = null,
+    classpath: List<File> = emptyList(),
+    additionalEnvVars: Iterable<Pair<String, String>>? = null
+) {
+    runWithKotlinLauncherScript(
+        "kotlinc", compilerArgs.asIterable(), expectedOutPatterns, expectedExitCode, workDirectory, classpath, additionalEnvVars
+    )
+}
+
+fun runAndCheckResults(
+    args: List<String>,
+    expectedOutPatterns: List<String> = emptyList(),
+    expectedExitCode: Int = 0,
+    workDirectory: File? = null,
+    additionalEnvVars: Iterable<Pair<String, String>>? = null
+) {
     val processBuilder = ProcessBuilder(args)
     if (workDirectory != null) {
         processBuilder.directory(workDirectory)
+    }
+    if (additionalEnvVars != null) {
+        processBuilder.environment().putAll(additionalEnvVars)
     }
     val process = processBuilder.start()
 
@@ -112,20 +160,43 @@ fun runWithK2JVMCompiler(
         add("-script")
         add(scriptPath)
     }
+    runWithK2JVMCompiler(args.toTypedArray(), expectedOutPatterns, expectedExitCode)
+}
+
+fun runWithK2JVMCompiler(
+    args: Array<String>,
+    expectedAllOutPatterns: List<String> = emptyList(),
+    expectedExitCode: Int = 0,
+    expectedSomeErrPatterns: List<String>? = null
+) {
+    val argsWithBasefromProp = getBaseCompilerArgumentsFromProperty()?.let { (it + args).toTypedArray() } ?: args
     val (out, err, ret) = captureOutErrRet {
         CLITool.doMainNoExit(
             K2JVMCompiler(),
-            args.toTypedArray()
+            argsWithBasefromProp
         )
     }
     try {
         val outLines = out.lines()
-        Assert.assertEquals(expectedOutPatterns.size, outLines.size)
-        for ((expectedPattern, actualLine) in expectedOutPatterns.zip(outLines)) {
+        Assert.assertEquals(
+            "Expecting pattern:\n  ${expectedAllOutPatterns.joinToString("\n  ")}\nGot:\n  ${outLines.joinToString("\n  ")}",
+            expectedAllOutPatterns.size, outLines.size
+        )
+        for ((expectedPattern, actualLine) in expectedAllOutPatterns.zip(outLines)) {
             Assert.assertTrue(
                 "line \"$actualLine\" do not match with expected pattern \"$expectedPattern\"",
                 Regex(expectedPattern).matches(actualLine)
             )
+        }
+        if (expectedSomeErrPatterns != null) {
+            val errLines = err.lines()
+            for (expectedPattern in expectedSomeErrPatterns) {
+                val re = Regex(expectedPattern)
+                Assert.assertTrue(
+                    "Expected pattern \"$expectedPattern\" is not found in the stderr:\n${errLines.joinToString("\n")}",
+                    errLines.any { re.find(it) != null }
+                )
+            }
         }
         Assert.assertEquals(expectedExitCode, ret.code)
     } catch (e: Throwable) {
@@ -134,7 +205,6 @@ fun runWithK2JVMCompiler(
         throw e
     }
 }
-
 
 internal fun <T> captureOutErrRet(body: () -> T): Triple<String, String, T> {
     val outStream = ByteArrayOutputStream()
@@ -172,4 +242,19 @@ internal fun <R> withDisposable(body: (Disposable) -> R) {
     }
 }
 
+class TestDisposable : Disposable {
+    @Volatile
+    var isDisposed = false
+        private set
+
+    override fun dispose() {
+        isDisposed = true
+    }
+}
+
+fun CompilerConfiguration.updateWithBaseCompilerArguments() {
+    getBaseCompilerArgumentsFromProperty()?.let {
+        updateWithCompilerOptions(it)
+    }
+}
 

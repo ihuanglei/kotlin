@@ -26,7 +26,9 @@ interface JvmContentRoot : ContentRoot {
     val file: File
 }
 
-data class JvmClasspathRoot(override val file: File) : JvmContentRoot
+data class JvmClasspathRoot(override val file: File, val isSdkRoot: Boolean) : JvmContentRoot {
+    constructor(file: File) : this(file, false)
+}
 
 data class JavaSourceRoot(override val file: File, val packagePrefix: String?) : JvmContentRoot
 
@@ -41,11 +43,14 @@ fun CompilerConfiguration.addJvmClasspathRoots(files: List<File>) {
 }
 
 fun CompilerConfiguration.addJvmSdkRoots(files: List<File>) {
-    addAll(CLIConfigurationKeys.CONTENT_ROOTS, 0, files.map(::JvmClasspathRoot))
+    addAll(CLIConfigurationKeys.CONTENT_ROOTS, 0, files.map { file -> JvmClasspathRoot(file, true) })
 }
 
 val CompilerConfiguration.jvmClasspathRoots: List<File>
     get() = getList(CLIConfigurationKeys.CONTENT_ROOTS).filterIsInstance<JvmClasspathRoot>().map(JvmContentRoot::file)
+
+val CompilerConfiguration.jvmModularRoots: List<File>
+    get() = getList(CLIConfigurationKeys.CONTENT_ROOTS).filterIsInstance<JvmModulePathRoot>().map(JvmContentRoot::file)
 
 @JvmOverloads
 fun CompilerConfiguration.addJavaSourceRoot(file: File, packagePrefix: String? = null) {

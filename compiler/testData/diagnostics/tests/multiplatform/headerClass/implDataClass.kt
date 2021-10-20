@@ -1,3 +1,4 @@
+// FIR_IDENTICAL
 // !LANGUAGE: +MultiPlatformProjects
 // MODULE: m1-common
 // FILE: common.kt
@@ -22,7 +23,7 @@ expect class Baz(w: List<String>) {
     override fun toString(): String
 }
 
-// MODULE: m2-jvm(m1-common)
+// MODULE: m2-jvm()()(m1-common)
 // FILE: jvm.kt
 
 actual data class Foo actual constructor(actual val x: Int, actual val y: String)

@@ -1,22 +1,23 @@
 import com.github.jengelman.gradle.plugins.shadow.tasks.ShadowJar
+import org.gradle.crypto.checksum.Checksum
 import org.gradle.plugins.ide.idea.model.IdeaModel
-import org.jetbrains.kotlin.gradle.tasks.AbstractKotlinCompile
-import org.jetbrains.kotlin.gradle.tasks.KotlinCompile
 import proguard.gradle.ProGuardTask
 
 buildscript {
-    extra["defaultSnapshotVersion"] = "1.3-SNAPSHOT"
     val cacheRedirectorEnabled = findProperty("cacheRedirectorEnabled")?.toString()?.toBoolean() == true
 
-    kotlinBootstrapFrom(BootstrapOption.BintrayBootstrap("1.3.70-dev-1806", cacheRedirectorEnabled))
+    kotlinBootstrapFrom(BootstrapOption.SpaceBootstrap(kotlinBuildProperties.kotlinBootstrapVersion!!, cacheRedirectorEnabled))
 
     repositories {
         bootstrapKotlinRepo?.let(::maven)
 
         if (cacheRedirectorEnabled) {
             maven("https://cache-redirector.jetbrains.com/plugins.gradle.org/m2")
+            maven("https://cache-redirector.jetbrains.com/repo.maven.apache.org/maven2")
+
         } else {
             maven("https://plugins.gradle.org/m2")
+            mavenCentral()
         }
     }
 
@@ -28,40 +29,41 @@ buildscript {
     dependencies {
         bootstrapCompilerClasspath(kotlin("compiler-embeddable", bootstrapKotlinVersion))
 
-        classpath("com.gradle.publish:plugin-publish-plugin:0.9.7")
+        classpath("org.jetbrains.kotlin:kotlin-build-gradle-plugin:0.0.32")
         classpath(kotlin("gradle-plugin", bootstrapKotlinVersion))
-        classpath("net.sf.proguard:proguard-gradle:6.1.0")
+        classpath(kotlin("serialization", bootstrapKotlinVersion))
         classpath("org.jetbrains.dokka:dokka-gradle-plugin:0.9.17")
     }
 }
 
 plugins {
+    base
     idea
     id("jps-compatible")
     id("org.jetbrains.gradle.plugin.idea-ext")
+    id("org.gradle.crypto.checksum") version "1.2.0"
+    signing
 }
 
 pill {
     excludedDirs(
         "out",
         "buildSrc/build",
-        "buildSrc/prepare-deps/android-dx/build",
         "buildSrc/prepare-deps/intellij-sdk/build"
     )
 }
 
-val configuredJdks: List<JdkId> =
-    getConfiguredJdks().also {
-        it.forEach { jdkId ->
-            logger.info("Using ${jdkId.majorVersion} home: ${jdkId.homeDir}")
-        }
-    }
+val isTeamcityBuild = project.kotlinBuildProperties.isTeamcityBuild
 
 val defaultSnapshotVersion: String by extra
 val buildNumber by extra(findProperty("build.number")?.toString() ?: defaultSnapshotVersion)
-val kotlinVersion by extra(findProperty("deployVersion")?.toString() ?: buildNumber)
+val kotlinVersion by extra(
+        findProperty("deployVersion")?.toString()?.let { deploySnapshotStr ->
+            if (deploySnapshotStr != "default.snapshot") deploySnapshotStr else defaultSnapshotVersion
+        } ?: buildNumber
+)
 
-val kotlinLanguageVersion by extra("1.3")
+val kotlinLanguageVersion by extra("1.6")
 
 allprojects {
     group = "org.jetbrains.kotlin"
@@ -78,10 +80,8 @@ val distKotlinHomeDir by extra("$distDir/kotlinc")
 val distLibDir = "$distKotlinHomeDir/lib"
 val commonLocalDataDir = "$rootDir/local"
 val ideaSandboxDir = "$commonLocalDataDir/ideaSandbox"
-val ideaUltimateSandboxDir = "$commonLocalDataDir/ideaUltimateSandbox"
 val artifactsDir = "$distDir/artifacts"
 val ideaPluginDir = "$artifactsDir/ideaPlugin/Kotlin"
-val ideaUltimatePluginDir = "$artifactsDir/ideaUltimatePlugin/Kotlin"
 
 extra["ktorExcludesForDaemon"] = listOf(
     "org.jetbrains.kotlin" to "kotlin-reflect",
@@ -99,34 +99,11 @@ extra["distLibDir"] = project.file(distLibDir)
 extra["libsDir"] = project.file(distLibDir)
 extra["commonLocalDataDir"] = project.file(commonLocalDataDir)
 extra["ideaSandboxDir"] = project.file(ideaSandboxDir)
-extra["ideaUltimateSandboxDir"] = project.file(ideaUltimateSandboxDir)
 extra["ideaPluginDir"] = project.file(ideaPluginDir)
-extra["ideaUltimatePluginDir"] = project.file(ideaUltimatePluginDir)
 extra["isSonatypeRelease"] = false
-
-// Work-around necessary to avoid setting null javaHome. Will be removed after support of lazy task configuration
-val jdkNotFoundConst = "JDK NOT FOUND"
-
-extra["JDK_16"] = jdkPath("1.6")
-extra["JDK_17"] = jdkPath("1.7")
-extra["JDK_18"] = jdkPath("1.8")
-extra["JDK_9"] = jdkPath("9")
-extra["JDK_10"] = jdkPath("10")
-extra["JDK_11"] = jdkPath("11")
-
-// allow opening the project without setting up all env variables (see KT-26413)
-if (!kotlinBuildProperties.isInIdeaSync) {
-    checkJDK()
-}
-
-fun checkJDK() {
-    val missingEnvVars = JdkMajorVersion.values()
-        .filter { it.isMandatory() && extra[it.name] == jdkNotFoundConst }
-        .mapTo(ArrayList()) { it.name }
-
-    if (missingEnvVars.isNotEmpty()) {
-        throw GradleException("Required environment variables are missing: ${missingEnvVars.joinToString()}")
-    }
+val kotlinNativeVersionObject = project.kotlinNativeVersionValue()
+subprojects {
+    extra["kotlinNativeVersion"] = kotlinNativeVersionObject
 }
 
 rootProject.apply {
@@ -134,6 +111,10 @@ rootProject.apply {
     from(rootProject.file("gradle/report.gradle.kts"))
     from(rootProject.file("gradle/javaInstrumentation.gradle.kts"))
     from(rootProject.file("gradle/jps.gradle.kts"))
+    from(rootProject.file("gradle/checkArtifacts.gradle.kts"))
+    from(rootProject.file("gradle/checkCacheability.gradle.kts"))
+    from(rootProject.file("gradle/retryPublishing.gradle.kts"))
+    from(rootProject.file("gradle/modularizedTestConfigurations.gradle.kts"))
 }
 
 IdeVersionConfigurator.setCurrentIde(project)
@@ -145,32 +126,32 @@ extra["versions.jansi"] = "1.16"
 extra["versions.jline"] = "3.3.1"
 extra["versions.junit"] = "4.12"
 extra["versions.javaslang"] = "2.0.6"
-extra["versions.ant"] = "1.8.2"
+extra["versions.ant"] = "1.10.7"
 extra["versions.android"] = "2.3.1"
-val coroutinesVersion = if (Platform[192].orHigher()) "1.2.1" else "1.1.1"
-extra["versions.kotlinx-coroutines-core"] = coroutinesVersion
-extra["versions.kotlinx-coroutines-jdk8"] = coroutinesVersion
+extra["versions.kotlinx-coroutines-core"] = "1.5.0"
+extra["versions.kotlinx-coroutines-core-jvm"] = "1.5.0"
+extra["versions.kotlinx-coroutines-jdk8"] = "1.5.0"
 extra["versions.json"] = "20160807"
 extra["versions.native-platform"] = "0.14"
-extra["versions.ant-launcher"] = "1.8.0"
-extra["versions.robolectric"] = "3.1"
+extra["versions.robolectric"] = "4.0"
 extra["versions.org.springframework"] = "4.2.0.RELEASE"
 extra["versions.jflex"] = "1.7.0"
 extra["versions.markdown"] = "0.1.25"
 extra["versions.trove4j"] = "1.0.20181211"
-extra["versions.completion-ranking-kotlin"] = "0.0.2"
+extra["versions.completion-ranking-kotlin"] = "0.1.3"
+extra["versions.r8"] = "2.2.64"
+val immutablesVersion = "0.3.1"
+extra["versions.kotlinx-collections-immutable"] = immutablesVersion
+extra["versions.kotlinx-collections-immutable-jvm"] = immutablesVersion
 
 // NOTE: please, also change KTOR_NAME in pathUtil.kt and all versions in corresponding jar names in daemon tests.
 extra["versions.ktor-network"] = "1.0.1"
 
 if (!project.hasProperty("versions.kotlin-native")) {
-    extra["versions.kotlin-native"] = "1.3.70-dev-13235"
+    extra["versions.kotlin-native"] = "1.6.20-dev-320"
 }
 
-val isTeamcityBuild = project.kotlinBuildProperties.isTeamcityBuild
-val intellijUltimateEnabled by extra(project.kotlinBuildProperties.intellijUltimateEnabled)
-val effectSystemEnabled by extra(project.getBooleanProperty("kotlin.compiler.effectSystemEnabled") ?: false)
-val newInferenceEnabled by extra(project.getBooleanProperty("kotlin.compiler.newInferenceEnabled") ?: false)
+val useJvmFir by extra(project.kotlinBuildProperties.useFir)
 
 val intellijSeparateSdks = project.getBooleanProperty("intellijSeparateSdks") ?: false
 
@@ -178,79 +159,205 @@ extra["intellijSeparateSdks"] = intellijSeparateSdks
 
 extra["IntellijCoreDependencies"] =
     listOf(
-        if (Platform[191].orHigher()) "asm-all-7.0.1" else "asm-all",
+        "asm-all-9.0",
         "guava",
         "jdom",
         "jna",
         "log4j",
-        "picocontainer",
         "snappy-in-java",
         "streamex",
         "trove4j"
-    )
+    ).filterNotNull()
 
-
-extra["compilerModules"] = arrayOf(
-    ":compiler:util",
-    ":compiler:container",
-    ":compiler:resolution",
-    ":compiler:serialization",
-    ":compiler:psi",
-    ":compiler:frontend",
-    ":compiler:frontend.common",
-    ":compiler:frontend.java",
-    ":compiler:cli-common",
+val irCompilerModules = arrayOf(
     ":compiler:ir.tree",
-    ":compiler:ir.psi2ir",
-    ":compiler:ir.backend.common",
-    ":compiler:backend.jvm",
-    ":compiler:backend.js",
-    ":compiler:backend.wasm",
+    ":compiler:ir.tree.impl",
+    ":compiler:ir.tree.persistent",
     ":compiler:ir.serialization.common",
     ":compiler:ir.serialization.js",
     ":compiler:ir.serialization.jvm",
+    ":compiler:ir.backend.common",
+    ":compiler:ir.interpreter",
+    ":wasm:wasm.ir"
+).also { extra["irCompilerModules"] = it }
+
+val commonCompilerModules = arrayOf(
+    ":compiler:psi",
+    ":compiler:frontend.common-psi",
+    ":compiler:light-classes", // TODO split this module to base and FE1.0 implementation modules
+    ":compiler:frontend.common",
+    ":compiler:util",
+    ":compiler:config.jvm",
+    ":compiler:resolution.common",
+    ":compiler:resolution.common.jvm",
+    ":core:metadata",
+    ":core:metadata.jvm",
+    ":core:deserialization.common",
+    ":core:deserialization.common.jvm",
+    ":core:compiler.common",
+    ":core:compiler.common.jvm",
+    ":core:util.runtime",
+    ":compiler:frontend.java" // TODO this is fe10 module but some utils used in fir ide now
+).also { extra["commonCompilerModules"] = it }
+
+val firCompilerCoreModules = arrayOf(
+    ":compiler:fir:cones",
+    ":compiler:fir:providers",
+    ":compiler:fir:semantics",
+    ":compiler:fir:resolve",
+    ":compiler:fir:fir-serialization",
+    ":compiler:fir:fir-deserialization",
+    ":compiler:fir:tree",
+    ":compiler:fir:java",
+    ":compiler:fir:raw-fir:raw-fir.common",
+    ":compiler:fir:raw-fir:psi2fir",
+    ":compiler:fir:checkers",
+    ":compiler:fir:checkers:checkers.jvm",
+    ":compiler:fir:entrypoint", // TODO should not be in core modules but FIR IDE uses DependencyListForCliModule from this module
+    ":compiler:fir:fir2ir:jvm-backend",  // TODO should not be in core modules but FIR IDE uses Fir2IrSignatureComposer from this module
+    ":compiler:fir:fir2ir" // TODO should not be in core modules but FIR IDE uses Fir2IrSignatureComposer from this module
+).also { extra["firCompilerCoreModules"] = it }
+
+val firAllCompilerModules = firCompilerCoreModules +
+    arrayOf(
+        ":compiler:fir:raw-fir:light-tree2fir",
+        ":compiler:fir:analysis-tests",
+        ":compiler:fir:analysis-tests:legacy-fir-tests"
+    )
+
+val fe10CompilerModules = arrayOf(
+    ":compiler",
+    ":core:descriptors.runtime",
+    ":core:descriptors",
+    ":core:descriptors.jvm",
+    ":compiler:resolution",
+    ":compiler:serialization",
+    ":compiler:frontend",
+    ":compiler:config",
+    ":compiler:container",
+    ":compiler:cli-common",
+    ":core:deserialization",
+    ":compiler:frontend:cfg",
+    ":compiler:ir.psi2ir",
+    ":compiler:backend.jvm",
+    ":compiler:backend.jvm.lower",
+    ":compiler:backend.jvm.entrypoint",
+    ":compiler:backend.js",
+    ":compiler:backend.wasm",
     ":kotlin-util-io",
     ":kotlin-util-klib",
     ":kotlin-util-klib-metadata",
     ":compiler:backend-common",
     ":compiler:backend",
     ":compiler:plugin-api",
-    ":compiler:light-classes",
+    ":compiler:javac-wrapper",
     ":compiler:cli",
     ":compiler:cli-js",
     ":compiler:incremental-compilation-impl",
+    ":compiler:compiler.version",
     ":js:js.ast",
+    ":js:js.sourcemap",
     ":js:js.serializer",
     ":js:js.parser",
+    ":js:js.config",
     ":js:js.frontend",
     ":js:js.translator",
     ":js:js.dce",
-    ":compiler",
+    ":native:frontend.native",
+    ":native:kotlin-native-utils",
     ":kotlin-build-common",
-    ":core:metadata",
-    ":core:metadata.jvm",
+    ":compiler:backend.common.jvm"
+).also { extra["fe10CompilerModules"] = it }
+
+extra["compilerModules"] =
+    irCompilerModules +
+            fe10CompilerModules +
+            commonCompilerModules +
+            firAllCompilerModules
+
+
+extra["compilerModulesForJps"] = listOf(
+    ":kotlin-build-common",
+    ":kotlin-util-io",
+    ":kotlin-util-klib",
+    ":kotlin-util-klib-metadata",
+    ":compiler:cli-common",
+    ":kotlin-compiler-runner-unshaded",
+    ":daemon-common",
+    ":daemon-common-new",
+    ":core:compiler.common",
+    ":core:compiler.common.jvm",
     ":core:descriptors",
     ":core:descriptors.jvm",
-    ":core:descriptors.runtime",
-    ":core:deserialization",
+    ":kotlin-preloader",
+    ":compiler:util",
+    ":compiler:config",
+    ":compiler:config.jvm",
+    ":js:js.config",
     ":core:util.runtime",
-    ":core:type-system",
-    ":compiler:fir:cones",
-    ":compiler:fir:resolve",
-    ":compiler:fir:tree",
-    ":compiler:fir:psi2fir",
-    ":compiler:fir:lightTree",
-    ":compiler:fir:fir2ir",
-    ":compiler:fir:java"
+    ":compiler:compiler.version"
 )
+
+extra["compilerArtifactsForIde"] = listOf(
+    ":prepare:ide-plugin-dependencies:android-extensions-compiler-plugin-for-ide",
+    ":prepare:ide-plugin-dependencies:allopen-compiler-plugin-for-ide",
+    ":prepare:ide-plugin-dependencies:incremental-compilation-impl-tests-for-ide",
+    ":prepare:ide-plugin-dependencies:js-ir-runtime-for-ide",
+    ":prepare:ide-plugin-dependencies:kotlin-build-common-tests-for-ide",
+    ":prepare:ide-plugin-dependencies:kotlin-compiler-for-ide",
+    ":prepare:ide-plugin-dependencies:kotlin-compiler-cli-for-ide",
+    ":prepare:ide-plugin-dependencies:kotlin-gradle-statistics-for-ide",
+    ":prepare:ide-plugin-dependencies:kotlinx-serialization-compiler-plugin-for-ide",
+    ":prepare:ide-plugin-dependencies:noarg-compiler-plugin-for-ide",
+    ":prepare:ide-plugin-dependencies:sam-with-receiver-compiler-plugin-for-ide",
+    ":prepare:ide-plugin-dependencies:compiler-components-for-jps",
+    ":prepare:ide-plugin-dependencies:parcelize-compiler-plugin-for-ide",
+    ":prepare:ide-plugin-dependencies:lombok-compiler-plugin-for-ide",
+    ":prepare:ide-plugin-dependencies:kotlin-compiler-tests-for-ide",
+    ":prepare:ide-plugin-dependencies:kotlin-compiler-testdata-for-ide",
+    ":prepare:ide-plugin-dependencies:kotlin-stdlib-minimal-for-test-for-ide",
+    ":prepare:ide-plugin-dependencies:low-level-api-fir-for-ide",
+    ":prepare:ide-plugin-dependencies:high-level-api-for-ide",
+    ":prepare:ide-plugin-dependencies:high-level-api-fir-for-ide",
+    ":prepare:ide-plugin-dependencies:high-level-api-fir-tests-for-ide",
+    ":prepare:ide-plugin-dependencies:analysis-api-providers-for-ide",
+    ":prepare:ide-plugin-dependencies:analysis-project-structure-for-ide",
+    ":prepare:ide-plugin-dependencies:symbol-light-classes-for-ide",
+    ":prepare:ide-plugin-dependencies:kotlin-compiler-ir-for-ide",
+    ":prepare:ide-plugin-dependencies:kotlin-compiler-common-for-ide",
+    ":prepare:ide-plugin-dependencies:kotlin-compiler-fe10-for-ide",
+    ":prepare:ide-plugin-dependencies:kotlin-compiler-fir-for-ide",
+    ":kotlin-script-runtime",
+    ":kotlin-script-util",
+    ":kotlin-scripting-common",
+    ":kotlin-scripting-jvm",
+    ":kotlin-scripting-compiler",
+    ":kotlin-scripting-compiler-impl",
+    ":kotlin-android-extensions-runtime",
+    ":plugins:parcelize:parcelize-runtime",
+    ":kotlin-stdlib-common",
+    ":kotlin-stdlib",
+    ":kotlin-stdlib-jdk7",
+    ":kotlin-stdlib-jdk8",
+    ":kotlin-reflect",
+    ":kotlin-main-kts"
+)
+
+// TODO: fix remaining warnings and remove this property.
+extra["tasksWithWarnings"] = listOf(
+    ":kotlin-gradle-plugin:compileKotlin"
+)
+
+val tasksWithWarnings: List<String> by extra
 
 val coreLibProjects = listOfNotNull(
     ":kotlin-stdlib",
     ":kotlin-stdlib-common",
     ":kotlin-stdlib-js",
-    ":kotlin-stdlib-js-ir",
     ":kotlin-stdlib-jdk7",
     ":kotlin-stdlib-jdk8",
+    ":kotlin-test",
+    ":kotlin-test:kotlin-test-annotations-common",
     ":kotlin-test:kotlin-test-common",
     ":kotlin-test:kotlin-test-jvm",
     ":kotlin-test:kotlin-test-junit",
@@ -260,17 +367,26 @@ val coreLibProjects = listOfNotNull(
     ":kotlin-reflect"
 )
 
+val projectsWithDisabledFirBootstrap = coreLibProjects + listOf(
+    ":kotlin-gradle-plugin",
+    ":kotlinx-metadata",
+    ":kotlinx-metadata-jvm",
+    // For some reason stdlib isn't imported correctly for this module
+    // Probably it's related to kotlin-test module usage
+    ":kotlin-gradle-statistics",
+    // Requires serialization plugin
+    ":wasm:wasm.ir"
+)
+
 val gradlePluginProjects = listOf(
     ":kotlin-gradle-plugin",
-    ":kotlin-gradle-plugin:plugin-marker",
     ":kotlin-gradle-plugin-api",
-//        ":kotlin-gradle-plugin-integration-tests",  // TODO: build fails
     ":kotlin-allopen",
-    ":kotlin-allopen:plugin-marker",
     ":kotlin-annotation-processing-gradle",
     ":kotlin-noarg",
-    ":kotlin-noarg:plugin-marker",
-    ":kotlin-sam-with-receiver"
+    ":kotlin-sam-with-receiver",
+    ":kotlin-parcelize-compiler",
+    ":kotlin-lombok"
 )
 
 apply {
@@ -279,7 +395,7 @@ apply {
 }
 
 apply {
-    if (extra["isSonatypeRelease"] as? Boolean == true) {
+    if (extra["isDeployStagingRepoGenerationRequired"] as? Boolean == true) {
         logger.info("Applying configuration for sonatype release")
         from("libraries/prepareSonatypeStaging.gradle")
     }
@@ -293,16 +409,50 @@ fun Task.listConfigurationContents(configName: String) {
     }
 }
 
-val defaultJvmTarget = "1.8"
-val defaultJavaHome = jdkPath(defaultJvmTarget)
-val ignoreTestFailures by extra(project.findProperty("ignoreTestFailures")?.toString()?.toBoolean() ?: project.hasProperty("teamcity"))
+val ignoreTestFailures by extra(project.kotlinBuildProperties.ignoreTestFailures)
 
 allprojects {
+    val mirrorRepo: String? = findProperty("maven.repository.mirror")?.toString()
 
-    configurations.maybeCreate("embedded")
+    repositories {
+        kotlinBuildLocalRepo(project)
+        mirrorRepo?.let(::maven)
 
-    jvmTarget = defaultJvmTarget
-    javaHome = defaultJavaHome
+        internalBootstrapRepo?.let(::maven)
+        bootstrapKotlinRepo?.let(::maven)
+        maven(protobufRepo)
+
+        maven(intellijRepo)
+
+        mavenCentral()
+        maven("https://maven.pkg.jetbrains.space/kotlin/p/kotlin/kotlin-dependencies")
+        maven("https://dl.google.com/dl/android/maven2")
+        maven("https://packages.jetbrains.team/maven/p/ij/intellij-dependencies")
+
+        jcenter()
+    }
+
+    if (path.startsWith(":kotlin-ide.")) {
+        return@allprojects
+    }
+
+    configurations.maybeCreate("embedded").apply {
+        isCanBeConsumed = false
+        isCanBeResolved = true
+        attributes {
+            attribute(Usage.USAGE_ATTRIBUTE, objects.named(Usage.JAVA_RUNTIME))
+            attribute(LibraryElements.LIBRARY_ELEMENTS_ATTRIBUTE, objects.named(LibraryElements.JAR))
+        }
+    }
+
+    configurations.maybeCreate("embeddedElements").apply {
+        extendsFrom(configurations["embedded"])
+        isCanBeConsumed = true
+        isCanBeResolved = false
+        attributes {
+            attribute(Usage.USAGE_ATTRIBUTE, objects.named("embedded-java-runtime"))
+        }
+    }
 
     // There are problems with common build dir:
     //  - some tests (in particular js and binary-compatibility-validator depend on the fixed (default) location
@@ -310,27 +460,19 @@ allprojects {
     // therefore it is disabled by default
     // buildDir = File(commonBuildDir, project.name)
 
-    val mirrorRepo: String? = findProperty("maven.repository.mirror")?.toString()
-
-    repositories {
-        kotlinBuildLocalRepo(project)
-        mirrorRepo?.let(::maven)
-        jcenter()
-        maven(protobufRepo)
-        maven(intellijRepo)
-        maven("https://dl.bintray.com/kotlin/ktor")
-        maven("https://kotlin.bintray.com/kotlin-dependencies")
-        maven("https://jetbrains.bintray.com/intellij-third-party-dependencies")
-        bootstrapKotlinRepo?.let(::maven)
-        internalKotlinRepo?.let(::maven)
+    project.configureJvmDefaultToolchain()
+    plugins.withId("java-base") {
+        project.configureShadowJarSubstitutionInCompileClasspath()
     }
 
-    configureJvmProject(javaHome!!, jvmTarget!!)
+    tasks.withType<JavaCompile> {
+        options.compilerArgs.add("-Xlint:deprecation")
+        options.compilerArgs.add("-Xlint:unchecked")
+        options.compilerArgs.add("-Werror")
+    }
 
     val commonCompilerArgs = listOfNotNull(
-        "-Xuse-experimental=kotlin.Experimental",
-        "-Xread-deserialized-contracts",
-        "-Xjvm-default=compatibility",
+        "-opt-in=kotlin.RequiresOptIn",
         "-progressive".takeIf { hasProperty("test.progressive.mode") }
     )
 
@@ -342,9 +484,32 @@ allprojects {
         }
     }
 
+    val jvmCompilerArgs = listOf(
+        "-Xjvm-default=compatibility",
+        "-Xno-optimized-callable-references",
+        "-Xno-kotlin-nothing-value-exception",
+        "-Xskip-runtime-version-check",
+        "-Xsuppress-deprecated-jvm-target-warning" // Remove as soon as there are no modules for JDK 1.6 & 1.7
+    )
+
     tasks.withType<org.jetbrains.kotlin.gradle.dsl.KotlinJvmCompile> {
         kotlinOptions {
-            freeCompilerArgs = commonCompilerArgs + listOf("-Xnormalize-constructor-calls=enable")
+            freeCompilerArgs = commonCompilerArgs + jvmCompilerArgs
+
+            if (useJvmFir && this@allprojects.path !in projectsWithDisabledFirBootstrap) {
+                freeCompilerArgs += "-Xuse-fir"
+                freeCompilerArgs += "-Xabi-stability=stable"
+            }
+        }
+    }
+
+    if (!kotlinBuildProperties.disableWerror) {
+        tasks.withType<org.jetbrains.kotlin.gradle.dsl.KotlinJvmCompile> {
+            if (path !in tasksWithWarnings) {
+                kotlinOptions {
+                    allWarningsAsErrors = true
+                }
+            }
         }
     }
 
@@ -360,35 +525,55 @@ allprojects {
         duplicatesStrategy = DuplicatesStrategy.EXCLUDE
     }
 
+    tasks.withType<AbstractArchiveTask> {
+        isPreserveFileTimestamps = false
+        isReproducibleFileOrder = true
+    }
+
+    tasks.withType<Test> {
+        outputs.doNotCacheIf("https://youtrack.jetbrains.com/issue/KTI-112") { true }
+    }
+
+    if (isConfigurationCacheDisabled) {
+        // Custom input normolization isn't supported by configuration cache at the moment
+        // See https://github.com/gradle/gradle/issues/13706
+        normalization {
+            runtimeClasspath {
+                ignore("META-INF/MANIFEST.MF")
+                ignore("META-INF/compiler.version")
+                ignore("META-INF/plugin.xml")
+                ignore("kotlin/KotlinVersionCurrentValue.class")
+            }
+        }
+    }
+
     tasks {
         register("listArchives") { listConfigurationContents("archives") }
 
-        register("listRuntimeJar") { listConfigurationContents("runtimeJar") }
-
         register("listDistJar") { listConfigurationContents("distJar") }
+
+        // Aggregate task for build related checks
+        register("checkBuild")
     }
 
-    afterEvaluate {
-        if (javaHome != defaultJavaHome || jvmTarget != defaultJvmTarget) {
-            logger.info("configuring project $name to compile to the target jvm version $jvmTarget using jdk: $javaHome")
-            configureJvmProject(javaHome!!, jvmTarget!!)
-        } // else we will actually fail during the first task execution. We could not fail before configuration is done due to impact on import in IDE
+    apply(from = "$rootDir/gradle/cacheRedirector.gradle.kts")
 
+    afterEvaluate {
         fun File.toProjectRootRelativePathOrSelf() = (relativeToOrNull(rootDir)?.takeUnless { it.startsWith("..") } ?: this).path
 
         fun FileCollection.printClassPath(role: String) =
             println("${project.path} $role classpath:\n  ${joinToString("\n  ") { it.toProjectRootRelativePathOrSelf() }}")
 
         try {
-            javaPluginConvention()
+            javaPluginExtension()
         } catch (_: UnknownDomainObjectException) {
             null
-        }?.let { javaConvention ->
+        }?.let { javaExtension ->
             tasks {
-                register("printCompileClasspath") { doFirst { javaConvention.sourceSets["main"].compileClasspath.printClassPath("compile") } }
-                register("printRuntimeClasspath") { doFirst { javaConvention.sourceSets["main"].runtimeClasspath.printClassPath("runtime") } }
-                register("printTestCompileClasspath") { doFirst { javaConvention.sourceSets["test"].compileClasspath.printClassPath("test compile") } }
-                register("printTestRuntimeClasspath") { doFirst { javaConvention.sourceSets["test"].runtimeClasspath.printClassPath("test runtime") } }
+                register("printCompileClasspath") { doFirst { javaExtension.sourceSets["main"].compileClasspath.printClassPath("compile") } }
+                register("printRuntimeClasspath") { doFirst { javaExtension.sourceSets["main"].runtimeClasspath.printClassPath("runtime") } }
+                register("printTestCompileClasspath") { doFirst { javaExtension.sourceSets["test"].compileClasspath.printClassPath("test compile") } }
+                register("printTestRuntimeClasspath") { doFirst { javaExtension.sourceSets["test"].runtimeClasspath.printClassPath("test runtime") } }
             }
         }
 
@@ -402,25 +587,21 @@ allprojects {
                 ?.exclude("org.jetbrains.kotlin", "kotlin-scripting-compiler-embeddable")
         }
 
-        // Aggregate task for build related checks
-        tasks.register("checkBuild")
-        
-        apply(from = "$rootDir/gradle/cacheRedirector.gradle.kts")
+        apply(from = "$rootDir/gradle/testRetry.gradle.kts")
     }
 }
 
 gradle.taskGraph.whenReady {
-    if (isTeamcityBuild) {
-        logger.warn("CI build profile is active (IC is off, proguard is on). Use -Pteamcity=false to reproduce local build")
-        for (task in allTasks) {
-            when (task) {
-                is AbstractKotlinCompile<*> -> task.incremental = false
-                is JavaCompile -> task.options.isIncremental = false
-            }
-        }
-    } else {
-        logger.warn("Local build profile is active (IC is on, proguard is off). Use -Pteamcity=true to reproduce TC build")
-    }
+    fun Boolean.toOnOff(): String = if (this) "on" else "off"
+    val profile = if (isTeamcityBuild) "CI" else "Local"
+
+    val proguardMessage = "proguard is ${kotlinBuildProperties.proguard.toOnOff()}"
+    val jarCompressionMessage = "jar compression is ${kotlinBuildProperties.jarCompression.toOnOff()}"
+
+    logger.warn(
+        "$profile build profile is active ($proguardMessage, $jarCompressionMessage). " +
+                "Use -Pteamcity=<true|false> to reproduce CI/local build"
+    )
 
     allTasks.filterIsInstance<org.gradle.jvm.tasks.Jar>().forEach { task ->
         task.entryCompression = if (kotlinBuildProperties.jarCompression)
@@ -432,6 +613,10 @@ gradle.taskGraph.whenReady {
 
 val dist = tasks.register("dist") {
     dependsOn(":kotlin-compiler:dist")
+}
+
+val syncMutedTests = tasks.register("syncMutedTests") {
+    dependsOn(":compiler:tests-mutes:tc-integration:run")
 }
 
 val copyCompilerToIdeaPlugin by task<Copy> {
@@ -446,28 +631,28 @@ val ideaPlugin by task<Task> {
 }
 
 tasks {
-    register("clean") {
-        doLast {
-            delete("$buildDir/repo")
-            delete(distDir)
-        }
+    named<Delete>("clean") {
+        delete += setOf("$buildDir/repo", distDir)
     }
 
-    register("cleanupArtifacts") {
-        doLast {
-            delete(artifactsDir)
-        }
+    register<Delete>("cleanupArtifacts") {
+        delete = setOf(artifactsDir)
     }
 
-    listOf("clean", "assemble", "install", "dist").forEach { taskName ->
+    listOf("clean", "assemble", "install").forEach { taskName ->
         register("coreLibs${taskName.capitalize()}") {
-            coreLibProjects.forEach { projectName -> dependsOn("$projectName:$taskName") }
+            for (projectName in coreLibProjects) {
+                if (projectName.startsWith(":kotlin-test:") && taskName == "install") continue
+                dependsOn("$projectName:$taskName")
+            }
         }
     }
 
     register("coreLibsTest") {
         (coreLibProjects + listOf(
             ":kotlin-stdlib:samples",
+            ":kotlin-stdlib-js-ir",
+            ":kotlin-test:kotlin-test-js-ir".takeIf { !kotlinBuildProperties.isInJpsBuildIdeaSync },
             ":kotlin-test:kotlin-test-js:kotlin-test-js-it".takeIf { !kotlinBuildProperties.isInJpsBuildIdeaSync },
             ":kotlinx-metadata-jvm",
             ":tools:binary-compatibility-validator"
@@ -490,9 +675,11 @@ tasks {
         dependsOn("dist")
         dependsOn(
             ":compiler:test",
+            ":compiler:tests-common-new:test",
             ":compiler:container:test",
             ":compiler:tests-java8:test",
-            ":compiler:tests-spec:remoteRunTests"
+            ":compiler:tests-spec:test",
+            ":compiler:tests-against-klib:test"
         )
         dependsOn(":plugins:jvm-abi-gen:test")
     }
@@ -511,26 +698,50 @@ tasks {
 
     register("wasmCompilerTest") {
         dependsOn(":js:js.tests:wasmTest")
+        // Windows WABT release requires Visual C++ Redistributable
+        if (!kotlinBuildProperties.isTeamcityBuild || !org.gradle.internal.os.OperatingSystem.current().isWindows) {
+            dependsOn(":wasm:wasm.ir:test")
+        }
+    }
+
+    register("nativeCompilerTest") {
+        dependsOn(":native:kotlin-native-utils:test")
     }
 
     register("firCompilerTest") {
-        dependsOn(":compiler:fir:psi2fir:test")
-        dependsOn(":compiler:fir:resolve:test")
+        dependsOn(":compiler:fir:raw-fir:psi2fir:test")
+        dependsOn(":compiler:fir:raw-fir:light-tree2fir:test")
+        dependsOn(":compiler:fir:analysis-tests:test")
+        dependsOn(":compiler:fir:analysis-tests:legacy-fir-tests:test")
         dependsOn(":compiler:fir:fir2ir:test")
-        dependsOn(":compiler:fir:lightTree:test")
+        dependsOn(":plugins:fir:fir-plugin-prototype:test")
     }
-    
+
+    register("firAllTest") {
+        dependsOn(
+            ":dist",
+            ":compiler:fir:raw-fir:psi2fir:test",
+            ":compiler:fir:raw-fir:light-tree2fir:test",
+            ":compiler:fir:analysis-tests:test",
+            ":compiler:fir:analysis-tests:legacy-fir-tests:test",
+            ":compiler:fir:fir2ir:test",
+            ":plugins:fir:fir-plugin-prototype:test"
+        )
+    }
+
     register("compilerFrontendVisualizerTest") {
         dependsOn("compiler:visualizer:test")
     }
 
-    register("scriptingTest") {
+    register("scriptingJvmTest") {
         dependsOn("dist")
         dependsOn(":kotlin-script-util:test")
         dependsOn(":kotlin-scripting-compiler:test")
+        dependsOn(":kotlin-scripting-compiler:testWithIr")
         dependsOn(":kotlin-scripting-common:test")
         dependsOn(":kotlin-scripting-jvm:test")
         dependsOn(":kotlin-scripting-jvm-host-test:test")
+        dependsOn(":kotlin-scripting-jvm-host-test:testWithIr")
         dependsOn(":kotlin-scripting-dependencies:test")
         dependsOn(":kotlin-scripting-dependencies-maven:test")
         dependsOn(":kotlin-scripting-jsr223-test:test")
@@ -538,24 +749,47 @@ tasks {
 //        dependsOn(":kotlin-scripting-jvm-host-test:embeddableTest")
         dependsOn(":kotlin-scripting-jsr223-test:embeddableTest")
         dependsOn(":kotlin-main-kts-test:test")
+        dependsOn(":kotlin-main-kts-test:testWithIr")
+        dependsOn(":kotlin-scripting-ide-services-test:test")
+        dependsOn(":kotlin-scripting-ide-services-test:embeddableTest")
+    }
+
+    register("scriptingTest") {
+        dependsOn("scriptingJvmTest")
+        dependsOn(":kotlin-scripting-js-test:test")
     }
 
     register("compilerTest") {
         dependsOn("jvmCompilerTest")
         dependsOn("jsCompilerTest")
-        dependsOn("wasmCompilerTest")
+        dependsOn("miscCompilerTest")
+    }
+
+    register("miscCompilerTest") {
+        dependsOn("nativeCompilerTest")
         dependsOn("firCompilerTest")
 
+        dependsOn(":kotlin-daemon-tests:test")
         dependsOn("scriptingTest")
         dependsOn(":kotlin-build-common:test")
         dependsOn(":compiler:incremental-compilation-impl:test")
+        dependsOn(":compiler:incremental-compilation-impl:testJvmICWithJdk11")
         dependsOn(":core:descriptors.runtime:test")
 
         dependsOn("jvmCompilerIntegrationTest")
+
+        dependsOn(":plugins:parcelize:parcelize-compiler:test")
+        dependsOn(":kotlinx-serialization-compiler-plugin:test")
+
+
+        dependsOn(":kotlin-util-io:test")
+        dependsOn(":kotlin-util-klib:test")
     }
 
     register("toolsTest") {
         dependsOn(":tools:kotlinp:test")
+        dependsOn(":native:kotlin-klib-commonizer:test")
+        dependsOn(":native:kotlin-klib-commonizer-api:test")
     }
 
     register("examplesTest") {
@@ -567,6 +801,7 @@ tasks {
 
     register("distTest") {
         dependsOn("compilerTest")
+        dependsOn("frontendApiTests")
         dependsOn("toolsTest")
         dependsOn("gradlePluginTest")
         dependsOn("examplesTest")
@@ -586,26 +821,10 @@ tasks {
         dependsOn(":jps-plugin:test")
     }
 
-    register("konan-tests") {
-        dependsOn("dist")
-        dependsOn(
-            ":kotlin-native:kotlin-native-library-reader:test",
-            ":kotlin-native:commonizer:test"
-        )
-    }
-
-    register("idea-plugin-main-tests") {
-        dependsOn("dist")
-        dependsOn(":idea:test")
-    }
-
     register("idea-plugin-additional-tests") {
         dependsOn("dist")
         dependsOn(
-            ":idea:idea-gradle:test",
-            ":idea:idea-gradle-native:test",
             ":idea:idea-maven:test",
-            ":j2k:test",
             ":nj2k:test",
             ":idea:jvm-debugger:jvm-debugger-core:test",
             ":idea:jvm-debugger:jvm-debugger-evaluation:test",
@@ -615,51 +834,108 @@ tasks {
         )
     }
 
-    register("idea-plugin-tests") {
-        dependsOn("dist")
+    if (Ide.IJ()) {
+        register("idea-new-project-wizard-tests") {
+            dependsOn(
+                ":libraries:tools:new-project-wizard:test",
+                ":libraries:tools:new-project-wizard:new-project-wizard-cli:test",
+                ":idea:idea-new-project-wizard:test"
+            )
+        }
+    }
+
+    register("idea-plugin-performance-tests") {
         dependsOn(
-            "idea-plugin-main-tests",
-            "idea-plugin-additional-tests"
+            "dist",
+            ":idea:performanceTests:performanceTest",
+            ":idea:performanceTests:aggregateResults"
         )
     }
+
+    register("idea-fir-plugin-performance-tests") {
+        dependsOn("dist")
+        dependsOn(
+            ":idea:idea-fir-performance-tests:ideaFirPerformanceTest"
+        )
+    }
+
+    register("idea-fir-plugin-tests") {
+        dependsOn("dist")
+        dependsOn(
+            ":idea:idea-fir:test",
+            ":idea:analysis:analysis-api-fir:fir-low-level-api-ide-impl:test",
+            ":plugins:uast-kotlin-fir:test",
+            ":idea:idea-fir-fe10-binding:test"
+        )
+    }
+
+    register("frontendApiTests") {
+        dependsOn("dist")
+        dependsOn(
+            ":analysis:analysis-api:test",
+            ":analysis:analysis-api-fir:test",
+            ":analysis:low-level-api-fir:test"
+        )
+    }
+
+
 
     register("android-ide-tests") {
         dependsOn("dist")
         dependsOn(
             ":plugins:android-extensions-ide:test",
             ":idea:idea-android:test",
-            ":kotlin-annotation-processing:test"
+            ":kotlin-annotation-processing:test",
+            ":plugins:parcelize:parcelize-ide:test"
         )
     }
 
-    register("plugins-tests") {
-        dependsOn("dist")
+    register("ideaPluginTest") {
         dependsOn(
-            ":kotlin-annotation-processing:test",
-            ":kotlin-source-sections-compiler-plugin:test",
+            "mainIdeTests",
+            "gradleIdeTest",
+            "kaptIdeTest",
+            "miscIdeTests"
+        )
+    }
+
+    register("mainIdeTests") {
+        dependsOn(":idea:test")
+    }
+
+    register("miscIdeTests") {
+        dependsOn(
             ":kotlin-allopen-compiler-plugin:test",
             ":kotlin-noarg-compiler-plugin:test",
             ":kotlin-sam-with-receiver-compiler-plugin:test",
             ":plugins:uast-kotlin:test",
             ":kotlin-annotation-processing-gradle:test",
-            ":kotlinx-serialization-compiler-plugin:test",
             ":kotlinx-serialization-ide-plugin:test",
-            ":idea:jvm-debugger:jvm-debugger-test:test"
-        )
-    }
-
-
-    register("ideaPluginTest") {
-        dependsOn(
-            "idea-plugin-tests",
+            ":idea:jvm-debugger:jvm-debugger-test:test",
+            "idea-plugin-additional-tests",
             "jps-tests",
-            "konan-tests",
-            "plugins-tests",
-            "android-ide-tests",
             ":generators:test"
         )
+        if (Ide.IJ()) {
+            dependsOn(
+                ":libraries:tools:new-project-wizard:test",
+                ":libraries:tools:new-project-wizard:new-project-wizard-cli:test"
+            )
+        }
     }
 
+    register("kaptIdeTest") {
+        dependsOn(":kotlin-annotation-processing:test")
+        dependsOn(":kotlin-annotation-processing-base:test")
+        dependsOn(":kotlin-annotation-processing-cli:test")
+    }
+
+    register("gradleIdeTest") {
+        dependsOn(
+            ":idea:idea-gradle:test",
+            ":idea:idea-gradle-native:test"
+        )
+    }
 
     register("test") {
         doLast {
@@ -667,8 +943,34 @@ tasks {
         }
     }
 
-    register("check") {
+    named("check") {
         dependsOn("test")
+    }
+
+    named("checkBuild") {
+        if (kotlinBuildProperties.isTeamcityBuild) {
+            doFirst {
+                println("##teamcity[setParameter name='bootstrap.kotlin.version' value='$bootstrapKotlinVersion']")
+            }
+        }
+    }
+
+    register("publishGradlePluginArtifacts") {
+        idePluginDependency {
+            dependsOnKotlinGradlePluginPublish()
+        }
+    }
+
+    register("publishIdeArtifacts") {
+        idePluginDependency {
+            dependsOn((rootProject.extra["compilerArtifactsForIde"] as List<String>).map { "$it:publish" })
+        }
+    }
+
+    register("installIdeArtifacts") {
+        idePluginDependency {
+            dependsOn((rootProject.extra["compilerArtifactsForIde"] as List<String>).map { "$it:install" })
+        }
     }
 }
 
@@ -679,15 +981,15 @@ fun CopySpec.setExecutablePermissions() {
 
 val zipCompiler by task<Zip> {
     dependsOn(dist)
-    destinationDir = file(distDir)
-    archiveName = "kotlin-compiler-$kotlinVersion.zip"
+    destinationDirectory.set(file(distDir))
+    archiveFileName.set("kotlin-compiler-$kotlinVersion.zip")
 
     from(distKotlinHomeDir)
     into("kotlinc")
     setExecutablePermissions()
 
     doLast {
-        logger.lifecycle("Compiler artifacts packed to $archivePath")
+        logger.lifecycle("Compiler artifacts packed to ${archiveFile.get().asFile.absolutePath}")
     }
 }
 
@@ -696,6 +998,7 @@ val zipStdlibTests by task<Zip> {
     archiveFileName.set("kotlin-stdlib-tests.zip")
     from("libraries/stdlib/common/test") { into("common") }
     from("libraries/stdlib/test") { into("test") }
+    from("libraries/kotlin.test/common/src/test/kotlin") { into("kotlin-test") }
     doLast {
         logger.lifecycle("Stdlib tests are packed to ${archiveFile.get()}")
     }
@@ -718,26 +1021,49 @@ val zipTestData by task<Zip> {
 val zipPlugin by task<Zip> {
     val src = when (project.findProperty("pluginArtifactDir") as String?) {
         "Kotlin" -> ideaPluginDir
-        "KotlinUltimate" -> ideaUltimatePluginDir
-        null -> if (project.hasProperty("ultimate")) ideaUltimatePluginDir else ideaPluginDir
+        null -> ideaPluginDir
         else -> error("Unsupported plugin artifact dir")
     }
     val destPath = project.findProperty("pluginZipPath") as String?
     val dest = File(destPath ?: "$buildDir/kotlin-plugin.zip")
-    destinationDir = dest.parentFile
-    archiveName = dest.name
-    doFirst {
-        if (destPath == null) throw GradleException("Specify target zip path with 'pluginZipPath' property")
-    }
+    destinationDirectory.set(dest.parentFile)
+    archiveFileName.set(dest.name)
 
     from(src)
     into("Kotlin")
     setExecutablePermissions()
 
     doLast {
-        logger.lifecycle("Plugin artifacts packed to $archivePath")
+        logger.lifecycle("Plugin artifacts packed to ${archiveFile.get()}")
     }
 }
+
+fun Project.secureZipTask(zipTask: TaskProvider<Zip>): RegisteringDomainObjectDelegateProviderWithAction<out TaskContainer, Task> {
+    val checkSumTask = tasks.register("${zipTask.name}Checksum", Checksum::class) {
+        dependsOn(zipTask)
+        val compilerFile = zipTask.get().outputs.files.singleFile
+        files = files(compilerFile)
+        outputDir = compilerFile.parentFile
+        algorithm = Checksum.Algorithm.SHA256
+    }
+
+    val signTask = tasks.register("${zipTask.name}Sign", Sign::class) {
+        description = "Signs the archive produced by the '" + zipTask.name + "' task."
+        sign(zipTask.get())
+    }
+
+    return tasks.registering {
+        dependsOn(checkSumTask)
+        dependsOn(signTask)
+    }
+}
+
+signing {
+    useGpgCmd()
+}
+
+val zipCompilerWithSignature by secureZipTask(zipCompiler)
+val zipPluginWithSignature by secureZipTask(zipPlugin)
 
 configure<IdeaModel> {
     module {
@@ -746,63 +1072,9 @@ configure<IdeaModel> {
             commonLocalDataDir,
             ".gradle",
             "dependencies",
-            "dist"
+            "dist",
+            "tmp"
         ).toSet()
-    }
-}
-
-fun jdkPath(version: String): String {
-    val jdkName = "JDK_${version.replace(".", "")}"
-    val jdkMajorVersion = JdkMajorVersion.valueOf(jdkName)
-    return configuredJdks.find { it.majorVersion == jdkMajorVersion }?.homeDir?.canonicalPath ?: jdkNotFoundConst
-}
-
-
-fun Project.configureJvmProject(javaHome: String, javaVersion: String) {
-    val currentJavaHome = File(System.getProperty("java.home")!!).canonicalPath
-    val shouldFork = !currentJavaHome.startsWith(File(javaHome).canonicalPath)
-
-    tasks.withType<JavaCompile> {
-        if (name != "compileJava9Java") {
-            sourceCompatibility = javaVersion
-            targetCompatibility = javaVersion
-            options.isFork = shouldFork
-            options.forkOptions.javaHome = file(javaHome)
-            options.compilerArgs.add("-proc:none")
-            options.encoding = "UTF-8"
-        }
-    }
-
-    tasks.withType<KotlinCompile> {
-        kotlinOptions.jdkHome = javaHome
-        kotlinOptions.jvmTarget = javaVersion
-        kotlinOptions.freeCompilerArgs += "-Xjvm-default=compatibility"
-    }
-
-    tasks.withType<Test> {
-        executable = File(javaHome, "bin/java").canonicalPath
-    }
-
-    plugins.withId("java-base") {
-        configureShadowJarSubstitutionInCompileClasspath()
-    }
-}
-
-fun Project.configureShadowJarSubstitutionInCompileClasspath() {
-    val substitutionMap = mapOf(":kotlin-reflect" to ":kotlin-reflect-api")
-
-    fun configureSubstitution(substitution: DependencySubstitution) {
-        val requestedProject = (substitution.requested as? ProjectComponentSelector)?.projectPath ?: return
-        val replacementProject = substitutionMap[requestedProject] ?: return
-        substitution.useTarget(project(replacementProject), "Non-default shadow jars should not be used in compile classpath")
-    }
-
-    sourceSets.all {
-        for (configName in listOf(compileOnlyConfigurationName, compileClasspathConfigurationName)) {
-            configurations.getByName(configName).resolutionStrategy.dependencySubstitution {
-                all(::configureSubstitution)
-            }
-        }
     }
 }
 
@@ -860,3 +1132,32 @@ val Jar.outputFile: File
 
 val Project.sourceSetsOrNull: SourceSetContainer?
     get() = convention.findPlugin(JavaPluginConvention::class.java)?.sourceSets
+
+val disableVerificationTasks = providers.systemProperty("disable.verification.tasks")
+    .forUseAtConfigurationTime().orNull?.toBoolean() ?: false
+if (disableVerificationTasks) {
+    gradle.taskGraph.whenReady {
+        allTasks.forEach {
+            if (it is VerificationTask) {
+                logger.info("DISABLED: '$it'")
+                it.enabled = false
+            }
+        }
+    }
+}
+
+plugins.withType(org.jetbrains.kotlin.gradle.targets.js.nodejs.NodeJsRootPlugin::class) {
+    extensions.configure(org.jetbrains.kotlin.gradle.targets.js.nodejs.NodeJsRootExtension::class.java) {
+        nodeVersion = "16.2.0"
+    }
+}
+
+afterEvaluate {
+    val cacheRedirectorEnabled = findProperty("cacheRedirectorEnabled")?.toString()?.toBoolean() == true
+    if (cacheRedirectorEnabled) {
+        rootProject.plugins.withType(org.jetbrains.kotlin.gradle.targets.js.yarn.YarnPlugin::class.java) {
+            rootProject.the<org.jetbrains.kotlin.gradle.targets.js.yarn.YarnRootExtension>().downloadBaseUrl =
+                "https://cache-redirector.jetbrains.com/github.com/yarnpkg/yarn/releases/download"
+        }
+    }
+}

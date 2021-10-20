@@ -27,10 +27,11 @@ import org.jetbrains.kotlin.name.Name;
 import org.jetbrains.kotlin.psi.*;
 import org.jetbrains.kotlin.psi.psiUtil.ReservedCheckingKt;
 import org.jetbrains.kotlin.resolve.OverrideResolver;
-import org.jetbrains.kotlin.resolve.calls.callUtil.CallUtilKt;
+import org.jetbrains.kotlin.resolve.calls.util.CallUtilKt;
 import org.jetbrains.kotlin.resolve.calls.components.ArgumentsUtilsKt;
 import org.jetbrains.kotlin.resolve.calls.model.*;
 import org.jetbrains.kotlin.resolve.calls.tasks.TracingStrategy;
+import org.jetbrains.kotlin.serialization.deserialization.descriptors.DeserializedCallableMemberDescriptor;
 
 import java.util.*;
 
@@ -185,10 +186,16 @@ public class ValueArgumentsToParametersMapper {
                         report(NAMED_ARGUMENTS_NOT_ALLOWED.on(nameReference, EXPECTED_CLASS_MEMBER));
                     }
                     else if (!candidate.hasStableParameterNames()) {
-                        report(NAMED_ARGUMENTS_NOT_ALLOWED.on(
-                                nameReference,
-                                candidate instanceof FunctionInvokeDescriptor ? INVOKE_ON_FUNCTION_TYPE : NON_KOTLIN_FUNCTION
-                        ));
+                        BadNamedArgumentsTarget badNamedArgumentsTarget;
+                        if (candidate instanceof FunctionInvokeDescriptor) {
+                            badNamedArgumentsTarget = INVOKE_ON_FUNCTION_TYPE;
+                        } else if (candidate instanceof DeserializedCallableMemberDescriptor) {
+                            badNamedArgumentsTarget = INTEROP_FUNCTION;
+                        } else {
+                            badNamedArgumentsTarget = NON_KOTLIN_FUNCTION;
+                        }
+
+                        report(NAMED_ARGUMENTS_NOT_ALLOWED.on(nameReference, badNamedArgumentsTarget));
                     }
                 }
 
@@ -342,7 +349,7 @@ public class ValueArgumentsToParametersMapper {
             else {
                 LeafPsiElement spread = valueArgument.getSpreadElement();
                 if (spread != null) {
-                    candidateCall.getTrace().report(NON_VARARG_SPREAD.on(spread));
+                    candidateCall.getTrace().report(NON_VARARG_SPREAD.onError(spread));
                     setStatus(WEAK_ERROR);
                 }
                 ResolvedValueArgument argument = new ExpressionValueArgument(valueArgument);

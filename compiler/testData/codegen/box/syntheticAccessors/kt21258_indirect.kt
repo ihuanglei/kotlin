@@ -1,7 +1,8 @@
-// IGNORE_BACKEND_FIR: JVM_IR
+fun <T> eval(fn: () -> T) = fn()
+
 class Foo {
     private val fld: String = "O"
-        get() = { field }() + "K"
+        get() = eval { field } + "K"
 
     val indirectFldGetter: () -> String = { fld }
 }

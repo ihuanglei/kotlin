@@ -1,3 +1,4 @@
+// FIR_IDENTICAL
 // !LANGUAGE: +MultiPlatformProjects
 // !DIAGNOSTICS: -UNUSED_PARAMETER
 // MODULE: m1-common
@@ -7,7 +8,7 @@ expect open class Container {
     internal fun internalFun()
 }
 
-// MODULE: m2-jvm(m1-common)
+// MODULE: m2-jvm()()(m1-common)
 
 // FILE: foo/Foo.java
 

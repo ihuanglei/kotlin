@@ -34,4 +34,8 @@ class Class {
 
     private val privateNN: String = { "" }()
     private val privateN: String? = { "" }()
+
+    lateinit var lateInitVar: String
 }
+
+// FIR_COMPARISON

@@ -1,80 +1,83 @@
 /*
- * Copyright 2010-2019 JetBrains s.r.o. and Kotlin Programming Language contributors.
+ * Copyright 2010-2021 JetBrains s.r.o. and Kotlin Programming Language contributors.
  * Use of this source code is governed by the Apache 2.0 license that can be found in the license/LICENSE.txt file.
  */
+
+@file:Suppress("PropertyName")
 
 package org.jetbrains.kotlin.backend.jvm
 
 import org.jetbrains.kotlin.backend.common.ir.Symbols
+import org.jetbrains.kotlin.backend.common.ir.addChild
 import org.jetbrains.kotlin.backend.common.ir.createImplicitParameterDeclarationWithWrappedDescriptor
 import org.jetbrains.kotlin.backend.jvm.intrinsics.IrIntrinsicMethods
-import org.jetbrains.kotlin.descriptors.ClassDescriptor
-import org.jetbrains.kotlin.descriptors.ClassKind
+import org.jetbrains.kotlin.builtins.StandardNames
+import org.jetbrains.kotlin.codegen.coroutines.INVOKE_SUSPEND_METHOD_NAME
+import org.jetbrains.kotlin.codegen.coroutines.SUSPEND_CALL_RESULT_NAME
+import org.jetbrains.kotlin.codegen.coroutines.SUSPEND_FUNCTION_COMPLETION_PARAMETER_NAME
+import org.jetbrains.kotlin.codegen.coroutines.SUSPEND_FUNCTION_CREATE_METHOD_NAME
+import org.jetbrains.kotlin.config.JvmTarget
+import org.jetbrains.kotlin.descriptors.*
+import org.jetbrains.kotlin.descriptors.DescriptorVisibilities
+import org.jetbrains.kotlin.descriptors.InlineClassRepresentation
 import org.jetbrains.kotlin.descriptors.Modality
-import org.jetbrains.kotlin.descriptors.Visibilities
-import org.jetbrains.kotlin.descriptors.impl.EmptyPackageFragmentDescriptor
+import org.jetbrains.kotlin.descriptors.annotations.KotlinRetention
+import org.jetbrains.kotlin.descriptors.annotations.KotlinTarget
+import org.jetbrains.kotlin.ir.IrBuiltIns
+import org.jetbrains.kotlin.ir.UNDEFINED_OFFSET
 import org.jetbrains.kotlin.ir.builders.declarations.*
-import org.jetbrains.kotlin.ir.declarations.IrClass
-import org.jetbrains.kotlin.ir.declarations.IrDeclarationOrigin
-import org.jetbrains.kotlin.ir.declarations.IrPackageFragment
+import org.jetbrains.kotlin.ir.declarations.*
+import org.jetbrains.kotlin.ir.declarations.impl.IrEnumEntryImpl
 import org.jetbrains.kotlin.ir.declarations.impl.IrExternalPackageFragmentImpl
+import org.jetbrains.kotlin.ir.expressions.impl.IrConstImpl
+import org.jetbrains.kotlin.ir.expressions.impl.IrConstructorCallImpl
 import org.jetbrains.kotlin.ir.symbols.*
-import org.jetbrains.kotlin.ir.symbols.impl.IrExternalPackageFragmentSymbolImpl
+import org.jetbrains.kotlin.ir.symbols.impl.IrEnumEntrySymbolImpl
 import org.jetbrains.kotlin.ir.types.*
+import org.jetbrains.kotlin.ir.types.impl.IrSimpleTypeImpl
 import org.jetbrains.kotlin.ir.util.*
+import org.jetbrains.kotlin.load.java.JvmAnnotationNames
 import org.jetbrains.kotlin.name.FqName
 import org.jetbrains.kotlin.name.Name
-import org.jetbrains.kotlin.resolve.DescriptorUtils
+import org.jetbrains.kotlin.resolve.JVM_INLINE_ANNOTATION_FQ_NAME
 import org.jetbrains.kotlin.resolve.jvm.JvmClassName
 import org.jetbrains.kotlin.storage.LockBasedStorageManager
 import org.jetbrains.kotlin.types.Variance
 
 class JvmSymbols(
     context: JvmBackendContext,
-    private val symbolTable: ReferenceSymbolTable
-) : Symbols<JvmBackendContext>(context, symbolTable) {
+    symbolTable: SymbolTable
+) : Symbols<JvmBackendContext>(context, context.irBuiltIns, symbolTable) {
     private val storageManager = LockBasedStorageManager(this::class.java.simpleName)
+    private val irFactory = context.irFactory
+
     private val kotlinPackage: IrPackageFragment = createPackage(FqName("kotlin"))
     private val kotlinCoroutinesPackage: IrPackageFragment = createPackage(FqName("kotlin.coroutines"))
     private val kotlinCoroutinesJvmInternalPackage: IrPackageFragment = createPackage(FqName("kotlin.coroutines.jvm.internal"))
     private val kotlinJvmPackage: IrPackageFragment = createPackage(FqName("kotlin.jvm"))
     private val kotlinJvmInternalPackage: IrPackageFragment = createPackage(FqName("kotlin.jvm.internal"))
     private val kotlinJvmFunctionsPackage: IrPackageFragment = createPackage(FqName("kotlin.jvm.functions"))
+    private val kotlinReflectPackage: IrPackageFragment = createPackage(FqName("kotlin.reflect"))
     private val javaLangPackage: IrPackageFragment = createPackage(FqName("java.lang"))
+    private val javaUtilPackage: IrPackageFragment = createPackage(FqName("java.util"))
 
-    private val irBuiltIns = context.irBuiltIns
+    private val kotlinInternalPackage: IrPackageFragment = createPackage(FqName("kotlin.internal"))
 
-    private val nullPointerExceptionClass: IrClassSymbol =
-        createClass(FqName("java.lang.NullPointerException")) { klass ->
-            klass.addConstructor().apply {
-                addValueParameter("message", irBuiltIns.stringType)
-            }
-        }
+    // Special package for functions representing dynamic symbols referenced by 'INVOKEDYNAMIC' instruction - e.g.,
+    //  'get(Ljava/lang/String;)Ljava/util/function/Supplier;'
+    // in
+    //  INVOKEDYNAMIC get(Ljava/lang/String;)Ljava/util/function/Supplier; [
+    //      H_INVOKESTATIC java/lang/invoke/LambdaMetafactory.metafactory(...)Ljava/lang/invoke/CallSite;
+    //      ...
+    //  ]
+    // Such functions don't exist as methods in the actual bytecode
+    // (they are expected to be provided at run-time by the corresponding bootstrap method).
+    val kotlinJvmInternalInvokeDynamicPackage: IrPackageFragment = createPackage(FqName("kotlin.jvm.internal.invokeDynamic"))
 
-    override val ThrowNullPointerException: IrFunctionSymbol =
-        nullPointerExceptionClass.constructors.single()
-
-    override val ThrowNoWhenBranchMatchedException: IrSimpleFunctionSymbol
-        get() = error("Unused in JVM IR")
-
-    private val typeCastExceptionClass: IrClassSymbol =
-        createClass(FqName("kotlin.TypeCastException")) { klass ->
-            klass.addConstructor().apply {
-                addValueParameter("message", irBuiltIns.stringType)
-            }
-        }
-
-    override val ThrowTypeCastException: IrFunctionSymbol =
-        typeCastExceptionClass.constructors.single()
-
-    val unsupportedOperationExceptionClass: IrClassSymbol = createClass(FqName("java.lang.UnsupportedOperationException")) { klass ->
-        klass.addConstructor().apply {
-            addValueParameter("message", irBuiltIns.stringType.makeNullable())
-        }
-    }
+    private val generateOptimizedCallableReferenceSuperClasses = context.state.generateOptimizedCallableReferenceSuperClasses
 
     private fun createPackage(fqName: FqName): IrPackageFragment =
-        IrExternalPackageFragmentImpl(IrExternalPackageFragmentSymbolImpl(EmptyPackageFragmentDescriptor(context.state.module, fqName)))
+        IrExternalPackageFragmentImpl.createEmptyExternalPackageFragment(context.state.module, fqName)
 
     private fun createClass(
         fqName: FqName,
@@ -83,7 +86,7 @@ class JvmSymbols(
         classIsInline: Boolean = false,
         block: (IrClass) -> Unit = {}
     ): IrClassSymbol =
-        buildClass {
+        irFactory.buildClass {
             name = fqName.shortName()
             kind = classKind
             modality = classModality
@@ -95,7 +98,11 @@ class JvmSymbols(
                 "kotlin.coroutines.jvm.internal" -> kotlinCoroutinesJvmInternalPackage
                 "kotlin.jvm.internal" -> kotlinJvmInternalPackage
                 "kotlin.jvm.functions" -> kotlinJvmFunctionsPackage
+                "kotlin.jvm" -> kotlinJvmPackage
+                "kotlin.reflect" -> kotlinReflectPackage
                 "java.lang" -> javaLangPackage
+                "java.util" -> javaUtilPackage
+                "kotlin.internal" -> kotlinInternalPackage
                 else -> error("Other packages are not supported yet: $fqName")
             }
             createImplicitParameterDeclarationWithWrappedDescriptor()
@@ -105,9 +112,19 @@ class JvmSymbols(
     private val intrinsicsClass: IrClassSymbol = createClass(
         JvmClassName.byInternalName(IrIntrinsicMethods.INTRINSICS_CLASS_NAME).fqNameForTopLevelClassMaybeWithDollars
     ) { klass ->
+        klass.addFunction("throwNullPointerException", irBuiltIns.nothingType, isStatic = true).apply {
+            addValueParameter("message", irBuiltIns.stringType)
+        }
+        klass.addFunction("throwTypeCastException", irBuiltIns.nothingType, isStatic = true).apply {
+            addValueParameter("message", irBuiltIns.stringType)
+        }
+        klass.addFunction("throwUnsupportedOperationException", irBuiltIns.nothingType, isStatic = true).apply {
+            addValueParameter("message", irBuiltIns.stringType)
+        }
         klass.addFunction("throwUninitializedPropertyAccessException", irBuiltIns.unitType, isStatic = true).apply {
             addValueParameter("propertyName", irBuiltIns.stringType)
         }
+        klass.addFunction("throwKotlinNothingValueException", irBuiltIns.nothingType, isStatic = true)
         klass.addFunction("checkExpressionValueIsNotNull", irBuiltIns.unitType, isStatic = true).apply {
             addValueParameter("value", irBuiltIns.anyNType)
             addValueParameter("expression", irBuiltIns.stringType)
@@ -124,6 +141,13 @@ class JvmSymbols(
             addValueParameter("object", irBuiltIns.anyNType)
         }
         klass.addFunction("throwNpe", irBuiltIns.unitType, isStatic = true)
+
+        klass.declarations.add(irFactory.buildClass {
+            name = Name.identifier("Kotlin")
+        }.apply {
+            parent = klass
+            createImplicitParameterDeclarationWithWrappedDescriptor()
+        })
     }
 
     val checkExpressionValueIsNotNull: IrSimpleFunctionSymbol =
@@ -138,16 +162,28 @@ class JvmSymbols(
     val throwNpe: IrSimpleFunctionSymbol =
         intrinsicsClass.functions.single { it.owner.name.asString() == "throwNpe" }
 
-    override val ThrowUninitializedPropertyAccessException: IrSimpleFunctionSymbol =
+    override val throwNullPointerException: IrSimpleFunctionSymbol =
+        intrinsicsClass.functions.single { it.owner.name.asString() == "throwNullPointerException" }
+
+    override val throwTypeCastException: IrSimpleFunctionSymbol =
+        intrinsicsClass.functions.single { it.owner.name.asString() == "throwTypeCastException" }
+
+    val throwUnsupportedOperationException: IrSimpleFunctionSymbol =
+        intrinsicsClass.functions.single { it.owner.name.asString() == "throwUnsupportedOperationException" }
+
+    override val throwUninitializedPropertyAccessException: IrSimpleFunctionSymbol =
         intrinsicsClass.functions.single { it.owner.name.asString() == "throwUninitializedPropertyAccessException" }
 
-    val intrinsicStringPlus: IrFunctionSymbol =
-        intrinsicsClass.functions.single { it.owner.name.asString() == "stringPlus" }
+    override val throwKotlinNothingValueException: IrSimpleFunctionSymbol =
+        intrinsicsClass.functions.single { it.owner.name.asString() == "throwKotlinNothingValueException" }
+
+    val intrinsicsKotlinClass: IrClassSymbol =
+        (intrinsicsClass.owner.declarations.single { it is IrClass && it.name.asString() == "Kotlin" } as IrClass).symbol
 
     override val stringBuilder: IrClassSymbol = createClass(FqName("java.lang.StringBuilder")) { klass ->
         klass.addConstructor()
         klass.addFunction("toString", irBuiltIns.stringType).apply {
-            overriddenSymbols += any.functionByName("toString")
+            overriddenSymbols = overriddenSymbols + any.functionByName("toString")
         }
 
         val appendTypes = with(irBuiltIns) { listOf(anyNType, stringType, booleanType, charType, intType, longType, floatType, doubleType) }
@@ -161,29 +197,29 @@ class JvmSymbols(
     override val defaultConstructorMarker: IrClassSymbol =
         createClass(FqName("kotlin.jvm.internal.DefaultConstructorMarker"))
 
-    override val copyRangeTo: Map<ClassDescriptor, IrSimpleFunctionSymbol>
-        get() = error("Unused in JVM IR")
-
     override val coroutineImpl: IrClassSymbol
-        get() = TODO("not implemented")
+        get() = error("not implemented")
 
     override val coroutineSuspendedGetter: IrSimpleFunctionSymbol
-        get() = TODO("not implemented")
+        get() = error("not implemented")
 
     override val getContinuation: IrSimpleFunctionSymbol
-        get() = TODO("not implemented")
+        get() = error("not implemented")
 
     override val coroutineContextGetter: IrSimpleFunctionSymbol
-        get() = TODO("not implemented")
+        get() = error("not implemented")
 
     override val suspendCoroutineUninterceptedOrReturn: IrSimpleFunctionSymbol
-        get() = TODO("not implemented")
+        get() = error("not implemented")
 
     override val coroutineGetContext: IrSimpleFunctionSymbol
-        get() = TODO("not implemented")
+        get() = error("not implemented")
 
     override val returnIfSuspended: IrSimpleFunctionSymbol
-        get() = TODO("not implemented")
+        get() = error("not implemented")
+
+    private val kDeclarationContainer: IrClassSymbol =
+        createClass(StandardNames.FqNames.kDeclarationContainer.toSafe(), ClassKind.INTERFACE, Modality.ABSTRACT)
 
     val javaLangClass: IrClassSymbol =
         createClass(FqName("java.lang.Class")) { klass ->
@@ -191,8 +227,16 @@ class JvmSymbols(
             klass.addFunction("desiredAssertionStatus", irBuiltIns.booleanType)
         }
 
+    private val javaLangDeprecatedWithDeprecatedFlag: IrClassSymbol =
+        createClass(FqName("java.lang.Deprecated"), classKind = ClassKind.ANNOTATION_CLASS) { klass ->
+            klass.addConstructor { isPrimary = true }
+        }
+
+    // This annotations also implies ACC_DEPRECATED flag in generated bytecode
+    val javaLangDeprecatedConstructorWithDeprecatedFlag = javaLangDeprecatedWithDeprecatedFlag.constructors.single()
+
     private val javaLangAssertionError: IrClassSymbol =
-        createClass(FqName("java.lang.AssertionError")) { klass ->
+        createClass(FqName("java.lang.AssertionError"), classModality = Modality.OPEN) { klass ->
             klass.addConstructor().apply {
                 addValueParameter("detailMessage", irBuiltIns.anyNType)
             }
@@ -201,85 +245,130 @@ class JvmSymbols(
     val assertionErrorConstructor = javaLangAssertionError.constructors.single()
 
     val continuationClass: IrClassSymbol =
-        createClass(DescriptorUtils.CONTINUATION_INTERFACE_FQ_NAME_RELEASE, ClassKind.INTERFACE) { klass ->
+        createClass(StandardNames.CONTINUATION_INTERFACE_FQ_NAME, ClassKind.INTERFACE) { klass ->
             klass.addTypeParameter("T", irBuiltIns.anyNType, Variance.IN_VARIANCE)
         }
 
     private val resultClassStub: IrClassSymbol =
-        createClass(DescriptorUtils.RESULT_FQ_NAME, classIsInline = true) { klass ->
+        createClass(StandardNames.RESULT_FQ_NAME, classIsInline = true) { klass ->
             klass.addTypeParameter("T", irBuiltIns.anyNType, Variance.OUT_VARIANCE)
-            klass.addConstructor { isPrimary = true }.apply {
-                addValueParameter("value", irBuiltIns.anyNType)
-            }
+            klass.inlineClassRepresentation = InlineClassRepresentation(Name.identifier("value"), irBuiltIns.anyNType as IrSimpleType)
         }
+
+    val resultOfAnyType: IrType = resultClassStub.typeWith(irBuiltIns.anyNType)
 
     val continuationImplClass: IrClassSymbol =
         createClass(FqName("kotlin.coroutines.jvm.internal.ContinuationImpl"), classModality = Modality.ABSTRACT) { klass ->
             val continuationType = continuationClass.typeWith(irBuiltIns.anyNType)
             klass.superTypes += continuationType
             klass.addConstructor().apply {
-                addValueParameter("completion", continuationType.makeNullable())
+                addValueParameter(SUSPEND_FUNCTION_COMPLETION_PARAMETER_NAME, continuationType.makeNullable())
             }
-            klass.addFunction("invokeSuspend", irBuiltIns.anyNType, Modality.ABSTRACT).apply {
-                addValueParameter("result", resultClassStub.typeWith(irBuiltIns.anyNType))
+            klass.addFunction(INVOKE_SUSPEND_METHOD_NAME, irBuiltIns.anyNType, Modality.ABSTRACT).apply {
+                addValueParameter(SUSPEND_CALL_RESULT_NAME, resultOfAnyType)
             }
         }
 
     val suspendFunctionInterface: IrClassSymbol =
         createClass(FqName("kotlin.coroutines.jvm.internal.SuspendFunction"), ClassKind.INTERFACE)
 
-    val lambdaClass: IrClassSymbol = createClass(FqName("kotlin.jvm.internal.Lambda")) { klass ->
+    val lambdaClass: IrClassSymbol = createClass(FqName("kotlin.jvm.internal.Lambda"), classModality = Modality.ABSTRACT) { klass ->
         klass.addConstructor().apply {
             addValueParameter("arity", irBuiltIns.intType)
         }
     }
 
-    val suspendLambdaClass: IrClassSymbol = createClass(FqName("kotlin.coroutines.jvm.internal.SuspendLambda")) { klass ->
+    val suspendLambdaClass: IrClassSymbol =
+        createClass(FqName("kotlin.coroutines.jvm.internal.SuspendLambda"), classModality = Modality.ABSTRACT) { klass ->
+            addSuspendLambdaInterfaceFunctions(klass)
+        }
+
+    val restrictedSuspendLambdaClass: IrClassSymbol =
+        createClass(FqName("kotlin.coroutines.jvm.internal.RestrictedSuspendLambda"), classModality = Modality.ABSTRACT) { klass ->
+            addSuspendLambdaInterfaceFunctions(klass)
+        }
+
+    private fun addSuspendLambdaInterfaceFunctions(klass: IrClass) {
         klass.superTypes += suspendFunctionInterface.defaultType
         klass.addConstructor().apply {
             addValueParameter("arity", irBuiltIns.intType)
-            addValueParameter("completion", continuationClass.typeWith(irBuiltIns.anyNType).makeNullable())
+            addValueParameter(
+                SUSPEND_FUNCTION_COMPLETION_PARAMETER_NAME,
+                continuationClass.typeWith(irBuiltIns.anyNType).makeNullable()
+            )
         }
-        klass.addFunction("invokeSuspend", irBuiltIns.anyNType, Modality.ABSTRACT).apply {
-            addValueParameter("result", resultClassStub.typeWith(irBuiltIns.anyNType))
+        klass.addFunction(INVOKE_SUSPEND_METHOD_NAME, irBuiltIns.anyNType, Modality.ABSTRACT, DescriptorVisibilities.PROTECTED).apply {
+            addValueParameter(SUSPEND_CALL_RESULT_NAME, resultOfAnyType)
         }
-        klass.addFunction("create", continuationClass.typeWith(irBuiltIns.unitType)).apply {
-            addValueParameter("completion", continuationClass.typeWith(irBuiltIns.nothingType))
+        klass.addFunction(SUSPEND_FUNCTION_CREATE_METHOD_NAME, continuationClass.typeWith(irBuiltIns.unitType), Modality.OPEN).apply {
+            addValueParameter(SUSPEND_FUNCTION_COMPLETION_PARAMETER_NAME, continuationClass.typeWith(irBuiltIns.nothingType))
         }
-        klass.addFunction("create", continuationClass.typeWith(irBuiltIns.unitType)).apply {
+        klass.addFunction(SUSPEND_FUNCTION_CREATE_METHOD_NAME, continuationClass.typeWith(irBuiltIns.unitType), Modality.OPEN).apply {
             addValueParameter("value", irBuiltIns.anyNType)
-            addValueParameter("completion", continuationClass.typeWith(irBuiltIns.nothingType))
+            addValueParameter(SUSPEND_FUNCTION_COMPLETION_PARAMETER_NAME, continuationClass.typeWith(irBuiltIns.nothingType))
         }
     }
 
     private fun generateCallableReferenceMethods(klass: IrClass) {
         klass.addFunction("getSignature", irBuiltIns.stringType, Modality.OPEN)
         klass.addFunction("getName", irBuiltIns.stringType, Modality.OPEN)
-        klass.addFunction("getOwner", irBuiltIns.kDeclarationContainerClass.defaultType, Modality.OPEN)
+        klass.addFunction("getOwner", kDeclarationContainer.defaultType, Modality.OPEN)
     }
 
-    val functionReference: IrClassSymbol = createClass(FqName("kotlin.jvm.internal.FunctionReference")) { klass ->
-        klass.addConstructor().apply {
-            addValueParameter("arity", irBuiltIns.intType)
+    val functionReference: IrClassSymbol =
+        createClass(FqName("kotlin.jvm.internal.FunctionReference"), classModality = Modality.OPEN) { klass ->
+            klass.addConstructor().apply {
+                addValueParameter("arity", irBuiltIns.intType)
+            }
+
+            klass.addConstructor().apply {
+                addValueParameter("arity", irBuiltIns.intType)
+                addValueParameter("receiver", irBuiltIns.anyNType)
+            }
+
+            klass.addField("receiver", irBuiltIns.anyNType, DescriptorVisibilities.PROTECTED)
+
+            generateCallableReferenceMethods(klass)
         }
-
-        klass.addConstructor().apply {
-            addValueParameter("arity", irBuiltIns.intType)
-            addValueParameter("receiver", irBuiltIns.anyNType)
-        }
-
-        klass.addField("receiver", irBuiltIns.anyNType, Visibilities.PROTECTED)
-
-        generateCallableReferenceMethods(klass)
-    }
 
     val functionReferenceReceiverField: IrFieldSymbol = functionReference.fieldByName("receiver")
     val functionReferenceGetSignature: IrSimpleFunctionSymbol = functionReference.functionByName("getSignature")
     val functionReferenceGetName: IrSimpleFunctionSymbol = functionReference.functionByName("getName")
     val functionReferenceGetOwner: IrSimpleFunctionSymbol = functionReference.functionByName("getOwner")
 
-    fun getFunction(parameterCount: Int): IrClassSymbol =
-        symbolTable.referenceClass(builtIns.getFunction(parameterCount))
+    val functionReferenceImpl: IrClassSymbol =
+        createClass(FqName("kotlin.jvm.internal.FunctionReferenceImpl"), classModality = Modality.OPEN) { klass ->
+            klass.superTypes = listOf(functionReference.defaultType)
+
+            if (generateOptimizedCallableReferenceSuperClasses) {
+                klass.generateCallableReferenceSuperclassConstructors(withArity = true)
+            }
+        }
+
+    val adaptedFunctionReference: IrClassSymbol =
+        createClass(FqName("kotlin.jvm.internal.AdaptedFunctionReference"), classModality = Modality.OPEN) { klass ->
+            klass.superTypes = listOf(irBuiltIns.anyType)
+            klass.generateCallableReferenceSuperclassConstructors(withArity = true)
+        }
+
+    private fun IrClass.generateCallableReferenceSuperclassConstructors(withArity: Boolean) {
+        for (hasBoundReceiver in listOf(false, true)) {
+            addConstructor().apply {
+                if (withArity) {
+                    addValueParameter("arity", irBuiltIns.intType)
+                }
+                if (hasBoundReceiver) {
+                    addValueParameter("receiver", irBuiltIns.anyNType)
+                }
+                addValueParameter("owner", javaLangClass.starProjectedType)
+                addValueParameter("name", irBuiltIns.stringType)
+                addValueParameter("signature", irBuiltIns.stringType)
+                addValueParameter("flags", irBuiltIns.intType)
+            }
+        }
+    }
+
+    fun getFunction(parameterCount: Int): IrClassSymbol = irBuiltIns.functionN(parameterCount).symbol
 
     private val jvmFunctionClasses = storageManager.createMemoizedFunction { n: Int ->
         createFunctionClass(n, false)
@@ -322,6 +411,12 @@ class JvmSymbols(
         }
     }
 
+    val jvmInlineAnnotation: IrClassSymbol = createClass(JVM_INLINE_ANNOTATION_FQ_NAME, ClassKind.ANNOTATION_CLASS).apply {
+        owner.addConstructor {
+            isPrimary = true
+        }
+    }
+
     private data class PropertyReferenceKey(
         val mutable: Boolean,
         val parameterCount: Int,
@@ -346,10 +441,15 @@ class JvmSymbols(
             ) { klass ->
                 if (impl) {
                     klass.addConstructor().apply {
-                        addValueParameter("owner", irBuiltIns.kDeclarationContainerClass.defaultType)
+                        addValueParameter("owner", kDeclarationContainer.defaultType)
                         addValueParameter("name", irBuiltIns.stringType)
                         addValueParameter("string", irBuiltIns.stringType)
                     }
+
+                    if (generateOptimizedCallableReferenceSuperClasses) {
+                        klass.generateCallableReferenceSuperclassConstructors(withArity = false)
+                    }
+
                     klass.superTypes += getPropertyReferenceClass(mutable, parameterCount, false).defaultType
                 } else {
                     klass.addConstructor()
@@ -363,10 +463,10 @@ class JvmSymbols(
                 klass.addProperty {
                     name = receiverFieldName
                 }.apply {
-                    backingField = buildField {
+                    backingField = irFactory.buildField {
                         name = receiverFieldName
                         type = irBuiltIns.anyNType
-                        visibility = Visibilities.PROTECTED
+                        visibility = DescriptorVisibilities.PROTECTED
                     }.also { field ->
                         field.parent = klass
                     }
@@ -405,7 +505,7 @@ class JvmSymbols(
         val javaLangClassType = javaLangClass.starProjectedType
         val kClassType = irBuiltIns.kClassClass.starProjectedType
 
-        klass.addFunction("getOrCreateKotlinPackage", irBuiltIns.kDeclarationContainerClass.defaultType, isStatic = true).apply {
+        klass.addFunction("getOrCreateKotlinPackage", kDeclarationContainer.defaultType, isStatic = true).apply {
             addValueParameter("javaClass", javaLangClassType)
             addValueParameter("moduleName", irBuiltIns.stringType)
         }
@@ -428,6 +528,10 @@ class JvmSymbols(
         }
     }
 
+    override val functionAdapter: IrClassSymbol = createClass(FqName("kotlin.jvm.internal.FunctionAdapter"), ClassKind.INTERFACE) { klass ->
+        klass.addFunction("getFunctionDelegate", irBuiltIns.functionClass.starProjectedType, Modality.ABSTRACT)
+    }
+
     val getOrCreateKotlinPackage: IrSimpleFunctionSymbol =
         reflection.functionByName("getOrCreateKotlinPackage")
 
@@ -435,8 +539,8 @@ class JvmSymbols(
         javaLangClass.functionByName("desiredAssertionStatus")
     }
 
-    val unsafeCoerceIntrinsic: IrSimpleFunctionSymbol =
-        buildFun {
+    override val unsafeCoerceIntrinsic: IrSimpleFunctionSymbol =
+        irFactory.buildFun {
             name = Name.special("<unsafe-coerce>")
             origin = IrDeclarationOrigin.IR_BUILTINS_STUB
         }.apply {
@@ -447,16 +551,161 @@ class JvmSymbols(
             returnType = dst.defaultType
         }.symbol
 
-    val reassignParameterIntrinsic: IrSimpleFunctionSymbol =
-        buildFun {
-            name = Name.special("<set-parameter>")
+    private val progressionUtilClasses by lazy(LazyThreadSafetyMode.PUBLICATION) {
+        listOf(
+            "kotlin.internal.ProgressionUtilKt" to listOf(int, long),
+            "kotlin.internal.UProgressionUtilKt" to listOfNotNull(uInt, uLong)
+        ).map { (fqn, types) ->
+            createClass(FqName(fqn)) { klass ->
+                for (type in types) {
+                    klass.addFunction("getProgressionLastElement", type.owner.defaultType, isStatic = true).apply {
+                        for (paramName in arrayOf("s", "e")) {
+                            addValueParameter(paramName, type.owner.defaultType)
+                        }
+                        addValueParameter(
+                            "st",
+                            when (type) {
+                                uInt -> int.owner.defaultType
+                                uLong -> long.owner.defaultType
+                                else -> type.owner.defaultType
+                            }
+                        )
+                    }
+                }
+            }
+        }
+    }
+
+    override val getProgressionLastElementByReturnType: Map<IrClassifierSymbol, IrSimpleFunctionSymbol> by lazy(LazyThreadSafetyMode.PUBLICATION) {
+        progressionUtilClasses.flatMap { klass ->
+            klass.functions.filter {
+                it.owner.name.identifier == "getProgressionLastElement"
+            }.map {
+                it.owner.returnType.classifierOrFail to it
+            }
+        }.toMap()
+    }
+
+
+    val arrayOfAnyType = irBuiltIns.arrayClass.typeWith(irBuiltIns.anyType)
+    val arrayOfAnyNType = irBuiltIns.arrayClass.typeWith(irBuiltIns.anyNType)
+
+    // Intrinsic to represent closure creation using INVOKEDYNAMIC with LambdaMetafactory.{metafactory, altMetafactory}
+    // as a bootstrap method.
+    //      fun <SAM_TYPE> `<jvm-indy-lambda-metafactory>`(
+    //          samMethodType,
+    //          implMethodReference,
+    //          instantiatedMethodType,
+    //          vararg extraOverriddenMethodTypes
+    //      ): SAM_TYPE
+    // where:
+    //      `SAM_TYPE` is a single abstract method interface, which is implemented by a resulting closure;
+    //      `samMethodType` is a method type (signature and return type) of a method to be implemented by a closure;
+    //      `implMethodReference` is an actual implementation method (e.g., method for a lambda function);
+    //      `instantiatedMethodType` is a specialized implementation method type;
+    //      `extraOverriddenMethodTypes` is a possibly empty vararg of additional methods to be implemented by a closure.
+    //
+    // At this stage, "method types" are represented as IrRawFunctionReference nodes for the functions with corresponding signature.
+    // `<jvm-indy-lambda-metafactory>` call rewriting selects a particular bootstrap method (`metafactory` or `altMetafactory`)
+    // and takes care about low-level detains of bootstrap method arguments representation.
+    // Note that `instantiatedMethodType` is a raw function reference to a "fake" specialized function (belonging to a "fake" specialized
+    // class) that doesn't exist in the bytecode and serves only the purpose of representing a corresponding method signature.
+    //
+    // Resulting closure produced by INVOKEDYNAMIC instruction has (approximately) the following shape:
+    //      object : ${SAM_TYPE} {
+    //          override fun ${samMethodName}(${instantiatedMethodType}) = ${implMethod}(...)
+    //          // bridge fun ${samMethodName}(${bridgeMethodType}) = ${instantiatedMethod}(...)
+    //          //      for each 'bridgeMethodType' in [ ${samMethodType}, *${extraOverriddenMethodTypes} ]
+    //      }
+    val indyLambdaMetafactoryIntrinsic: IrSimpleFunctionSymbol =
+        irFactory.buildFun {
+            name = Name.special("<jvm-indy-lambda-metafactory>")
             origin = IrDeclarationOrigin.IR_BUILTINS_STUB
         }.apply {
             parent = kotlinJvmInternalPackage
-            val type = addTypeParameter("T", irBuiltIns.anyNType)
-            addValueParameter("parameter", type.defaultType) // must be IrGetValue of an IrValueParameter
-            addValueParameter("value", type.defaultType)
-            returnType = irBuiltIns.unitType
+            val samType = addTypeParameter("SAM_TYPE", irBuiltIns.anyType)
+            addValueParameter("samMethodType", irBuiltIns.anyNType)
+            addValueParameter("implMethodReference", irBuiltIns.anyNType)
+            addValueParameter("instantiatedMethodType", irBuiltIns.anyNType)
+            addValueParameter {
+                name = Name.identifier("extraOverriddenMethodTypes")
+                type = arrayOfAnyType
+                varargElementType = irBuiltIns.anyType
+            }
+            returnType = samType.defaultType
+        }.symbol
+
+    // Intrinsic to represent INVOKEDYNAMIC calls in IR.
+    //  fun <T> `<jvm-indy>`(
+    //      dynamicCall: T,
+    //      bootstrapMethodTag: Int,
+    //      bootstrapMethodOwner: String,
+    //      bootstrapMethodName: String,
+    //      bootstrapMethodDesc: String,
+    //      vararg bootstrapMethodArgs: Any
+    //  ): T
+    // Bootstrap method handle is encoded as a bunch of constants.
+    // For example,
+    //  REF_invokeStatic java/lang/invoke/LambdaMetafactory.metafactory:(
+    //      Ljava/lang/invoke/MethodHandles$Lookup;
+    //      Ljava/lang/String;
+    //      Ljava/lang/invoke/MethodType;
+    //      Ljava/lang/invoke/MethodType;
+    //      Ljava/lang/invoke/MethodHandle;
+    //      Ljava/lang/invoke/MethodType;
+    //      )Ljava/lang/invoke/CallSite;
+    // is represented as
+    //  bootstrapMethodTag: IrConst<Int>(value = H_INVOKESTATIC)
+    //  bootstrapMethodOwner: IrConst<String>(value = "java/lang/invoke/LambdaMetafactory")
+    //  bootstrapMethodName: IrConst<String>(value = "metafactory")
+    //  bootstrapMethodDesc: IrConst<String>(value = "(...)Ljava/lang/invoke/CallSite;")
+    // Bootstrap method owner is assumed to be a class (which is true for both LambdaMetafactory and StringConcatFactory).
+    val jvmIndyIntrinsic: IrSimpleFunctionSymbol =
+        irFactory.buildFun {
+            name = Name.special("<jvm-indy>")
+            origin = IrDeclarationOrigin.IR_BUILTINS_STUB
+        }.apply {
+            parent = kotlinJvmInternalPackage
+            val t = addTypeParameter("T", irBuiltIns.anyNType)
+            addValueParameter("dynamicCall", t.defaultType)
+            addValueParameter("bootstrapMethodTag", irBuiltIns.intType)
+            addValueParameter("bootstrapMethodOwner", irBuiltIns.stringType)
+            addValueParameter("bootstrapMethodName", irBuiltIns.stringType)
+            addValueParameter("bootstrapMethodDesc", irBuiltIns.stringType)
+            addValueParameter {
+                name = Name.identifier("bootstrapMethodArguments")
+                type = arrayOfAnyType
+                varargElementType = irBuiltIns.anyType
+            }
+            returnType = t.defaultType
+        }.symbol
+
+    // Intrinsic used to represent MethodType objects in bootstrap method arguments (see jvmInvokeDynamicIntrinsic above).
+    // Value argument is a raw function reference to a corresponding method (e.g., 'java.lang.function.Supplier#get').
+    // Resulting method type is unsubstituted.
+    val jvmOriginalMethodTypeIntrinsic: IrSimpleFunctionSymbol =
+        irFactory.buildFun {
+            name = Name.special("<jvm-original-method-type>")
+            origin = IrDeclarationOrigin.IR_BUILTINS_STUB
+        }.apply {
+            parent = kotlinJvmInternalPackage
+            addValueParameter("method", irBuiltIns.anyType)
+            returnType = irBuiltIns.anyType
+        }.symbol
+
+    // Intrinsic used to represent MethodType objects in bootstrap method arguments (see jvmInvokeDynamicIntrinsic above).
+    // Type argument is a substituted method owner type (e.g., 'java.lang.function.Supplier<String>').
+    // Value argument is a raw function reference to a corresponding method (e.g., 'java.lang.function.Supplier#get').
+    // Resulting method type is substituted.
+    val jvmSubstitutedMethodTypeIntrinsic: IrSimpleFunctionSymbol =
+        irFactory.buildFun {
+            name = Name.special("<jvm-substituted-method-type>")
+            origin = IrDeclarationOrigin.IR_BUILTINS_STUB
+        }.apply {
+            parent = kotlinJvmInternalPackage
+            addTypeParameter("OwnerT", irBuiltIns.anyType)
+            addValueParameter("method", irBuiltIns.anyType)
+            returnType = irBuiltIns.anyType
         }.symbol
 
     private val collectionToArrayClass: IrClassSymbol = createClass(FqName("kotlin.jvm.internal.CollectionToArray")) { klass ->
@@ -481,12 +730,23 @@ class JvmSymbols(
     val genericToArray: IrSimpleFunctionSymbol =
         collectionToArrayClass.functions.single { it.owner.name.asString() == "toArray" && it.owner.valueParameters.size == 2 }
 
+    val jvmName: IrClassSymbol = createClass(FqName("kotlin.jvm.JvmName"), ClassKind.ANNOTATION_CLASS) { klass ->
+        klass.addConstructor().apply {
+            addValueParameter("name", irBuiltIns.stringType)
+        }
+    }
+
     val kClassJava: IrPropertySymbol =
-        buildProperty {
+        irFactory.buildProperty {
             name = Name.identifier("java")
         }.apply {
-            parent = kotlinJvmPackage
+            parent = createClass(FqName("kotlin.jvm.JvmClassMappingKt")).owner
             addGetter().apply {
+                annotations = listOf(
+                    IrConstructorCallImpl.fromSymbolOwner(jvmName.typeWith(), jvmName.constructors.single()).apply {
+                        putValueArgument(0, IrConstImpl.string(UNDEFINED_OFFSET, UNDEFINED_OFFSET, irBuiltIns.stringType, "getJavaClass"))
+                    }
+                )
                 addExtensionReceiver(irBuiltIns.kClassClass.starProjectedType)
                 returnType = javaLangClass.starProjectedType
             }
@@ -534,20 +794,97 @@ class JvmSymbols(
         }
     }
 
-    private val systemClass: IrClassSymbol = createClass(FqName("java.lang.System")) { klass ->
-        klass.addFunction("arraycopy", irBuiltIns.unitType, isStatic = true).apply {
-            addValueParameter("src", irBuiltIns.anyNType)
-            addValueParameter("srcPos", irBuiltIns.intType)
-            addValueParameter("dest", irBuiltIns.anyNType)
-            addValueParameter("destPos", irBuiltIns.intType)
-            addValueParameter("length", irBuiltIns.intType)
+    private val arraysCopyOfFunctions = HashMap<IrClassifierSymbol, IrSimpleFunction>()
+
+    private fun IrClass.addArraysCopyOfFunction(arrayType: IrSimpleType) {
+        addFunction("copyOf", arrayType, isStatic = true).apply {
+            addValueParameter("original", arrayType)
+            addValueParameter("newLength", irBuiltIns.intType)
+            arraysCopyOfFunctions[arrayType.classifierOrFail] = this
         }
     }
 
-    val systemArraycopy: IrSimpleFunctionSymbol = systemClass.functionByName("arraycopy")
+    private fun IrClass.addArraysEqualsFunction(arrayType: IrSimpleType) {
+        addFunction("equals", irBuiltIns.booleanType, isStatic = true).apply {
+            addValueParameter("a", arrayType)
+            addValueParameter("b", arrayType)
+        }
+    }
+
+    val arraysClass: IrClassSymbol =
+        createClass(FqName("java.util.Arrays")) { irClass ->
+            for (type in listOf(
+                booleanArrayType,
+                byteArrayType,
+                charArrayType,
+                shortArrayType,
+                intArrayType,
+                longArrayType,
+                floatArrayType,
+                doubleArrayType,
+                arrayOfAnyNType
+            )) {
+                irClass.addArraysCopyOfFunction(type)
+                irClass.addArraysEqualsFunction(type)
+            }
+        }
+
+    fun getArraysCopyOfFunction(arrayType: IrSimpleType): IrSimpleFunctionSymbol {
+        val classifier = arrayType.classifier
+        val copyOf = arraysCopyOfFunctions[classifier]
+        if (copyOf != null)
+            return copyOf.symbol
+        else
+            throw AssertionError("Array type expected: ${arrayType.render()}")
+    }
+
+    private val javaLangInteger: IrClassSymbol = createJavaPrimitiveClass(FqName("java.lang.Integer"), irBuiltIns.intType)
+
+    val compareUnsignedInt: IrSimpleFunctionSymbol = javaLangInteger.functionByName("compareUnsigned")
+    val divideUnsignedInt: IrSimpleFunctionSymbol = javaLangInteger.functionByName("divideUnsigned")
+    val remainderUnsignedInt: IrSimpleFunctionSymbol = javaLangInteger.functionByName("remainderUnsigned")
+    val toUnsignedStringInt: IrSimpleFunctionSymbol = javaLangInteger.functionByName("toUnsignedString")
+
+    private val javaLangLong: IrClassSymbol = createJavaPrimitiveClass(FqName("java.lang.Long"), irBuiltIns.longType)
+
+    val compareUnsignedLong: IrSimpleFunctionSymbol = javaLangLong.functionByName("compareUnsigned")
+    val divideUnsignedLong: IrSimpleFunctionSymbol = javaLangLong.functionByName("divideUnsigned")
+    val remainderUnsignedLong: IrSimpleFunctionSymbol = javaLangLong.functionByName("remainderUnsigned")
+    val toUnsignedStringLong: IrSimpleFunctionSymbol = javaLangLong.functionByName("toUnsignedString")
+
+    val intPostfixIncr = createPostfixIncrDecrFun("<int++>", irBuiltIns.intType)
+    val intPostfixDecr = createPostfixIncrDecrFun("<int-->", irBuiltIns.intType)
+
+    private fun createPostfixIncrDecrFun(intrinsicName: String, type: IrType): IrSimpleFunctionSymbol =
+        irFactory.buildFun {
+            name = Name.special(intrinsicName)
+            origin = IrDeclarationOrigin.IR_BUILTINS_STUB
+        }.apply {
+            parent = kotlinJvmInternalPackage
+            addValueParameter("value", type)
+            returnType = type
+        }.symbol
+
+    private fun createJavaPrimitiveClass(fqName: FqName, type: IrType): IrClassSymbol = createClass(fqName) { klass ->
+        klass.addFunction("compareUnsigned", irBuiltIns.intType, isStatic = true).apply {
+            addValueParameter("x", type)
+            addValueParameter("y", type)
+        }
+        klass.addFunction("divideUnsigned", type, isStatic = true).apply {
+            addValueParameter("dividend", type)
+            addValueParameter("divisor", type)
+        }
+        klass.addFunction("remainderUnsigned", type, isStatic = true).apply {
+            addValueParameter("dividend", type)
+            addValueParameter("divisor", type)
+        }
+        klass.addFunction("toUnsignedString", irBuiltIns.stringType, isStatic = true).apply {
+            addValueParameter("i", type)
+        }
+    }
 
     val signatureStringIntrinsic: IrSimpleFunctionSymbol =
-        buildFun {
+        irFactory.buildFun {
             name = Name.special("<signature-string>")
             origin = IrDeclarationOrigin.IR_BUILTINS_STUB
         }.apply {
@@ -582,6 +919,144 @@ class JvmSymbols(
 
     fun typeToStringValueOfFunction(type: IrType): IrSimpleFunctionSymbol =
         valueOfFunctions[type] ?: defaultValueOfFunction
+
+    private val javaLangEnum: IrClassSymbol =
+        createClass(FqName("java.lang.Enum")) { klass ->
+            // The declaration of Enum.valueOf is: `public static <T extends Enum<T>> T valueOf(Class<T> enumType, String name)`
+            // But we only need the following type-erased version to generate correct calls.
+            klass.addFunction("valueOf", klass.defaultType, isStatic = true).apply {
+                addValueParameter("enumType", javaLangClass.starProjectedType)
+                addValueParameter("name", irBuiltIns.stringType)
+            }
+        }
+
+    val enumValueOfFunction: IrSimpleFunctionSymbol =
+        javaLangEnum.functionByName("valueOf")
+
+    private val javaLangObject: IrClassSymbol =
+        createClass(FqName("java.lang.Object")) { klass ->
+            klass.addFunction("clone", irBuiltIns.anyType)
+        }
+
+    val objectCloneFunction: IrSimpleFunctionSymbol =
+        javaLangObject.functionByName("clone")
+
+    private val kotlinCoroutinesJvmInternalRunSuspendKt =
+        createClass(FqName("kotlin.coroutines.jvm.internal.RunSuspendKt")) { klass ->
+            klass.addFunction("runSuspend", irBuiltIns.unitType, isStatic = true).apply {
+                addValueParameter(
+                    "block",
+                    getJvmSuspendFunctionClass(0).typeWith(
+                        irBuiltIns.unitType
+                    )
+                )
+            }
+        }
+
+    val runSuspendFunction: IrSimpleFunctionSymbol =
+        kotlinCoroutinesJvmInternalRunSuspendKt.functionByName("runSuspend")
+
+    val repeatableContainer: IrClassSymbol =
+        createClass(FqName("kotlin.jvm.internal.RepeatableContainer"), ClassKind.ANNOTATION_CLASS).apply {
+            owner.addConstructor { isPrimary = true }
+        }
+
+    val javaAnnotations = JavaAnnotations()
+
+    inner class JavaAnnotations {
+        private val javaLangAnnotation: FqName = FqName("java.lang.annotation")
+
+        private val javaLangAnnotationPackage: IrPackageFragment =
+            IrExternalPackageFragmentImpl.createEmptyExternalPackageFragment(context.state.module, javaLangAnnotation)
+
+        private fun buildClass(
+            fqName: FqName,
+            classKind: ClassKind = ClassKind.ANNOTATION_CLASS,
+        ): IrClass = context.irFactory.buildClass {
+            check(fqName.parent() == javaLangAnnotation) { fqName }
+            name = fqName.shortName()
+            kind = classKind
+        }.apply {
+            val irClass = this
+            parent = javaLangAnnotationPackage
+            javaLangAnnotationPackage.addChild(this)
+            thisReceiver = buildValueParameter(this) {
+                name = Name.identifier("\$this")
+                type = IrSimpleTypeImpl(irClass.symbol, false, emptyList(), emptyList())
+            }
+        }
+
+        private fun buildAnnotationConstructor(annotationClass: IrClass): IrConstructor =
+            annotationClass.addConstructor { isPrimary = true }
+
+        private fun buildEnumEntry(enumClass: IrClass, entryName: String): IrEnumEntry {
+            return IrEnumEntryImpl(
+                UNDEFINED_OFFSET, UNDEFINED_OFFSET, IrDeclarationOrigin.IR_EXTERNAL_JAVA_DECLARATION_STUB,
+                IrEnumEntrySymbolImpl(),
+                Name.identifier(entryName)
+            ).apply {
+                parent = enumClass
+                enumClass.addChild(this)
+            }
+        }
+
+        val documentedConstructor = buildAnnotationConstructor(buildClass(JvmAnnotationNames.DOCUMENTED_ANNOTATION))
+
+        val retentionPolicyEnum = buildClass(JvmAnnotationNames.RETENTION_POLICY_ENUM, classKind = ClassKind.ENUM_CLASS)
+        val rpRuntime = buildEnumEntry(retentionPolicyEnum, "RUNTIME")
+
+        val retentionConstructor = buildAnnotationConstructor(buildClass(JvmAnnotationNames.RETENTION_ANNOTATION)).apply {
+            addValueParameter("value", retentionPolicyEnum.defaultType, IrDeclarationOrigin.IR_EXTERNAL_JAVA_DECLARATION_STUB)
+        }
+
+        val elementTypeEnum = buildClass(JvmAnnotationNames.ELEMENT_TYPE_ENUM, classKind = ClassKind.ENUM_CLASS)
+        private val etMethod = buildEnumEntry(elementTypeEnum, "METHOD")
+
+        val targetConstructor = buildAnnotationConstructor(buildClass(JvmAnnotationNames.TARGET_ANNOTATION)).apply {
+            addValueParameter("value", elementTypeEnum.defaultType, IrDeclarationOrigin.IR_EXTERNAL_JAVA_DECLARATION_STUB)
+        }
+
+        val repeatableConstructor = buildAnnotationConstructor(buildClass(JvmAnnotationNames.REPEATABLE_ANNOTATION)).apply {
+            addValueParameter("value", irBuiltIns.kClassClass.starProjectedType, IrDeclarationOrigin.IR_EXTERNAL_JAVA_DECLARATION_STUB)
+        }
+
+        val annotationRetentionMap = mapOf(
+            KotlinRetention.SOURCE to buildEnumEntry(retentionPolicyEnum, "SOURCE"),
+            KotlinRetention.BINARY to buildEnumEntry(retentionPolicyEnum, "CLASS"),
+            KotlinRetention.RUNTIME to rpRuntime
+        )
+
+        private val jvm6TargetMap = mutableMapOf(
+            KotlinTarget.CLASS to buildEnumEntry(elementTypeEnum, "TYPE"),
+            KotlinTarget.ANNOTATION_CLASS to buildEnumEntry(elementTypeEnum, "ANNOTATION_TYPE"),
+            KotlinTarget.CONSTRUCTOR to buildEnumEntry(elementTypeEnum, "CONSTRUCTOR"),
+            KotlinTarget.LOCAL_VARIABLE to buildEnumEntry(elementTypeEnum, "LOCAL_VARIABLE"),
+            KotlinTarget.FUNCTION to etMethod,
+            KotlinTarget.PROPERTY_GETTER to etMethod,
+            KotlinTarget.PROPERTY_SETTER to etMethod,
+            KotlinTarget.FIELD to buildEnumEntry(elementTypeEnum, "FIELD"),
+            KotlinTarget.VALUE_PARAMETER to buildEnumEntry(elementTypeEnum, "PARAMETER")
+        )
+
+        private val jvm8TargetMap = jvm6TargetMap + mutableMapOf(
+            KotlinTarget.TYPE_PARAMETER to buildEnumEntry(elementTypeEnum, "TYPE_PARAMETER"),
+            KotlinTarget.TYPE to buildEnumEntry(elementTypeEnum, "TYPE_USE")
+        )
+
+        fun getAnnotationTargetMap(target: JvmTarget): Map<KotlinTarget, IrEnumEntry> =
+            if (target == JvmTarget.JVM_1_6) jvm6TargetMap else jvm8TargetMap
+    }
+
+    companion object {
+        val FLEXIBLE_NULLABILITY_ANNOTATION_FQ_NAME =
+            IrBuiltIns.KOTLIN_INTERNAL_IR_FQN.child(Name.identifier("FlexibleNullability"))
+
+        val FLEXIBLE_MUTABILITY_ANNOTATION_FQ_NAME =
+            IrBuiltIns.KOTLIN_INTERNAL_IR_FQN.child(Name.identifier("FlexibleMutability"))
+
+        val RAW_TYPE_ANNOTATION_FQ_NAME =
+            IrBuiltIns.KOTLIN_INTERNAL_IR_FQN.child(Name.identifier("RawType"))
+    }
 }
 
 private fun IrClassSymbol.functionByName(name: String): IrSimpleFunctionSymbol =

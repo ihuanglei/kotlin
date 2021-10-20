@@ -1,4 +1,4 @@
-// IGNORE_BACKEND_FIR: JVM_IR
+// !LANGUAGE: -PrivateInFileEffectiveVisibility
 package p
 
 private class C(val y: Int) {

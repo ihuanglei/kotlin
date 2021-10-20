@@ -17,13 +17,16 @@
 package org.jetbrains.kotlin.codegen.optimization.boxing
 
 import com.google.common.collect.ImmutableSet
+import org.jetbrains.kotlin.builtins.StandardNames
 import org.jetbrains.kotlin.codegen.AsmUtil
 import org.jetbrains.kotlin.codegen.intrinsics.IntrinsicMethods
 import org.jetbrains.kotlin.codegen.optimization.common.OptimizationBasicInterpreter
 import org.jetbrains.kotlin.codegen.optimization.common.StrictBasicValue
 import org.jetbrains.kotlin.codegen.state.GenerationState
 import org.jetbrains.kotlin.codegen.state.KotlinTypeMapper
+import org.jetbrains.kotlin.codegen.topLevelClassInternalName
 import org.jetbrains.kotlin.name.FqName
+import org.jetbrains.kotlin.name.Name
 import org.jetbrains.kotlin.resolve.jvm.AsmTypes
 import org.jetbrains.kotlin.resolve.jvm.JvmPrimitiveType
 import org.jetbrains.org.objectweb.asm.Opcodes
@@ -174,7 +177,7 @@ fun AbstractInsnNode.isUnboxing(state: GenerationState) =
     isPrimitiveUnboxing() || isJavaLangClassUnboxing() || isInlineClassUnboxing(state)
 
 fun AbstractInsnNode.isBoxing(state: GenerationState) =
-    isPrimitiveBoxing() || isJavaLangClassBoxing() || isInlineClassBoxing(state)
+    isPrimitiveBoxing() || isJavaLangClassBoxing() || isInlineClassBoxing(state) || isCoroutinePrimitiveBoxing()
 
 fun AbstractInsnNode.isPrimitiveUnboxing() =
     isMethodInsnWith(Opcodes.INVOKEVIRTUAL) {
@@ -210,6 +213,19 @@ fun AbstractInsnNode.isPrimitiveBoxing() =
                 name == "valueOf" &&
                 isBoxingMethodDescriptor()
     }
+
+private val BOXING_CLASS_INTERNAL_NAME =
+    StandardNames.COROUTINES_JVM_INTERNAL_PACKAGE_FQ_NAME.child(Name.identifier("Boxing")).topLevelClassInternalName()
+
+private fun isJvmPrimitiveName(name: String) = JvmPrimitiveType.values().any { it.javaKeywordName == name }
+
+fun AbstractInsnNode.isCoroutinePrimitiveBoxing(): Boolean {
+    return isMethodInsnWith(Opcodes.INVOKESTATIC) {
+        owner == BOXING_CLASS_INTERNAL_NAME &&
+                name.startsWith("box") &&
+                isJvmPrimitiveName(name.substring(3).lowercase())
+    }
+}
 
 private fun MethodInsnNode.isBoxingMethodDescriptor(): Boolean {
     val ownerType = Type.getObjectType(owner)

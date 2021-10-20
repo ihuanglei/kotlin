@@ -26,6 +26,7 @@ import org.jetbrains.kotlin.resolve.scopes.MemberScope
 import org.jetbrains.kotlin.serialization.deserialization.ClassData
 import org.jetbrains.kotlin.serialization.deserialization.DeserializationComponents
 import org.jetbrains.kotlin.serialization.deserialization.IncompatibleVersionErrorData
+import org.jetbrains.kotlin.serialization.deserialization.descriptors.DeserializedContainerAbiStability
 import org.jetbrains.kotlin.serialization.deserialization.descriptors.DeserializedPackageMemberScope
 import javax.inject.Inject
 
@@ -52,7 +53,9 @@ class DeserializedDescriptorResolver {
         val (nameResolver, classProto) = parseProto(kotlinClass) {
             JvmProtoBufUtil.readClassDataFrom(data, strings)
         } ?: return null
-        val source = KotlinJvmBinarySourceElement(kotlinClass, kotlinClass.incompatibility, kotlinClass.isPreReleaseInvisible)
+        val source = KotlinJvmBinarySourceElement(
+            kotlinClass, kotlinClass.incompatibility, kotlinClass.isPreReleaseInvisible, kotlinClass.abiStability
+        )
         return ClassData(nameResolver, classProto, kotlinClass.classHeader.metadataVersion, source)
     }
 
@@ -63,10 +66,12 @@ class DeserializedDescriptorResolver {
             JvmProtoBufUtil.readPackageDataFrom(data, strings)
         } ?: return null
         val source = JvmPackagePartSource(
-            kotlinClass, packageProto, nameResolver, kotlinClass.incompatibility, kotlinClass.isPreReleaseInvisible
+            kotlinClass, packageProto, nameResolver, kotlinClass.incompatibility, kotlinClass.isPreReleaseInvisible,
+            kotlinClass.abiStability
         )
         return DeserializedPackageMemberScope(
-            descriptor, packageProto, nameResolver, kotlinClass.classHeader.metadataVersion, source, components
+            descriptor, packageProto, nameResolver, kotlinClass.classHeader.metadataVersion, source, components,
+            "scope for $source in $descriptor"
         ) {
             // All classes are included into Java scope
             emptyList()
@@ -91,8 +96,16 @@ class DeserializedDescriptorResolver {
     // We report pre-release errors on .class files produced by 1.3-M1 even if this compiler is pre-release. This is needed because
     // 1.3-M1 did not mangle names of functions mentioning inline classes yet, and we don't want to support this case in the codegen
     private val KotlinJvmBinaryClass.isCompiledWith13M1: Boolean
-        get() = !components.configuration.skipMetadataVersionCheck &&
+        get() = !components.configuration.skipPrereleaseCheck &&
                 classHeader.isPreRelease && classHeader.metadataVersion == KOTLIN_1_3_M1_METADATA_VERSION
+
+    private val KotlinJvmBinaryClass.abiStability: DeserializedContainerAbiStability
+        get() = when {
+            components.configuration.allowUnstableDependencies -> DeserializedContainerAbiStability.STABLE
+            classHeader.isUnstableFirBinary -> DeserializedContainerAbiStability.FIR_UNSTABLE
+            classHeader.isUnstableJvmIrBinary -> DeserializedContainerAbiStability.IR_UNSTABLE
+            else -> DeserializedContainerAbiStability.STABLE
+        }
 
     private fun readData(kotlinClass: KotlinJvmBinaryClass, expectedKinds: Set<KotlinClassHeader.Kind>): Array<String>? {
         val header = kotlinClass.classHeader

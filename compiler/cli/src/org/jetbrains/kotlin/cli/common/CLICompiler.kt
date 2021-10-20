@@ -18,7 +18,7 @@ package org.jetbrains.kotlin.cli.common
 
 import com.intellij.openapi.Disposable
 import com.intellij.openapi.util.Disposer
-import org.jetbrains.kotlin.analyzer.AnalysisResult
+import org.jetbrains.kotlin.analyzer.CompilationErrorException
 import org.jetbrains.kotlin.cli.common.CLIConfigurationKeys.MESSAGE_COLLECTOR_KEY
 import org.jetbrains.kotlin.cli.common.ExitCode.COMPILATION_ERROR
 import org.jetbrains.kotlin.cli.common.ExitCode.INTERNAL_ERROR
@@ -30,19 +30,22 @@ import org.jetbrains.kotlin.cli.jvm.plugins.PluginCliParser
 import org.jetbrains.kotlin.compiler.plugin.ComponentRegistrar
 import org.jetbrains.kotlin.config.CompilerConfiguration
 import org.jetbrains.kotlin.config.Services
+import org.jetbrains.kotlin.ir.util.IrMessageLogger
 import org.jetbrains.kotlin.metadata.deserialization.BinaryVersion
 import org.jetbrains.kotlin.progress.CompilationCanceledException
 import org.jetbrains.kotlin.progress.CompilationCanceledStatus
+import org.jetbrains.kotlin.progress.IncrementalNextRoundException
 import org.jetbrains.kotlin.progress.ProgressIndicatorAndCompilationCanceledStatus
 import org.jetbrains.kotlin.utils.KotlinPaths
 import org.jetbrains.kotlin.utils.PathUtil
 import java.io.File
 import java.io.PrintStream
-import java.util.ArrayList
 
 abstract class CLICompiler<A : CommonCompilerArguments> : CLITool<A>() {
 
-    protected abstract val performanceManager: CommonCompilerPerformanceManager
+    abstract val defaultPerformanceManager: CommonCompilerPerformanceManager
+
+    protected open fun createPerformanceManager(arguments: A, services: Services): CommonCompilerPerformanceManager = defaultPerformanceManager
 
     // Used in CompilerRunnerUtil#invokeExecMethod, in Eclipse plugin (KotlinCLICompiler) and in kotlin-gradle-plugin (GradleCompilerRunner)
     fun execAndOutputXml(errStream: PrintStream, services: Services, vararg args: String): ExitCode {
@@ -55,16 +58,20 @@ abstract class CLICompiler<A : CommonCompilerArguments> : CLITool<A>() {
     }
 
     public override fun execImpl(messageCollector: MessageCollector, services: Services, arguments: A): ExitCode {
-        val performanceManager = performanceManager
+        val performanceManager = createPerformanceManager(arguments, services)
         if (arguments.reportPerf || arguments.dumpPerf != null) {
             performanceManager.enableCollectingPerformanceStatistics()
         }
 
         val configuration = CompilerConfiguration()
 
+        configuration.put(CLIConfigurationKeys.ORIGINAL_MESSAGE_COLLECTOR_KEY, messageCollector)
+
         val collector = GroupingMessageCollector(messageCollector, arguments.allWarningsAsErrors).also {
             configuration.put(CLIConfigurationKeys.MESSAGE_COLLECTOR_KEY, it)
         }
+
+        configuration.put(IrMessageLogger.IR_MESSAGE_LOGGER, IrMessageCollector(collector))
 
         configuration.put(CLIConfigurationKeys.PERF_MANAGER, performanceManager)
         try {
@@ -86,8 +93,10 @@ abstract class CLICompiler<A : CommonCompilerArguments> : CLITool<A>() {
 
                 performanceManager.notifyCompilationFinished()
                 if (arguments.reportPerf) {
-                    performanceManager.getMeasurementResults()
-                        .forEach { it -> configuration.get(MESSAGE_COLLECTOR_KEY)!!.report(INFO, "PERF: " + it.render(), null) }
+                    collector.report(INFO, "PERF: " + performanceManager.getTargetInfo())
+                    for (measurement in performanceManager.getMeasurementResults()) {
+                        collector.report(INFO, "PERF: " + measurement.render(), null)
+                    }
                 }
 
                 if (arguments.dumpPerf != null) {
@@ -96,12 +105,12 @@ abstract class CLICompiler<A : CommonCompilerArguments> : CLITool<A>() {
 
                 return if (collector.hasErrors()) COMPILATION_ERROR else code
             } catch (e: CompilationCanceledException) {
-                collector.report(INFO, "Compilation was canceled", null)
+                collector.reportCompilationCancelled(e)
                 return ExitCode.OK
             } catch (e: RuntimeException) {
                 val cause = e.cause
                 if (cause is CompilationCanceledException) {
-                    collector.report(INFO, "Compilation was canceled", null)
+                    collector.reportCompilationCancelled(cause)
                     return ExitCode.OK
                 } else {
                     throw e
@@ -109,13 +118,19 @@ abstract class CLICompiler<A : CommonCompilerArguments> : CLITool<A>() {
             } finally {
                 Disposer.dispose(rootDisposable)
             }
-        } catch (e: AnalysisResult.CompilationErrorException) {
+        } catch (e: CompilationErrorException) {
             return COMPILATION_ERROR
         } catch (t: Throwable) {
             MessageCollectorUtil.reportException(collector, t)
             return INTERNAL_ERROR
         } finally {
             collector.flush()
+        }
+    }
+
+    private fun MessageCollector.reportCompilationCancelled(e: CompilationCanceledException) {
+        if (e !is IncrementalNextRoundException) {
+            report(INFO, "Compilation was canceled", null)
         }
     }
 

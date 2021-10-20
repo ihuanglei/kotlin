@@ -7,6 +7,7 @@ package org.jetbrains.kotlin.gradle.utils
 
 import org.gradle.api.Project
 import java.io.File
+import java.nio.file.Files
 import java.nio.file.Paths
 import java.util.*
 
@@ -25,13 +26,13 @@ internal fun Iterable<File>.pathsAsStringRelativeTo(base: File): String =
 internal fun File.relativeToRoot(project: Project): String =
     relativeOrCanonical(project.rootProject.rootDir)
 
-internal fun Iterable<File>.toSortedPathsArray(): Array<String> =
-    map { it.canonicalPath }.toTypedArray().also { Arrays.sort(it) }
+internal fun Iterable<File>.toPathsArray(): Array<String> =
+    map { it.canonicalPath }.toTypedArray()
 
-internal fun newTmpFile(prefix: String, suffix: String? = null, directory: File? = null, deleteOnExit: Boolean = true) =
-    File.createTempFile(prefix, suffix, directory).apply {
-        if (deleteOnExit) deleteOnExit()
-    }
+internal fun newTmpFile(prefix: String, suffix: String? = null, directory: File? = null, deleteOnExit: Boolean = true): File =
+    (if (directory == null) Files.createTempFile(prefix, suffix) else Files.createTempFile(directory.toPath(), prefix, suffix))
+        .toFile()
+        .apply { if (deleteOnExit) deleteOnExit() }
 
 internal fun File.isParentOf(childCandidate: File, strict: Boolean = false): Boolean {
     val parentPath = Paths.get(this.absolutePath).normalize()
@@ -43,3 +44,8 @@ internal fun File.isParentOf(childCandidate: File, strict: Boolean = false): Boo
         childCandidatePath.startsWith(parentPath)
     }
 }
+
+internal fun File.canonicalPathWithoutExtension(): String =
+    canonicalPath.substringBeforeLast(".")
+
+internal fun File.listFilesOrEmpty() = (if (exists()) listFiles() else null).orEmpty()

@@ -1,5 +1,3 @@
-// IGNORE_BACKEND_FIR: JVM_IR
-// KJS_WITH_FULL_RUNTIME
 // WITH_RUNTIME
 
 val iterable: Iterable<Int> = listOf(1, 2, 3)

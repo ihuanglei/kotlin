@@ -21,14 +21,19 @@ fun foo(): Boolean = true
 fun labeled(): ULong? {
     val u = ULong(0)
     return run {
-        if (foo()) return@run u
+        if (foo()) return@run u // box
         u // box
     }
 }
 
 // @TestKt.class:
-// 2 INVOKESTATIC ULong\.box
 // 0 INVOKEVIRTUAL ULong.unbox
 
 // 0 valueOf
 // 0 intValue
+
+// JVM_TEMPLATES:
+// 3 INVOKESTATIC ULong\.box
+
+// JVM_IR_TEMPLATES:
+// 2 INVOKESTATIC ULong\.box

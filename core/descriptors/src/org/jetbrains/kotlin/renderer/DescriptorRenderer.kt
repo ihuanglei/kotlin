@@ -303,6 +303,8 @@ enum class DescriptorRendererModifier(val includeByDefault: Boolean) {
     ACTUAL(true),
     CONST(true),
     LATEINIT(true),
+    FUN(true),
+    VALUE(true)
     ;
 
     companion object {

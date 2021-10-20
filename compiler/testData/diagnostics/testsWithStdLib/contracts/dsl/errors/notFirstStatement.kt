@@ -1,5 +1,5 @@
 // !LANGUAGE: +AllowContractsForCustomFunctions +UseReturnsEffect
-// !USE_EXPERIMENTAL: kotlin.contracts.ExperimentalContracts
+// !OPT_IN: kotlin.contracts.ExperimentalContracts
 // !DIAGNOSTICS: -INVISIBLE_REFERENCE -INVISIBLE_MEMBER -UNUSED_VARIABLE -REDUNDANT_LABEL_WARNING -UNUSED_PARAMETER -NOTHING_TO_INLINE -CAST_NEVER_SUCCEEDS
 // Issues: KT-26153, KT-26191
 
@@ -30,7 +30,7 @@ inline fun case_2(block: () -> Unit) = <!CONTRACT_NOT_ALLOWED("Contracts are all
 fun case_3(block: () -> Unit) {
     class Class {
         fun innerFun(block2: () -> Unit) {
-            <!CONTRACT_NOT_ALLOWED("Contracts are allowed only for top-level functions")!>contract<!> {
+            <!CONTRACT_NOT_ALLOWED("Contracts are allowed only for functions")!>contract<!> {
                 callsInPlace(block2, InvocationKind.EXACTLY_ONCE)
             }
             block2()

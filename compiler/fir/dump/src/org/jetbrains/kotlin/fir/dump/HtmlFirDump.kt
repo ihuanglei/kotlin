@@ -13,34 +13,37 @@ import org.jetbrains.kotlin.descriptors.Modality
 import org.jetbrains.kotlin.descriptors.Visibilities
 import org.jetbrains.kotlin.descriptors.Visibility
 import org.jetbrains.kotlin.fir.*
+import org.jetbrains.kotlin.fir.backend.left
+import org.jetbrains.kotlin.fir.backend.right
 import org.jetbrains.kotlin.fir.declarations.*
 import org.jetbrains.kotlin.fir.declarations.impl.FirDefaultPropertyAccessor
-import org.jetbrains.kotlin.fir.diagnostics.FirDiagnostic
+import org.jetbrains.kotlin.fir.declarations.utils.classId
+import org.jetbrains.kotlin.fir.declarations.utils.expandedConeType
+import org.jetbrains.kotlin.fir.diagnostics.ConeDiagnostic
 import org.jetbrains.kotlin.fir.expressions.*
 import org.jetbrains.kotlin.fir.expressions.impl.FirElseIfTrueCondition
 import org.jetbrains.kotlin.fir.expressions.impl.FirUnitExpression
 import org.jetbrains.kotlin.fir.references.*
 import org.jetbrains.kotlin.fir.references.impl.FirSimpleNamedReference
+import org.jetbrains.kotlin.fir.resolve.diagnostics.ConeAmbiguityError
+import org.jetbrains.kotlin.fir.resolve.diagnostics.ConeInapplicableCandidateError
 import org.jetbrains.kotlin.fir.resolve.directExpansionType
-import org.jetbrains.kotlin.fir.resolve.firSymbolProvider
+import org.jetbrains.kotlin.fir.resolve.fullyExpandedType
 import org.jetbrains.kotlin.fir.resolve.toSymbol
-import org.jetbrains.kotlin.fir.resolve.withNullability
-import org.jetbrains.kotlin.fir.symbols.AbstractFirBasedSymbol
-import org.jetbrains.kotlin.fir.resolve.diagnostics.FirAmbiguityError
-import org.jetbrains.kotlin.fir.resolve.diagnostics.FirInapplicableCandidateError
 import org.jetbrains.kotlin.fir.symbols.FirBasedSymbol
 import org.jetbrains.kotlin.fir.symbols.impl.FirCallableSymbol
 import org.jetbrains.kotlin.fir.symbols.impl.FirClassLikeSymbol
 import org.jetbrains.kotlin.fir.symbols.impl.FirTypeAliasSymbol
+import org.jetbrains.kotlin.fir.symbols.impl.FirTypeParameterSymbol
 import org.jetbrains.kotlin.fir.types.*
 import org.jetbrains.kotlin.fir.types.impl.FirTypePlaceholderProjection
 import org.jetbrains.kotlin.fir.visitors.FirVisitorVoid
-import org.jetbrains.kotlin.ir.expressions.IrConstKind
 import org.jetbrains.kotlin.name.ClassId
 import org.jetbrains.kotlin.name.FqName
 import org.jetbrains.kotlin.name.Name
 import org.jetbrains.kotlin.resolve.calls.inference.model.NewConstraintError
 import org.jetbrains.kotlin.types.AbstractStrictEqualityTypeChecker
+import org.jetbrains.kotlin.types.ConstantValueKind
 import org.jetbrains.kotlin.types.Variance
 import java.io.File
 import java.io.Writer
@@ -79,6 +82,8 @@ private class PackageInfo(val fqName: FqName, val moduleInfo: ModuleInfo) {
         it.mkdirs()
     }
     val errors = mutableMapOf<String, Int>().withDefault { 0 }
+    val implicits = mutableMapOf<String, Int>().withDefault { 0 }
+    val unresolved = mutableMapOf<String, Int>().withDefault { 0 }
 }
 
 private class ModuleInfo(val name: String, outputRoot: File) {
@@ -88,6 +93,12 @@ private class ModuleInfo(val name: String, outputRoot: File) {
     }
     val errors: Map<FqName, Int> by lazy {
         packages.mapValues { (_, packageInfo) -> packageInfo.errors.values.sum() }.withDefault { 0 }
+    }
+    val implicits: Map<FqName, Int> by lazy {
+        packages.mapValues { (_, packageInfo) -> packageInfo.implicits.values.sum() }.withDefault { 0 }
+    }
+    val unresolved: Map<FqName, Int> by lazy {
+        packages.mapValues { (_, packageInfo) -> packageInfo.unresolved.values.sum() }.withDefault { 0 }
     }
 }
 
@@ -118,7 +129,11 @@ private class SupplementaryGenerator(val outputRoot: File) {
                             ) {
                                 +packageInfo.fqName.asString()
                             }
-                            addErrors(moduleInfo.errors.getValue(packageInfo.fqName))
+                            addErrors(
+                                moduleInfo.errors.getValue(packageInfo.fqName),
+                                moduleInfo.implicits.getValue(packageInfo.fqName),
+                                moduleInfo.unresolved.getValue(packageInfo.fqName)
+                            )
                         }
                     }
                 }
@@ -126,9 +141,15 @@ private class SupplementaryGenerator(val outputRoot: File) {
         }
     }
 
-    fun LI.addErrors(errors: Int) {
+    fun LI.addErrors(errors: Int, implicits: Int, unresolved: Int) {
         if (errors > 0) {
             span(classes = "error-counter") { +(errors.toString()) }
+        }
+        if (implicits > 0) {
+            span(classes = "implicit-counter") { +(implicits.toString()) }
+        }
+        if (unresolved > 0) {
+            span(classes = "unresolved-counter") { +(unresolved.toString()) }
         }
     }
 
@@ -167,7 +188,11 @@ private class SupplementaryGenerator(val outputRoot: File) {
                     for (file in packageInfo.contents) {
                         li {
                             a(href = "./$file.fir.html", classes = "container-ref") { +file }
-                            addErrors(packageInfo.errors.getValue(file))
+                            addErrors(
+                                packageInfo.errors.getValue(file),
+                                packageInfo.implicits.getValue(file),
+                                packageInfo.unresolved.getValue(file)
+                            )
                         }
                     }
                 }
@@ -190,7 +215,11 @@ private class SupplementaryGenerator(val outputRoot: File) {
                     for (module in modules) {
                         li {
                             a(href = linkToIndex(module, outputRoot), classes = "container-ref") { +module.name }
-                            addErrors(module.errors.values.sum())
+                            addErrors(
+                                module.errors.values.sum(),
+                                module.implicits.values.sum(),
+                                module.unresolved.values.sum()
+                            )
                         }
                     }
                 }
@@ -289,13 +318,15 @@ class MultiModuleHtmlFirDump(private val outputRoot: File) {
         require(inModule)
 
         val dumpOutput = index.files[file] ?: error("No location for ${file.name}")
-        val dumper = HtmlFirDump(LinkResolver(dumpOutput), file.session)
+        val dumper = HtmlFirDump(LinkResolver(dumpOutput), file.moduleData.session)
         val builder = StringBuilder()
         dumper.generate(file, builder)
 
         dumpOutput.writeText(builder.toString())
         packageForFile(file).apply {
             errors[file.name] = dumper.errors
+            implicits[file.name] = dumper.implicits
+            unresolved[file.name] = dumper.unresolved
         }
     }
 
@@ -347,16 +378,12 @@ class MultiModuleHtmlFirDump(private val outputRoot: File) {
                     visitElement(regularClass)
                 }
 
-                override fun visitSealedClass(sealedClass: FirSealedClass) {
-                    visitRegularClass(sealedClass)
+                fun indexDeclaration(declaration: FirDeclaration) {
+                    symbols[declaration.symbol] = location
+                    symbolIds[declaration.symbol] = symbolCounter++
                 }
 
-                fun indexDeclaration(symbolOwner: FirSymbolOwner<*>) {
-                    symbols[symbolOwner.symbol] = location
-                    symbolIds[symbolOwner.symbol] = symbolCounter++
-                }
-
-                override fun <F : FirVariable<F>> visitVariable(variable: FirVariable<F>) {
+                override fun visitVariable(variable: FirVariable) {
                     indexDeclaration(variable)
                     visitElement(variable)
                 }
@@ -395,12 +422,19 @@ class HtmlFirDump internal constructor(private var linkResolver: FirLinkResolver
     var errors: Int = 0
         private set
 
-    fun generate(element: FirFile, builder: StringBuilder): Int {
+    var implicits: Int = 0
+        private set
+
+    var unresolved: Int = 0
+        private set
+
+    fun generate(element: FirFile, builder: StringBuilder) {
         errors = 0
+        implicits = 0
+        unresolved = 0
         builder.appendHTML().html {
             generate(element)
         }
-        return errors
     }
 
     private fun FlowContent.keyword(text: String) {
@@ -487,11 +521,11 @@ class HtmlFirDump internal constructor(private var linkResolver: FirLinkResolver
 
     private fun FlowContent.modality(modality: Modality?) {
         if (modality == null) return
-        keyword(modality.name.toLowerCase())
+        keyword(modality.name.lowercase())
     }
 
     private fun FlowContent.visibility(visibility: Visibility) {
-        if (visibility == Visibilities.UNKNOWN)
+        if (visibility == Visibilities.Unknown)
             return unresolved { keyword("public?") }
         return keyword(visibility.toString())
     }
@@ -602,6 +636,7 @@ class HtmlFirDump internal constructor(private var linkResolver: FirLinkResolver
         classKind(klass.classKind)
         ws
         anchoredName(klass.name, klass.classId.asString())
+        generateTypeParameters(klass)
         if (klass.superTypeRefs.isNotEmpty()) {
             +": "
             generateList(klass.superTypeRefs) {
@@ -614,13 +649,35 @@ class HtmlFirDump internal constructor(private var linkResolver: FirLinkResolver
 
     }
 
+    private fun FlowContent.generate(typeAlias: FirTypeAlias) {
+        inl()
+
+        declarationStatus(typeAlias.status)
+
+        keyword("typealias")
+        ws
+        anchoredName(typeAlias.name, typeAlias.symbol.classId.asString())
+        generateTypeParameters(typeAlias)
+
+        +" = "
+
+        val type = typeAlias.expandedConeType
+        if (type != null) {
+            generate(type as ConeKotlinType)
+        } else {
+            +"<error expanded type>"
+        }
+
+        br
+    }
+
     private fun FlowContent.generate(flexibleType: ConeFlexibleType) {
         if (flexibleType.lowerBound.nullability == ConeNullability.NOT_NULL &&
             flexibleType.upperBound.nullability == ConeNullability.NULLABLE &&
             AbstractStrictEqualityTypeChecker.strictEqualTypes(
                 session.typeContext,
                 flexibleType.lowerBound,
-                flexibleType.upperBound.withNullability(ConeNullability.NOT_NULL)
+                flexibleType.upperBound.withNullability(ConeNullability.NOT_NULL, session.typeContext)
             )
         ) {
             generate(flexibleType.lowerBound)
@@ -645,12 +702,25 @@ class HtmlFirDump internal constructor(private var linkResolver: FirLinkResolver
                     symbolRef(symbol) {
                         simpleName(type.lookupTag.name)
                     }
+                    generateTypeArguments(type)
+                    if (type.isMarkedNullable) {
+                        +"?"
+                    }
                     +" = "
-                    generate(type.directExpansionType(session) ?: ConeKotlinErrorType("No expansion for type-alias"))
+                    val directlyExpanded = type.directExpansionType(session)
+                    if (directlyExpanded != null) {
+                        generate(directlyExpanded.fullyExpandedType(session))
+                    } else {
+                        error { +"No expansion for type-alias" }
+                    }
                 }
                 else -> {
                     symbolRef(symbol) {
                         fqn(type.lookupTag.classId.relativeClassName)
+                    }
+                    generateTypeArguments(type)
+                    if (type.isMarkedNullable) {
+                        +"?"
                     }
                 }
             }
@@ -664,10 +734,10 @@ class HtmlFirDump internal constructor(private var linkResolver: FirLinkResolver
         generate(variableAssignment.rValue)
     }
 
-    private fun FlowContent.generate(projection: ConeKotlinTypeProjection) {
+    private fun FlowContent.generate(projection: ConeTypeProjection) {
         when (projection) {
             is ConeStarProjection -> +"*"
-            is ConeTypedProjection -> {
+            is ConeKotlinTypeProjection -> {
                 when (projection.kind) {
                     ProjectionKind.IN -> keyword("in ")
                     ProjectionKind.OUT -> keyword("out ")
@@ -693,51 +763,88 @@ class HtmlFirDump internal constructor(private var linkResolver: FirLinkResolver
 
     private fun FlowContent.generate(expression: FirConstExpression<*>) {
         val value = expression.value
-        if (value == null && expression.kind != IrConstKind.Null) {
+        if (value == null && expression.kind != ConstantValueKind.Null) {
             return error {
                 +"null value"
             }
         }
 
+        @OptIn(ExperimentalUnsignedTypes::class)
         when (expression.kind) {
-            IrConstKind.Null -> keyword("null")
-            IrConstKind.Boolean -> keyword(value.toString())
-            IrConstKind.String, IrConstKind.Char ->
+            ConstantValueKind.Null -> keyword("null")
+            ConstantValueKind.Boolean -> keyword(value.toString())
+            ConstantValueKind.String, ConstantValueKind.Char ->
                 stringLiteral(value)
-            IrConstKind.Byte -> {
+            ConstantValueKind.Byte -> {
                 +value.toString()
                 keyword("B")
             }
-            IrConstKind.Short -> {
+            ConstantValueKind.Short -> {
                 +value.toString()
                 keyword("S")
             }
-            IrConstKind.Int -> {
+            ConstantValueKind.Int -> {
                 +value.toString()
                 keyword("I")
             }
-            IrConstKind.Long -> {
+            ConstantValueKind.Long -> {
                 +value.toString()
                 keyword("L")
             }
-            IrConstKind.Float -> {
+            ConstantValueKind.UnsignedByte -> {
+                +(value as Long).toUByte().toString()
+                keyword("uB")
+            }
+            ConstantValueKind.UnsignedShort -> {
+                +(value as Long).toUShort().toString()
+                keyword("uS")
+            }
+            ConstantValueKind.UnsignedInt -> {
+                +(value as Long).toUInt().toString()
+                keyword("uI")
+            }
+            ConstantValueKind.UnsignedLong -> {
+                +(value as Long).toULong().toString()
+                keyword("uL")
+            }
+            ConstantValueKind.Float -> {
                 +value.toString()
                 keyword("F")
             }
-            IrConstKind.Double -> {
+            ConstantValueKind.Double -> {
                 +value.toString()
                 keyword("D")
+            }
+            ConstantValueKind.IntegerLiteral -> {
+                +"IL<"
+                +value.toString()
+                +">"
+            }
+            ConstantValueKind.UnsignedIntegerLiteral -> {
+                +"UIL<"
+                +value.toString()
+                +">"
             }
         }
 
     }
 
+    private fun FlowContent.generateTypeArguments(type: ConeKotlinType) {
+        if (type.typeArguments.isNotEmpty()) {
+            +"<"
+            generateList(type.typeArguments.toList()) {
+                generate(it)
+            }
+            +">"
+        }
+    }
+
     private fun FlowContent.generate(type: ConeKotlinType) {
         when (type) {
-            is ConeClassErrorType -> error { +type.reason }
-            is ConeClassLikeType -> generate(type)
+            is ConeClassErrorType -> error { +type.diagnostic.reason }
+            is ConeClassLikeType -> return generate(type)
             is ConeTypeParameterType -> resolved {
-                symbolRef(type.lookupTag.toSymbol()) {
+                symbolRef(type.lookupTag.symbol) {
                     simpleName(type.lookupTag.name)
                 }
             }
@@ -746,17 +853,14 @@ class HtmlFirDump internal constructor(private var linkResolver: FirLinkResolver
             is ConeCapturedType -> inlineUnsupported(type)
             is ConeDefinitelyNotNullType -> resolved {
                 generate(type.original)
-                +"!!"
+                +" & Any"
             }
             is ConeIntersectionType -> resolved { generate(type) }
+            is ConeIntegerLiteralType -> inlineUnsupported(type)
+            is ConeLookupTagBasedType,
+            is ConeStubType -> {}
         }
-        if (type.typeArguments.isNotEmpty()) {
-            +"<"
-            generateList(type.typeArguments.toList()) {
-                generate(it)
-            }
-            +">"
-        }
+        generateTypeArguments(type)
         if (type.isMarkedNullable) {
             +"?"
         }
@@ -794,11 +898,15 @@ class HtmlFirDump internal constructor(private var linkResolver: FirLinkResolver
         when (typeRef) {
             is FirErrorTypeRef -> error { +typeRef.diagnostic.reason }
             is FirResolvedTypeRef -> generate(typeRef.type)
-            is FirImplicitTypeRef -> unresolved { keyword("<implicit>") }
+            is FirImplicitTypeRef -> unresolved {
+                implicits++
+                keyword("<implicit>")
+            }
             is FirUserTypeRef -> unresolved {
+                unresolved++
                 generateList(typeRef.qualifier, separator = ".") {
                     simpleName(it.name)
-                    generateTypeProjections(it.typeArguments)
+                    generateTypeProjections(it.typeArgumentList.typeArguments)
                 }
                 if (typeRef.isMarkedNullable) {
                     +"?"
@@ -810,36 +918,53 @@ class HtmlFirDump internal constructor(private var linkResolver: FirLinkResolver
 
     private fun FlowContent.generate(memberDeclaration: FirMemberDeclaration) {
         when (memberDeclaration) {
+            is FirEnumEntry -> generate(memberDeclaration)
             is FirRegularClass -> generate(memberDeclaration)
             is FirSimpleFunction -> generate(memberDeclaration)
-            is FirProperty -> if (memberDeclaration.isLocal) generate(memberDeclaration as FirVariable<*>) else generate(memberDeclaration)
+            is FirProperty -> if (memberDeclaration.isLocal) generate(memberDeclaration as FirVariable) else generate(memberDeclaration)
             is FirConstructor -> generate(memberDeclaration)
+            is FirTypeAlias -> generate(memberDeclaration)
             else -> unsupported(memberDeclaration)
         }
     }
 
-    private fun FlowContent.generateTypeParameters(typeParameterContainer: FirTypeParametersOwner) {
+    private fun FlowContent.generateTypeParameters(typeParameterContainer: FirTypeParameterRefsOwner, describe: Boolean = false) {
         if (typeParameterContainer.typeParameters.isEmpty()) return
         +"<"
-        generateList(typeParameterContainer.typeParameters) {
-            generate(it.variance)
-            if (it.isReified) {
+        fun generateTypeParameter(typeParameter: FirTypeParameter, describe: Boolean) {
+            generate(typeParameter.variance)
+            if (typeParameter.isReified) {
                 keyword("reified ")
             }
-            symbolAnchor(it.symbol) {
-                simpleName(it.name)
-            }
-            if (it.bounds.isNotEmpty()) {
+            if (describe)
+                symbolRef(typeParameter.symbol) {
+                    simpleName(typeParameter.name)
+                }
+            else
+                symbolAnchor(typeParameter.symbol) {
+                    simpleName(typeParameter.name)
+                }
+            if (typeParameter.bounds.isNotEmpty()) {
                 +": "
-                generateList(it.bounds) { bound ->
+                generateList(typeParameter.bounds) { bound ->
                     generate(bound)
+                }
+            }
+        }
+        generateList(typeParameterContainer.typeParameters) {
+            if (it is FirTypeParameter) {
+                generateTypeParameter(it, describe)
+            } else {
+                symbolRef(it.symbol) {
+                    +"^"
+                    simpleName(it.symbol.fir.name)
                 }
             }
         }
         +"> "
     }
 
-    private fun FlowContent.generateReceiver(declaration: FirCallableDeclaration<*>) {
+    private fun FlowContent.generateReceiver(declaration: FirCallableDeclaration) {
         generateReceiver(declaration.receiverTypeRef)
     }
 
@@ -890,6 +1015,12 @@ class HtmlFirDump internal constructor(private var linkResolver: FirLinkResolver
                 +" = "
                 generate(initializer)
             }
+
+            val delegate = property.delegate
+            if (delegate != null) {
+                keyword(" by ")
+                generate(delegate)
+            }
         }
 
         withIdentLevel {
@@ -918,13 +1049,32 @@ class HtmlFirDump internal constructor(private var linkResolver: FirLinkResolver
             is FirWhenExpression -> generate(statement, isStatement = true)
             is FirTryExpression -> generate(statement, isStatement = true)
             is FirExpression -> iline { generate(statement) }
-            is FirVariable<*> -> iline { generate(statement) }
+            is FirVariable -> iline { generate(statement) }
             is FirVariableAssignment -> iline { generate(statement) }
             else -> unsupported(statement)
         }
     }
 
-    private fun FlowContent.generate(variable: FirVariable<*>) {
+    private fun FlowContent.generate(delegatedConstructorCall: FirDelegatedConstructorCall) {
+        generateMultiLineExpression(isStatement = true) {
+            iline {
+                exprType(delegatedConstructorCall.constructedTypeRef) {
+                    if (delegatedConstructorCall.isSuper) keyword("super")
+                    if (delegatedConstructorCall.isThis) keyword("this")
+                    +"<"
+                    generate(delegatedConstructorCall.calleeReference)
+                    +">"
+                    +"("
+                    generateList(delegatedConstructorCall.arguments) {
+                        generate(it)
+                    }
+                    +")"
+                }
+            }
+        }
+    }
+
+    private fun FlowContent.generate(variable: FirVariable) {
         if (variable.isVal) {
             keyword("val ")
         } else {
@@ -959,11 +1109,12 @@ class HtmlFirDump internal constructor(private var linkResolver: FirLinkResolver
         return when (this) {
             is FirClassLikeSymbol<*> -> classId.asString()
             is FirCallableSymbol<*> -> callableId.toString()
+            is FirTypeParameterSymbol -> name.asString()
             else -> ""
         }
     }
 
-    private fun FlowContent.describeVerbose(symbol: FirCallableSymbol<*>, fir: FirMemberFunction<*>) {
+    private fun FlowContent.describeVerbose(symbol: FirCallableSymbol<*>, fir: FirFunction) {
         describeTypeParameters(fir)
 
         fir.receiverTypeRef?.let {
@@ -982,7 +1133,7 @@ class HtmlFirDump internal constructor(private var linkResolver: FirLinkResolver
         generate(fir.returnTypeRef)
     }
 
-    private fun FlowContent.describeVerbose(symbol: FirCallableSymbol<*>, fir: FirVariable<*>) {
+    private fun FlowContent.describeVerbose(symbol: FirCallableSymbol<*>, fir: FirVariable) {
         if (fir is FirTypeParametersOwner) describeTypeParameters(fir)
 
         fir.receiverTypeRef?.let {
@@ -997,26 +1148,8 @@ class HtmlFirDump internal constructor(private var linkResolver: FirLinkResolver
         generate(fir.returnTypeRef)
     }
 
-    private fun FlowContent.describeTypeParameters(typeParameterContainer: FirTypeParametersOwner) {
-        if (typeParameterContainer.typeParameters.isEmpty()) return
-        +"<"
-        generateList(typeParameterContainer.typeParameters) {
-            generate(it.variance)
-            if (it.isReified) {
-                keyword("reified ")
-            }
-
-            simpleName(it.name)
-
-            if (it.bounds.isNotEmpty()) {
-                +": "
-                generateList(it.bounds) { bound ->
-                    generate(bound)
-                }
-            }
-        }
-        +"> "
-    }
+    private fun FlowContent.describeTypeParameters(typeParameterContainer: FirTypeParameterRefsOwner) =
+        generateTypeParameters(typeParameterContainer, describe = true)
 
     private fun FlowContent.describeVerbose(symbol: FirBasedSymbol<*>) {
         when (symbol) {
@@ -1065,6 +1198,13 @@ class HtmlFirDump internal constructor(private var linkResolver: FirLinkResolver
                             keyword("var ")
                         describeVerbose(symbol, fir)
                     }
+                    is FirAnonymousFunction,
+                    is FirErrorFunction,
+                    is FirPropertyAccessor,
+                    is FirBackingField,
+                    is FirEnumEntry,
+                    is FirErrorProperty,
+                    is FirValueParameter -> {}
                 }
             }
             else -> +symbol.describe()
@@ -1098,38 +1238,37 @@ class HtmlFirDump internal constructor(private var linkResolver: FirLinkResolver
         }
     }
 
-    private fun FlowContent.generate(diagnostic: FirDiagnostic) {
+    private fun FlowContent.generate(diagnostic: ConeDiagnostic) {
         when (diagnostic) {
-            is FirInapplicableCandidateError -> {
-                for (candidate in diagnostic.candidates) {
-                    describeVerbose(candidate.symbol)
-                    br
-                    candidate.diagnostics.forEach { callDiagnostic ->
-                        when (callDiagnostic) {
-                            is NewConstraintError -> {
-                                ident()
-                                +"Lower: "
-                                generate(callDiagnostic.lowerType as ConeKotlinType)
-                                br
-                                ident()
-                                +"Upper: "
-                                generate(callDiagnostic.upperType as ConeKotlinType)
-                            }
-                            else -> {
-                                ident()
-                                callDiagnostic::class.qualifiedName?.let { +it }
-                                Unit
-                            }
+            is ConeInapplicableCandidateError -> {
+                describeVerbose(diagnostic.candidate.symbol)
+                br
+                diagnostic.candidate.system.errors.forEach { callDiagnostic ->
+                    when (callDiagnostic) {
+                        is NewConstraintError -> {
+                            ident()
+
+                            generate(callDiagnostic.lowerType as ConeKotlinType)
+
+                            ws
+                            span(classes = "subtype-error") { +"<:" }
+                            ws
+                            generate(callDiagnostic.upperType as ConeKotlinType)
                         }
-                        br
+                        else -> {
+                            ident()
+                            callDiagnostic::class.qualifiedName?.let { +it }
+                            Unit
+                        }
                     }
+                    br
                 }
             }
-            is FirAmbiguityError -> {
+            is ConeAmbiguityError -> {
                 +"Ambiguity: "
                 br
                 for (candidate in diagnostic.candidates) {
-                    describeVerbose(candidate)
+                    describeVerbose(candidate.symbol)
                     br
                 }
             }
@@ -1175,16 +1314,15 @@ class HtmlFirDump internal constructor(private var linkResolver: FirLinkResolver
         val explicitReceiver = access.explicitReceiver
         if (explicitReceiver != null) {
             generate(explicitReceiver)
-            if (access.safe) {
-                +"?."
-            } else {
-                +"."
-            }
+            +"."
         }
     }
 
-    private fun FlowContent.generate(functionCall: FirFunctionCall) {
-        generateReceiver(functionCall)
+    private fun FlowContent.generate(functionCall: FirFunctionCall, skipReceiver: Boolean = false) {
+
+        if (!skipReceiver) {
+            generateReceiver(functionCall)
+        }
 
         generate(functionCall.calleeReference)
         generateTypeProjections(functionCall.typeArguments)
@@ -1195,37 +1333,35 @@ class HtmlFirDump internal constructor(private var linkResolver: FirLinkResolver
         +")"
     }
 
-    private fun FlowContent.generateBinary(expression: FirOperatorCall) {
-        val (first, second) = expression.arguments
+    private fun FlowContent.generateBinary(first: FirExpression, second: FirExpression, operation: FirOperation) {
         generate(first)
         ws
-        unresolved { +expression.operation.operator }
+        unresolved { +operation.operator }
         ws
         generate(second)
     }
 
-    private fun FlowContent.generateUnary(expression: FirOperatorCall) {
-        val (first) = expression.arguments
-        unresolved { +expression.operation.operator }
-        ws
-        generate(first)
-    }
-
-    private fun FlowContent.generate(expression: FirOperatorCall) {
-        when (expression.arguments.size) {
-            1 -> generateUnary(expression)
-            2 -> generateBinary(expression)
-            else -> inlineUnsupported(expression)
-        }
-    }
-
     private fun FlowContent.generate(typeOperatorCall: FirTypeOperatorCall) {
-        val (expression) = typeOperatorCall.arguments
-        generate(expression)
+        generate(typeOperatorCall.argument)
         ws
         keyword(typeOperatorCall.operation.operator)
         ws
         generate(typeOperatorCall.conversionTypeRef)
+    }
+
+    private fun FlowContent.generate(equalityOperatorCall: FirEqualityOperatorCall) {
+        generateBinary(equalityOperatorCall.arguments[0], equalityOperatorCall.arguments[1], equalityOperatorCall.operation)
+    }
+
+    private fun FlowContent.generate(checkNotNullCall: FirCheckNotNullCall) {
+        generate(checkNotNullCall.argument)
+        +"!!"
+    }
+
+    private fun FlowContent.generate(elvisExpression: FirElvisExpression) {
+        generate(elvisExpression.lhs)
+        +" ?: "
+        generate(elvisExpression.rhs)
     }
 
     @Suppress("UNUSED_PARAMETER")
@@ -1369,11 +1505,10 @@ class HtmlFirDump internal constructor(private var linkResolver: FirLinkResolver
 
     private fun FlowContent.generate(resolvedQualifier: FirResolvedQualifier) {
         resolved {
-            val symbolProvider = session.firSymbolProvider
-            val classId = resolvedQualifier.classId
-            if (classId != null) {
-                symbolRef(symbolProvider.getClassLikeSymbolByFqName(classId)) {
-                    fqn(classId.relativeClassName)
+            val symbol = resolvedQualifier.symbol
+            if (symbol != null) {
+                symbolRef(symbol) {
+                    fqn(resolvedQualifier.classId?.relativeClassName ?: FqName("<???>"))
                 }
             } else {
                 fqn(resolvedQualifier.packageFqName)
@@ -1384,13 +1519,14 @@ class HtmlFirDump internal constructor(private var linkResolver: FirLinkResolver
     private fun FlowContent.generate(expression: FirExpression) {
         exprType(expression.typeRef) {
             when (expression) {
+                is FirBlock -> generateBlockIfAny(expression)
                 is FirGetClassCall -> generate(expression)
                 is FirContinueExpression -> generate(expression)
                 is FirBreakExpression -> generate(expression)
-                is FirAnonymousObject -> generate(expression)
+                is FirAnonymousObjectExpression -> generate(expression.anonymousObject)
+                is FirAnonymousFunctionExpression -> generate(expression.anonymousFunction, isStatement = false)
                 is FirUnitExpression -> generate(expression)
                 is FirStringConcatenationCall -> generate(expression)
-                is FirAnonymousFunction -> generate(expression, isStatement = false)
                 is FirThrowExpression -> generate(expression)
                 is FirWhenSubjectExpression -> generate(expression)
                 is FirElseIfTrueCondition -> generate(expression)
@@ -1399,7 +1535,7 @@ class HtmlFirDump internal constructor(private var linkResolver: FirLinkResolver
                 is FirConstExpression<*> -> generate(expression)
                 is FirReturnExpression -> {
                     span("return-label") {
-                        symbolRef((expression.target.labeledElement as? FirSymbolOwner<*>)?.symbol) {
+                        symbolRef(expression.target.labeledElement.symbol) {
                             +"^"
                             +(expression.target.labelName ?: "")
                         }
@@ -1430,11 +1566,59 @@ class HtmlFirDump internal constructor(private var linkResolver: FirLinkResolver
                     generate(expression.expression)
                 }
                 is FirTypeOperatorCall -> generate(expression)
-                is FirOperatorCall -> generate(expression)
+                is FirEqualityOperatorCall -> generate(expression)
                 is FirBinaryLogicExpression -> generate(expression)
+                is FirCheckNotNullCall -> generate(expression)
+                is FirElvisExpression -> generate(expression)
+                is FirVarargArgumentsExpression -> generate(expression)
+                is FirResolvedReifiedParameterReference -> generate(expression)
+                is FirComparisonExpression -> generate(expression)
+                is FirSafeCallExpression -> generate(expression)
+                is FirCheckedSafeCallSubject -> {
+                    +"\$subj\$"
+                }
                 else -> inlineUnsupported(expression)
             }
         }
+    }
+
+    private fun FlowContent.generate(comparisonExpression: FirComparisonExpression) {
+        generate(comparisonExpression.left)
+        +" ${comparisonExpression.operation.operator} "
+        generate(comparisonExpression.right)
+    }
+
+    private fun FlowContent.generate(safeCallExpression: FirSafeCallExpression) {
+        generate(safeCallExpression.receiver)
+
+        +"?."
+
+        val nestedQualifier = safeCallExpression.regularQualifiedAccess
+        if (nestedQualifier.explicitReceiver == safeCallExpression.checkedSubjectRef.value) {
+            when (nestedQualifier) {
+                is FirFunctionCall -> {
+                    return generate(nestedQualifier, skipReceiver = true)
+                }
+                is FirQualifiedAccessExpression -> {
+                    return generate(nestedQualifier, skipReceiver = true)
+                }
+            }
+        }
+
+        +"{ "
+
+        generate(nestedQualifier)
+
+        +" }"
+    }
+
+    private fun FlowContent.generate(resolvedReifiedParameterReference: FirResolvedReifiedParameterReference) {
+        val typeParameter = resolvedReifiedParameterReference.symbol.fir
+        +typeParameter.name.identifier
+    }
+
+    private fun FlowContent.generate(varargArgumentExpression: FirVarargArgumentsExpression) {
+        generateList(varargArgumentExpression.arguments, separator = ",") { generate(it) }
     }
 
     private fun FlowContent.generate(binaryLogicExpression: FirBinaryLogicExpression) {
@@ -1443,8 +1627,10 @@ class HtmlFirDump internal constructor(private var linkResolver: FirLinkResolver
         generate(binaryLogicExpression.rightOperand)
     }
 
-    private fun FlowContent.generate(qualifiedAccessExpression: FirQualifiedAccessExpression) {
-        generateReceiver(qualifiedAccessExpression)
+    private fun FlowContent.generate(qualifiedAccessExpression: FirQualifiedAccessExpression, skipReceiver: Boolean = false) {
+        if (!skipReceiver) {
+            generateReceiver(qualifiedAccessExpression)
+        }
         generate(qualifiedAccessExpression.calleeReference)
     }
 
@@ -1454,7 +1640,7 @@ class HtmlFirDump internal constructor(private var linkResolver: FirLinkResolver
         }
     }
 
-    private fun FlowContent.symbolAnchor(symbol: AbstractFirBasedSymbol<*>, body: FlowContent.() -> Unit) {
+    private fun FlowContent.symbolAnchor(symbol: FirBasedSymbol<*>, body: FlowContent.() -> Unit) {
         span(classes = "declaration") {
             id = linkResolver.symbolSignature(symbol)
             body()
@@ -1557,7 +1743,19 @@ class HtmlFirDump internal constructor(private var linkResolver: FirLinkResolver
             }
             +"): "
             generate(function.returnTypeRef)
-            generateBlockIfAny(function.body)
+
+            val delegatedConstructorCall = function.delegatedConstructor
+            val body = function.body
+            if (delegatedConstructorCall != null || body != null) {
+                +" {"
+                generateMultiLineExpression(isStatement = false) {
+                    if (delegatedConstructorCall != null) {
+                        generate(delegatedConstructorCall)
+                    }
+                    if (body != null) generateBlockContent(body)
+                }
+                +"}"
+            }
         }
     }
 
@@ -1582,7 +1780,7 @@ class HtmlFirDump internal constructor(private var linkResolver: FirLinkResolver
     private fun FlowContent.generate(declaration: FirDeclaration) {
         when (declaration) {
             is FirAnonymousInitializer -> generate(declaration)
-            is FirMemberDeclaration -> generate(declaration)
+            is FirMemberDeclaration -> generate(declaration as FirMemberDeclaration)
             else -> unsupported(declaration)
         }
     }
@@ -1605,7 +1803,7 @@ class HtmlFirDump internal constructor(private var linkResolver: FirLinkResolver
             ws
             when (import) {
                 is FirResolvedImport -> {
-                    val classId = import.resolvedClassId
+                    val classId = import.resolvedParentClassId
                     if (classId == null) {
                         val importedFqName = import.importedFqName
                         if (importedFqName != null) {
@@ -1633,6 +1831,12 @@ class HtmlFirDump internal constructor(private var linkResolver: FirLinkResolver
                 ws
                 simpleName(alias)
             }
+        }
+    }
+
+    private fun FlowContent.generate(enumEntry: FirEnumEntry) {
+        iline {
+            simpleName(enumEntry.name)
         }
     }
 

@@ -11,7 +11,7 @@ import org.gradle.util.GradleVersion
 import java.io.Serializable
 
 enum class KotlinPlatformType: Named, Serializable {
-    common, jvm, js, androidJvm, native;
+    common, jvm, js, androidJvm, native, wasm;
 
     override fun toString(): String = name
     override fun getName(): String = name
@@ -32,10 +32,12 @@ enum class KotlinPlatformType: Named, Serializable {
             if (candidateValues == setOf(androidJvm, jvm))
                 closestMatch(androidJvm)
 
-            if (common in candidateValues)
+            if (common in candidateValues && jvm !in candidateValues && androidJvm !in candidateValues) {
                 // then the consumer requests common or requests no platform-specific artifacts,
-                // so common is the best match, KT-26834
+                // so common is the best match, KT-26834; apply this rule only when no JVM variant is available,
+                // as doing otherwise would conflict with Gradle java's disambiguation rules and lead to KT-32239
                 closestMatch(common)
+            }
         }
     }
 

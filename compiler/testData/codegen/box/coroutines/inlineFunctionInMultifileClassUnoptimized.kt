@@ -1,12 +1,6 @@
-// IGNORE_BACKEND_FIR: JVM_IR
 // WITH_RUNTIME
 // WITH_COROUTINES
-// COMMON_COROUTINES_TEST
 // TARGET_BACKEND: JVM
-
-// IGNORE_BACKEND: JVM_IR
-// When -Xmultifile-parts-inherit is disabled, JVM IR backend generates "bridges" that delegate into part members and puts them into
-// the multifile facade. But since the multifile facade phase happens after coroutines, continuations are not created for suspend functions.
 
 // FILE: test.kt
 
@@ -16,8 +10,8 @@
 package test
 
 import helpers.*
-import COROUTINES_PACKAGE.*
-import COROUTINES_PACKAGE.intrinsics.*
+import kotlin.coroutines.*
+import kotlin.coroutines.intrinsics.*
 
 suspend fun foo(): String = bar("OK")
 

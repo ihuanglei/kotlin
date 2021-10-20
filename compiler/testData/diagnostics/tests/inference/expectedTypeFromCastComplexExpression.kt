@@ -1,3 +1,4 @@
+// FIR_IDENTICAL
 // !LANGUAGE: +ExpectedTypeFromCast
 
 package pp
@@ -13,4 +14,3 @@ class A {
 val x = A().foo() as String
 val y = A.foo2() as String
 val z = pp.A.foo2() as String
-

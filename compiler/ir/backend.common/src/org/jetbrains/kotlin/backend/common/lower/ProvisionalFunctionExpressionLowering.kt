@@ -5,28 +5,56 @@
 
 package org.jetbrains.kotlin.backend.common.lower
 
+import org.jetbrains.kotlin.backend.common.BodyLoweringPass
 import org.jetbrains.kotlin.backend.common.FileLoweringPass
+import org.jetbrains.kotlin.ir.IrElement
+import org.jetbrains.kotlin.ir.IrStatement
+import org.jetbrains.kotlin.ir.declarations.IrDeclaration
 import org.jetbrains.kotlin.ir.declarations.IrFile
-import org.jetbrains.kotlin.ir.expressions.IrExpression
-import org.jetbrains.kotlin.ir.expressions.IrFunctionExpression
+import org.jetbrains.kotlin.ir.declarations.IrVariable
+import org.jetbrains.kotlin.ir.expressions.*
 import org.jetbrains.kotlin.ir.expressions.impl.IrBlockImpl
 import org.jetbrains.kotlin.ir.expressions.impl.IrFunctionReferenceImpl
+import org.jetbrains.kotlin.ir.util.remapTypes
+import org.jetbrains.kotlin.ir.visitors.IrElementTransformer
 import org.jetbrains.kotlin.ir.visitors.IrElementTransformerVoid
 import org.jetbrains.kotlin.ir.visitors.transformChildrenVoid
 
+class ProvisionalFunctionExpressionLoweringContext(
+    val outer: ProvisionalFunctionExpressionLoweringContext? = null,
+    val startOffset: Int? = null,
+    val endOffset: Int? = null)
 class ProvisionalFunctionExpressionLowering :
-    IrElementTransformerVoid(),
-    FileLoweringPass {
+    IrElementTransformer<ProvisionalFunctionExpressionLoweringContext>,
+    BodyLoweringPass {
 
-    override fun lower(irFile: IrFile) {
-        irFile.transformChildrenVoid(this)
+    override fun lower(irBody: IrBody, container: IrDeclaration) {
+        irBody.transformChildren(this, ProvisionalFunctionExpressionLoweringContext())
     }
 
-    override fun visitFunctionExpression(expression: IrFunctionExpression): IrExpression {
-        expression.transformChildrenVoid(this)
+    override fun visitCall(expression: IrCall, data: ProvisionalFunctionExpressionLoweringContext) = super.visitCall(
+        expression,
+        ProvisionalFunctionExpressionLoweringContext(
+            data,
+            expression.startOffset,
+            expression.endOffset
+        )
+    )
 
-        val startOffset = expression.startOffset
-        val endOffset = expression.endOffset
+    override fun visitVariable(declaration: IrVariable, data: ProvisionalFunctionExpressionLoweringContext) = super.visitVariable(
+        declaration,
+        ProvisionalFunctionExpressionLoweringContext(
+            data,
+            declaration.startOffset,
+            declaration.endOffset
+        )
+    )
+
+    override fun visitFunctionExpression(expression: IrFunctionExpression, data: ProvisionalFunctionExpressionLoweringContext): IrElement {
+        expression.transformChildren(this, ProvisionalFunctionExpressionLoweringContext(data))
+
+        val startOffset = data.startOffset ?: expression.startOffset
+        val endOffset = data.endOffset ?: expression.endOffset
         val type = expression.type
         val origin = expression.origin
         val function = expression.function
@@ -37,7 +65,11 @@ class ProvisionalFunctionExpressionLowering :
                 function,
                 IrFunctionReferenceImpl(
                     startOffset, endOffset, type,
-                    function.symbol, 0, origin
+                    function.symbol,
+                    typeArgumentsCount = 0,
+                    valueArgumentsCount = function.valueParameters.size,
+                    reflectionTarget = null,
+                    origin = origin
                 )
             )
         )

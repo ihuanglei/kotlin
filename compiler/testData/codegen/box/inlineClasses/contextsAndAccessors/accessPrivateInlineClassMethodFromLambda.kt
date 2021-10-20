@@ -1,8 +1,11 @@
-// !LANGUAGE: +InlineClasses
-// IGNORE_BACKEND_FIR: JVM_IR
+// WITH_RUNTIME
 
-inline class R(private val r: Int) {
-    fun test() = { ok() }()
+fun <T> eval(fn: () -> T) = fn()
+
+@Suppress("OPTIONAL_DECLARATION_USAGE_IN_NON_COMMON_SOURCE")
+@kotlin.jvm.JvmInline
+value class R(private val r: Int) {
+    fun test() = eval { ok() }
 
     private fun ok() = "OK"
 }

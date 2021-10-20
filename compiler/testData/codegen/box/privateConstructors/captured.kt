@@ -1,8 +1,9 @@
-// IGNORE_BACKEND_FIR: JVM_IR
+fun <T> eval(fn: () -> T) = fn()
+
 public open class Outer private constructor(val s: String) {
 
     companion object {
-        fun test () =  { Outer("OK") }()
+        fun test () = eval { Outer("OK") }
     }
 }
 

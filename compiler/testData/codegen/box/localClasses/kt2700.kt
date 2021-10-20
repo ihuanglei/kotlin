@@ -1,5 +1,6 @@
-// IGNORE_BACKEND_FIR: JVM_IR
 package a.b
+
+fun <T> eval(fn: () -> T) = fn()
 
 interface Test {
     fun invoke(): String {
@@ -7,11 +8,9 @@ interface Test {
     }
 }
 
-private val a : Test = {
-    object : Test {
-
-    }
-}()
+private val a : Test = eval {
+    object : Test {}
+}
 
 fun box(): String {
     return a.invoke();

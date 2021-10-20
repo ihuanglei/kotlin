@@ -1,17 +1,24 @@
 plugins {
-    kotlin("jvm") version "1.3.50"
+    kotlin("jvm") version embeddedKotlinVersion
     `maven-publish`
 }
 
 group = "org.jetbrains.kotlin"
-version = "0.0.1"
+
+/*
+How to Publish
+
+1. Bump version parameter
+2. Prepare publication credentials for https://kotlin.jetbrains.space/p/kotlin/packages/maven/kotlin-dependencies/org.jetbrains.kotlin/kotlin-build-gradle-plugin
+3. Execute `./gradlew -p dependencies/kotlin-build-gradle-plugin publish -PkotlinSpaceUsername=usr -PkotlinSpacePassword=token`
+ */
+version = "0.0.32"
 
 repositories {
     mavenCentral()
 }
 
 dependencies {
-    implementation(kotlin("stdlib-jdk8"))
     implementation(gradleApi())
 }
 
@@ -24,10 +31,19 @@ tasks {
     }
 }
 
+java {
+    withSourcesJar()
+}
+
 sourceSets {
     main {
-        java.setSrcDirs(listOf("src"))
+        /*TODO: move version to build-plugin*/
+        java.setSrcDirs(listOf("src", "../../compiler/util-io/src"))
     }
+}
+
+tasks.withType<GenerateModuleMetadata> {
+    enabled = false
 }
 
 publishing {
@@ -39,18 +55,9 @@ publishing {
 
     repositories {
         maven {
-            name = "bintray"
-            url = uri("https://api.bintray.com/maven/kotlin/kotlin-dependencies/kotlin-build-gradle-plugin")
-            authentication {
-                val mavenUser = findProperty("kotlin.bintray.user") as String?
-                val mavenPass = findProperty("kotlin.bintray.password") as String?
-                if (mavenUser != null && mavenPass != null) {
-                    credentials {
-                        username = mavenUser
-                        password = mavenPass
-                    }
-                }
-            }
+            name = "kotlinSpace"
+            url = uri("https://maven.pkg.jetbrains.space/kotlin/p/kotlin/kotlin-dependencies")
+            credentials(org.gradle.api.artifacts.repositories.PasswordCredentials::class)
         }
     }
 }

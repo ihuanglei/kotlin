@@ -7,7 +7,7 @@ package org.jetbrains.kotlin.fir.tree.generator.context
 
 import org.jetbrains.kotlin.fir.tree.generator.model.*
 
-abstract class AbstractFieldConfigurator {
+abstract class AbstractFieldConfigurator<T : AbstractFirTreeBuilder>(private val builder: T) {
     inner class ConfigureContext(val element: Element) {
         operator fun FieldSet.unaryPlus() {
             element.fields.addAll(this.map { it.copy() })
@@ -22,7 +22,7 @@ abstract class AbstractFieldConfigurator {
 
         fun generateBooleanFields(vararg names: String) {
             names.forEach {
-                +booleanField("is${it.capitalize()}")
+                +booleanField("is${it.replaceFirstChar(Char::uppercaseChar)}")
             }
         }
 
@@ -76,9 +76,18 @@ abstract class AbstractFieldConfigurator {
         fun shouldBeAnInterface() {
             element.kind = Implementation.Kind.Interface
         }
+
+        fun shouldBeAbstractClass() {
+            element.kind = Implementation.Kind.AbstractClass
+        }
     }
 
-    inline fun Element.configure(block: ConfigureContext.() -> Unit) {
-        ConfigureContext(this).block()
+    fun Element.configure(block: ConfigureContext.() -> Unit) {
+        builder.configurations[this] = { ConfigureContext(this).block() }
+    }
+
+    fun configure(init: T.() -> Unit) {
+        builder.init()
+        builder.applyConfigurations()
     }
 }

@@ -16,6 +16,8 @@ export const TEST_END_NO_DURATION = `##teamcity[testFinished name='%s' flowId='%
 export const BLOCK_OPENED = `##teamcity[blockOpened name='%s' flowId='%s']`
 export const BLOCK_CLOSED = `##teamcity[blockClosed name='%s' flowId='%s']`
 
+export const TYPED_MESSAGE = `##teamcity[message text='%s' type='%s']`
+
 /**
  * from teamcity-service-messages
  * Copyright (c) 2013 Aaron Forsander
@@ -24,7 +26,7 @@ export const BLOCK_CLOSED = `##teamcity[blockClosed name='%s' flowId='%s']`
  * @see https://confluence.jetbrains.com/display/TCD65/Build+Script+Interaction+with+TeamCity#BuildScriptInteractionwithTeamCity-servMsgsServiceMessages
  */
 
-const util = require('util');
+const format = require('format-util');
 
 export function tcEscape(str) {
     if (!str) {
@@ -54,5 +56,5 @@ export function formatMessage() {
         formattedArguments.push(tcEscape(param));
     });
     formattedArguments.unshift(tcMessage);
-    return util.format.apply(util, formattedArguments);
+    return format(...formattedArguments);
 }

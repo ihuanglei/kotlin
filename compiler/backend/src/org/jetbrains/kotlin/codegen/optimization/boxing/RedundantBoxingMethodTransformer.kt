@@ -38,8 +38,12 @@ import java.util.*
 class RedundantBoxingMethodTransformer(private val generationState: GenerationState) : MethodTransformer() {
 
     override fun transform(internalClassName: String, node: MethodNode) {
+        val insns = node.instructions.toArray()
+        if (insns.none { it.isBoxing(generationState) || it.isMethodInsnWith(Opcodes.INVOKEINTERFACE) { name == "next" } })
+            return
+
         val interpreter = RedundantBoxingInterpreter(node.instructions, generationState)
-        val frames = MethodTransformer.analyze(internalClassName, node, interpreter)
+        val frames = analyze(internalClassName, node, interpreter)
 
         interpretPopInstructionsForBoxedValues(interpreter, node, frames)
 
@@ -125,7 +129,7 @@ class RedundantBoxingMethodTransformer(private val generationState: GenerationSt
     private fun isUnsafeToRemoveBoxingForConnectedValues(usedValues: List<BasicValue>, unboxedType: Type): Boolean =
         usedValues.any { input ->
             if (input === StrictBasicValue.UNINITIALIZED_VALUE) return@any false
-            if (input !is BoxedBasicValue) return@any true
+            if (input !is CleanBoxedValue) return@any true
 
             val descriptor = input.descriptor
             !descriptor.isSafeToRemove || descriptor.unboxedType != unboxedType
@@ -168,7 +172,8 @@ class RedundantBoxingMethodTransformer(private val generationState: GenerationSt
             val frame = frames[i] ?: continue
             val insn = insnList[i]
             if ((insn.opcode == Opcodes.ASTORE || insn.opcode == Opcodes.ALOAD) &&
-                (insn as VarInsnNode).`var` == localVariableNode.index) {
+                (insn as VarInsnNode).`var` == localVariableNode.index
+            ) {
                 if (insn.getOpcode() == Opcodes.ASTORE) {
                     values.add(frame.top()!!)
                 } else {

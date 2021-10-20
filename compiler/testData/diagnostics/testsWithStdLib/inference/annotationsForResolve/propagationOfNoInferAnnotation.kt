@@ -1,7 +1,8 @@
+// FIR_IDENTICAL
 // !DIAGNOSTICS: -UNUSED_PARAMETER
 
 private object TopLevelTypeVariable {
-    @Suppress("INVISIBLE_MEMBER", "INVISIBLE_REFERENCE")
+    @Suppress("INVISIBLE_MEMBER", "INVISIBLE_REFERENCE", "HIDDEN")
     fun <T> foo(): @kotlin.internal.NoInfer T = TODO()
 
     fun <K> bar(k: K) {}
@@ -14,7 +15,7 @@ private object TopLevelTypeVariable {
 private object NestedTypeVariable {
     class Inv<T>
 
-    @Suppress("INVISIBLE_MEMBER", "INVISIBLE_REFERENCE")
+    @Suppress("INVISIBLE_MEMBER", "INVISIBLE_REFERENCE", "HIDDEN")
     fun <T> foo(): Inv<@kotlin.internal.NoInfer T> = TODO()
 
     fun <K> bar(p: Inv<K>) {}

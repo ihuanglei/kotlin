@@ -5,6 +5,7 @@
 
 package org.jetbrains.kotlin.fir.declarations.impl
 
+import org.jetbrains.kotlin.descriptors.EffectiveVisibility
 import org.jetbrains.kotlin.descriptors.Modality
 import org.jetbrains.kotlin.descriptors.Visibility
 import org.jetbrains.kotlin.fir.FirPureAbstractElement
@@ -21,9 +22,9 @@ open class FirDeclarationStatusImpl(
     override val source: FirSourceElement? get() = null
     protected var flags: Int = 0
 
-    private operator fun get(modifier: Modifier): Boolean = (flags and modifier.mask) != 0
+    operator fun get(modifier: Modifier): Boolean = (flags and modifier.mask) != 0
 
-    private operator fun set(modifier: Modifier, value: Boolean) {
+    operator fun set(modifier: Modifier, value: Boolean) {
         flags = if (value) {
             flags or modifier.mask
         } else {
@@ -121,7 +122,25 @@ open class FirDeclarationStatusImpl(
             this[STATIC] = value
         }
 
-    private enum class Modifier(val mask: Int) {
+    override var isFromSealedClass: Boolean
+        get() = this[FROM_SEALED]
+        set(value) {
+            this[FROM_SEALED] = value
+        }
+
+    override var isFromEnumClass: Boolean
+        get() = this[FROM_ENUM]
+        set(value) {
+            this[FROM_ENUM] = value
+        }
+
+    override var isFun: Boolean
+        get() = this[FUN]
+        set(value) {
+            this[FUN] = value
+        }
+
+    enum class Modifier(val mask: Int) {
         EXPECT(0x1),
         ACTUAL(0x2),
         OVERRIDE(0x4),
@@ -136,7 +155,10 @@ open class FirDeclarationStatusImpl(
         COMPANION(0x800),
         DATA(0x1000),
         SUSPEND(0x2000),
-        STATIC(0x4000)
+        STATIC(0x4000),
+        FROM_SEALED(0x8000),
+        FROM_ENUM(0x10000),
+        FUN(0x20000)
     }
 
     override fun <R, D> acceptChildren(visitor: FirVisitor<R, D>, data: D) {}
@@ -145,7 +167,11 @@ open class FirDeclarationStatusImpl(
         return this
     }
 
-    fun resolved(visibility: Visibility, modality: Modality): FirDeclarationStatus {
-        return FirResolvedDeclarationStatusImpl(visibility, modality, flags)
+    fun resolved(
+        visibility: Visibility,
+        modality: Modality,
+        effectiveVisibility: EffectiveVisibility
+    ): FirResolvedDeclarationStatusImpl {
+        return FirResolvedDeclarationStatusImpl(visibility, modality, effectiveVisibility, flags)
     }
 }

@@ -28,12 +28,14 @@ import org.jetbrains.kotlin.android.synthetic.forEachUntilLast
 import org.jetbrains.kotlin.descriptors.ModuleDescriptor
 import org.jetbrains.kotlin.descriptors.PackageFragmentDescriptor
 import org.jetbrains.kotlin.descriptors.PackageFragmentProvider
+import org.jetbrains.kotlin.descriptors.PackageFragmentProviderOptimized
 import org.jetbrains.kotlin.incremental.components.LookupTracker
 import org.jetbrains.kotlin.name.FqName
 import org.jetbrains.kotlin.name.Name
 import org.jetbrains.kotlin.resolve.BindingTrace
 import org.jetbrains.kotlin.resolve.jvm.extensions.PackageFragmentProviderExtension
 import org.jetbrains.kotlin.storage.StorageManager
+import org.jetbrains.kotlin.utils.addIfNotNull
 
 abstract class AndroidPackageFragmentProviderExtension : PackageFragmentProviderExtension {
     protected abstract fun getLayoutXmlFileManager(project: Project, moduleInfo: ModuleInfo?): AndroidLayoutXmlFileManager?
@@ -131,7 +133,13 @@ abstract class AndroidPackageFragmentProviderExtension : PackageFragmentProvider
 
 class AndroidSyntheticPackageFragmentProvider(
     val packages: Map<FqName, () -> PackageFragmentDescriptor>
-) : PackageFragmentProvider {
+) : PackageFragmentProviderOptimized {
+    override fun collectPackageFragments(fqName: FqName, packageFragments: MutableCollection<PackageFragmentDescriptor>) =
+        packageFragments.addIfNotNull(packages[fqName]?.invoke())
+
+    override fun isEmpty(fqName: FqName): Boolean = !packages.containsKey(fqName)
+
+    @Deprecated("for usages use #packageFragments(FqName) at final point, for impl use #collectPackageFragments(FqName, MutableCollection<PackageFragmentDescriptor>)")
     override fun getPackageFragments(fqName: FqName) = listOfNotNull(packages[fqName]?.invoke())
 
     override fun getSubPackagesOf(fqName: FqName, nameFilter: (Name) -> Boolean): List<FqName> {

@@ -4,7 +4,7 @@ plugins {
 
 repositories {
     mavenLocal()
-    jcenter()
+    mavenCentral()
 }
 
 kotlin {
@@ -49,6 +49,7 @@ kotlin {
     mingwX64("mingw64") {}
     linuxX64("linux64") {}
     macosX64("macos64") {}
+    iosX64("ios") {}
 
     targets.matching { it.name != "metadata" }.all {
         compilations.create("integrationTest") {
@@ -89,13 +90,13 @@ kotlin {
         }
     }
 
-    targets.matching { it.name == "mingw64" || it.name == "linux64" || it.name == "macos64" }.all {
+    targets.matching { it.name == "mingw64" || it.name == "linux64" || it.name == "macos64" || it.name == "ios" }.all {
         testRuns {
             getByName("test").filter { excludeTestsMatching("*.secondTest") }
 
             getByName("integration") {
                 binaries {
-                    test("integration") {
+                    test("integration", [DEBUG]) {
                         compilation = compilations["integrationTest"]
                     }
                 }

@@ -1,4 +1,5 @@
-// IGNORE_BACKEND_FIR: JVM_IR
+fun <T> eval(fn: () -> T) = fn()
+
 class IntentionsBundle {
     companion object {
         fun message(key: String): String {
@@ -6,7 +7,7 @@ class IntentionsBundle {
         }
 
         fun message2(key: String): String {
-            return { key + BUNDLE }()
+            return eval { key + BUNDLE }
         }
 
         private const val BUNDLE = "K"

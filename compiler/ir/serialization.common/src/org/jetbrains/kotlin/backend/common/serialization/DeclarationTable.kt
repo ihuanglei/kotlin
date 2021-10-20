@@ -1,124 +1,103 @@
 /*
- * Copyright 2010-2019 JetBrains s.r.o. and Kotlin Programming Language contributors.
+ * Copyright 2010-2020 JetBrains s.r.o. and Kotlin Programming Language contributors.
  * Use of this source code is governed by the Apache 2.0 license that can be found in the license/LICENSE.txt file.
  */
 
 package org.jetbrains.kotlin.backend.common.serialization
 
-import org.jetbrains.kotlin.descriptors.DeclarationDescriptor
-import org.jetbrains.kotlin.descriptors.Visibilities
-import org.jetbrains.kotlin.ir.declarations.*
-import org.jetbrains.kotlin.ir.declarations.lazy.IrLazyDeclarationBase
-import org.jetbrains.kotlin.ir.descriptors.IrBuiltIns
+import org.jetbrains.kotlin.backend.common.serialization.signature.IdSignatureSerializer
+import org.jetbrains.kotlin.backend.common.serialization.signature.PublicIdSignatureComputer
+import org.jetbrains.kotlin.ir.IrBuiltIns
+import org.jetbrains.kotlin.ir.declarations.IrDeclaration
+import org.jetbrains.kotlin.ir.declarations.IrFile
+import org.jetbrains.kotlin.ir.declarations.IrSymbolOwner
+import org.jetbrains.kotlin.ir.util.IdSignature
 import org.jetbrains.kotlin.ir.util.KotlinMangler
-import org.jetbrains.kotlin.ir.util.UniqId
+import org.jetbrains.kotlin.ir.util.render
 
-class DescriptorTable {
-    private val descriptors = mutableMapOf<DeclarationDescriptor, Long>()
-    fun put(descriptor: DeclarationDescriptor, uniqId: UniqId) {
-        descriptors.getOrPut(descriptor) { uniqId.index }
-    }
 
-    fun get(descriptor: DeclarationDescriptor) = descriptors[descriptor]
-}
-
-interface UniqIdClashTracker {
-    fun commit(declaration: IrDeclaration, uniqId: UniqId)
+interface IdSignatureClashTracker {
+    fun commit(declaration: IrDeclaration, signature: IdSignature)
 
     companion object {
-        val DEFAULT_TRACKER = object : UniqIdClashTracker {
-            override fun commit(declaration: IrDeclaration, uniqId: UniqId) {}
+        val DEFAULT_TRACKER = object : IdSignatureClashTracker {
+            override fun commit(declaration: IrDeclaration, signature: IdSignature) {}
         }
     }
 }
 
-abstract class GlobalDeclarationTable(private val mangler: KotlinMangler, private val clashTracker: UniqIdClashTracker) {
-    private val table = mutableMapOf<IrDeclaration, UniqId>()
+abstract class GlobalDeclarationTable(
+    private val mangler: KotlinMangler.IrMangler,
+    private val clashTracker: IdSignatureClashTracker
+) {
+    val publicIdSignatureComputer = PublicIdSignatureComputer(mangler)
 
-    constructor(mangler: KotlinMangler) : this(mangler, UniqIdClashTracker.DEFAULT_TRACKER)
+    protected val table = mutableMapOf<IrDeclaration, IdSignature>()
+
+    constructor(mangler: KotlinMangler.IrMangler) : this(mangler, IdSignatureClashTracker.DEFAULT_TRACKER)
 
     protected fun loadKnownBuiltins(builtIns: IrBuiltIns) {
-        val mask = 1L shl 63
         builtIns.knownBuiltins.forEach {
-            val index = with(mangler) { it.mangle.hashMangle }
-            table[it] = UniqId(index or mask).also { id -> clashTracker.commit(it, id) }
+            val symbol = (it as IrSymbolOwner).symbol
+            table[it] = symbol.signature!!.also { id -> clashTracker.commit(it, id) }
         }
     }
 
-    open fun computeUniqIdByDeclaration(declaration: IrDeclaration): UniqId {
+    open fun computeSignatureByDeclaration(declaration: IrDeclaration, compatibleMode: Boolean): IdSignature {
         return table.getOrPut(declaration) {
-            with(mangler) {
-                UniqId(declaration.hashedMangle).also { clashTracker.commit(declaration, it) }
-            }
+            publicIdSignatureComputer.composePublicIdSignature(declaration, compatibleMode).also { clashTracker.commit(declaration, it) }
         }
     }
 
-    fun isExportedDeclaration(declaration: IrDeclaration): Boolean = with(mangler) { declaration.isExported() }
+    fun isExportedDeclaration(declaration: IrDeclaration, compatibleMode: Boolean): Boolean = with(mangler) { declaration.isExported(compatibleMode) }
 }
 
-open class DeclarationTable(
-    private val descriptorTable: DescriptorTable,
-    private val globalDeclarationTable: GlobalDeclarationTable,
-    startIndex: Long
-) {
-    private val table = mutableMapOf<IrDeclaration, UniqId>()
+open class DeclarationTable(globalTable: GlobalDeclarationTable) {
+    protected val table = mutableMapOf<IrDeclaration, IdSignature>()
+    protected open val globalDeclarationTable: GlobalDeclarationTable = globalTable
+    // TODO: we need to disentangle signature construction with declaration tables.
+    open val signaturer: IdSignatureSerializer = IdSignatureSerializer(globalTable.publicIdSignatureComputer, this)
 
-    private fun IrDeclaration.isLocalDeclaration(): Boolean {
-        return origin == IrDeclarationOrigin.FAKE_OVERRIDE || !isExportedDeclaration(this) || this is IrValueDeclaration || this is IrAnonymousInitializer || this is IrLocalDelegatedProperty
+    fun inFile(file: IrFile?, block: () -> Unit) {
+        signaturer.inFile(file?.symbol, block)
     }
 
-    private var localIndex = startIndex
 
-    fun isExportedDeclaration(declaration: IrDeclaration) = globalDeclarationTable.isExportedDeclaration(declaration)
-
-    protected open fun tryComputeBackendSpecificUniqId(declaration: IrDeclaration): UniqId? =
-            null
-
-    private fun computeUniqIdByDeclaration(declaration: IrDeclaration): UniqId {
-        tryComputeBackendSpecificUniqId(declaration)?.let { return it }
-        return if (declaration.isLocalDeclaration()) {
-            table.getOrPut(declaration) { UniqId(localIndex++) }
-        } else globalDeclarationTable.computeUniqIdByDeclaration(declaration)
+    private fun IrDeclaration.isLocalDeclaration(compatibleMode: Boolean): Boolean {
+        return !isExportedDeclaration(this, compatibleMode)
     }
 
-    fun uniqIdByDeclaration(declaration: IrDeclaration): UniqId {
-        val uniqId = computeUniqIdByDeclaration(declaration)
-        if (declaration.isMetadataDeclaration(false)) {
-            descriptorTable.put(declaration.descriptor, uniqId)
-        }
-        return uniqId
+    fun isExportedDeclaration(declaration: IrDeclaration, compatibleMode: Boolean) =
+        globalDeclarationTable.isExportedDeclaration(declaration, compatibleMode)
+
+    protected open fun tryComputeBackendSpecificSignature(declaration: IrDeclaration): IdSignature? = null
+
+    private fun allocateIndexedSignature(declaration: IrDeclaration, compatibleMode: Boolean): IdSignature {
+        return table.getOrPut(declaration) { signaturer.composeFileLocalIdSignature(declaration, compatibleMode) }
     }
 
-    private tailrec fun IrDeclaration.isMetadataDeclaration(isTypeParameter: Boolean): Boolean {
-        if (this is IrValueDeclaration || this is IrField) {
-            return false
-        }
+    private fun computeSignatureByDeclaration(declaration: IrDeclaration, compatibleMode: Boolean): IdSignature {
+        tryComputeBackendSpecificSignature(declaration)?.let { return it }
+        return if (declaration.isLocalDeclaration(compatibleMode)) {
+            allocateIndexedSignature(declaration, compatibleMode)
+        } else globalDeclarationTable.computeSignatureByDeclaration(declaration, compatibleMode)
+    }
 
-        if (origin == IrDeclarationOrigin.FAKE_OVERRIDE || origin == IrDeclarationOrigin.ENUM_CLASS_SPECIAL_MEMBER) {
-            return false
-        }
+    fun privateDeclarationSignature(declaration: IrDeclaration, compatibleMode: Boolean, builder: () -> IdSignature): IdSignature {
+        assert(declaration.isLocalDeclaration(compatibleMode))
+        return table.getOrPut(declaration) { builder() }
+    }
 
-        if (!isTypeParameter) {
-            if (this is IrSimpleFunction) {
-                if (correspondingPropertySymbol != null)
-                    return false
-            }
-        }
+    open fun signatureByDeclaration(declaration: IrDeclaration, compatibleMode: Boolean): IdSignature {
+        return computeSignatureByDeclaration(declaration, compatibleMode)
+    }
 
-        if (this is IrDeclarationWithVisibility) {
-            if (visibility == Visibilities.LOCAL) {
-                return false
-            }
-        }
-
-        if (this is IrLazyDeclarationBase) return false
-
-        if (parent is IrPackageFragment) return true
-
-        return (parent as IrDeclaration).isMetadataDeclaration(this is IrTypeParameter || isTypeParameter)
+    fun assumeDeclarationSignature(declaration: IrDeclaration, signature: IdSignature) {
+        assert(table[declaration] == null) { "Declaration table already has signature for ${declaration.render()}" }
+        table.put(declaration, signature)
     }
 }
 
 // This is what we pre-populate tables with
-val IrBuiltIns.knownBuiltins
-    get() = irBuiltInsSymbols
+val IrBuiltIns.knownBuiltins: List<IrDeclaration>
+    get() = operatorsPackageFragment.declarations

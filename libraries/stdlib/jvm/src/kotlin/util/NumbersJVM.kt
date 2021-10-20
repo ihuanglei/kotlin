@@ -97,24 +97,24 @@ public actual inline fun Float.Companion.fromBits(bits: Int): Float = java.lang.
 /**
  * Counts the number of set bits in the binary representation of this [Int] number.
  */
-@SinceKotlin("1.3")
-@ExperimentalStdlibApi
+@SinceKotlin("1.4")
+@WasExperimental(ExperimentalStdlibApi::class)
 @kotlin.internal.InlineOnly
 public actual inline fun Int.countOneBits(): Int = Integer.bitCount(this)
 
 /**
  * Counts the number of consecutive most significant bits that are zero in the binary representation of this [Int] number.
  */
-@SinceKotlin("1.3")
-@ExperimentalStdlibApi
+@SinceKotlin("1.4")
+@WasExperimental(ExperimentalStdlibApi::class)
 @kotlin.internal.InlineOnly
 public actual inline fun Int.countLeadingZeroBits(): Int = Integer.numberOfLeadingZeros(this)
 
 /**
  * Counts the number of consecutive least significant bits that are zero in the binary representation of this [Int] number.
  */
-@SinceKotlin("1.3")
-@ExperimentalStdlibApi
+@SinceKotlin("1.4")
+@WasExperimental(ExperimentalStdlibApi::class)
 @kotlin.internal.InlineOnly
 public actual inline fun Int.countTrailingZeroBits(): Int = Integer.numberOfTrailingZeros(this)
 
@@ -122,8 +122,8 @@ public actual inline fun Int.countTrailingZeroBits(): Int = Integer.numberOfTrai
  * Returns a number having a single bit set in the position of the most significant set bit of this [Int] number,
  * or zero, if this number is zero.
  */
-@SinceKotlin("1.3")
-@ExperimentalStdlibApi
+@SinceKotlin("1.4")
+@WasExperimental(ExperimentalStdlibApi::class)
 @kotlin.internal.InlineOnly
 public actual inline fun Int.takeHighestOneBit(): Int = Integer.highestOneBit(this)
 
@@ -131,8 +131,8 @@ public actual inline fun Int.takeHighestOneBit(): Int = Integer.highestOneBit(th
  * Returns a number having a single bit set in the position of the least significant set bit of this [Int] number,
  * or zero, if this number is zero.
  */
-@SinceKotlin("1.3")
-@ExperimentalStdlibApi
+@SinceKotlin("1.4")
+@WasExperimental(ExperimentalStdlibApi::class)
 @kotlin.internal.InlineOnly
 public actual inline fun Int.takeLowestOneBit(): Int = Integer.lowestOneBit(this)
 
@@ -146,8 +146,8 @@ public actual inline fun Int.takeLowestOneBit(): Int = Integer.lowestOneBit(this
  * Rotating by a multiple of [Int.SIZE_BITS] (32) returns the same number, or more generally
  * `number.rotateLeft(n) == number.rotateLeft(n % 32)`
  */
-@SinceKotlin("1.3")
-@ExperimentalStdlibApi
+@SinceKotlin("1.6")
+@WasExperimental(ExperimentalStdlibApi::class)
 @kotlin.internal.InlineOnly
 public actual inline fun Int.rotateLeft(bitCount: Int): Int = Integer.rotateLeft(this, bitCount)
 
@@ -162,8 +162,8 @@ public actual inline fun Int.rotateLeft(bitCount: Int): Int = Integer.rotateLeft
  * Rotating by a multiple of [Int.SIZE_BITS] (32) returns the same number, or more generally
  * `number.rotateRight(n) == number.rotateRight(n % 32)`
  */
-@SinceKotlin("1.3")
-@ExperimentalStdlibApi
+@SinceKotlin("1.6")
+@WasExperimental(ExperimentalStdlibApi::class)
 @kotlin.internal.InlineOnly
 public actual inline fun Int.rotateRight(bitCount: Int): Int = Integer.rotateRight(this, bitCount)
 
@@ -171,24 +171,24 @@ public actual inline fun Int.rotateRight(bitCount: Int): Int = Integer.rotateRig
 /**
  * Counts the number of set bits in the binary representation of this [Long] number.
  */
-@SinceKotlin("1.3")
-@ExperimentalStdlibApi
+@SinceKotlin("1.4")
+@WasExperimental(ExperimentalStdlibApi::class)
 @kotlin.internal.InlineOnly
 public actual inline fun Long.countOneBits(): Int = java.lang.Long.bitCount(this)
 
 /**
  * Counts the number of consecutive most significant bits that are zero in the binary representation of this [Long] number.
  */
-@SinceKotlin("1.3")
-@ExperimentalStdlibApi
+@SinceKotlin("1.4")
+@WasExperimental(ExperimentalStdlibApi::class)
 @kotlin.internal.InlineOnly
 public actual inline fun Long.countLeadingZeroBits(): Int = java.lang.Long.numberOfLeadingZeros(this)
 
 /**
  * Counts the number of consecutive least significant bits that are zero in the binary representation of this [Long] number.
  */
-@SinceKotlin("1.3")
-@ExperimentalStdlibApi
+@SinceKotlin("1.4")
+@WasExperimental(ExperimentalStdlibApi::class)
 @kotlin.internal.InlineOnly
 public actual inline fun Long.countTrailingZeroBits(): Int = java.lang.Long.numberOfTrailingZeros(this)
 
@@ -196,8 +196,8 @@ public actual inline fun Long.countTrailingZeroBits(): Int = java.lang.Long.numb
  * Returns a number having a single bit set in the position of the most significant set bit of this [Long] number,
  * or zero, if this number is zero.
  */
-@SinceKotlin("1.3")
-@ExperimentalStdlibApi
+@SinceKotlin("1.4")
+@WasExperimental(ExperimentalStdlibApi::class)
 @kotlin.internal.InlineOnly
 public actual inline fun Long.takeHighestOneBit(): Long = java.lang.Long.highestOneBit(this)
 
@@ -205,8 +205,8 @@ public actual inline fun Long.takeHighestOneBit(): Long = java.lang.Long.highest
  * Returns a number having a single bit set in the position of the least significant set bit of this [Long] number,
  * or zero, if this number is zero.
  */
-@SinceKotlin("1.3")
-@ExperimentalStdlibApi
+@SinceKotlin("1.4")
+@WasExperimental(ExperimentalStdlibApi::class)
 @kotlin.internal.InlineOnly
 public actual inline fun Long.takeLowestOneBit(): Long = java.lang.Long.lowestOneBit(this)
 
@@ -220,8 +220,8 @@ public actual inline fun Long.takeLowestOneBit(): Long = java.lang.Long.lowestOn
  * Rotating by a multiple of [Long.SIZE_BITS] (64) returns the same number, or more generally
  * `number.rotateLeft(n) == number.rotateLeft(n % 64)`
  */
-@SinceKotlin("1.3")
-@ExperimentalStdlibApi
+@SinceKotlin("1.6")
+@WasExperimental(ExperimentalStdlibApi::class)
 @kotlin.internal.InlineOnly
 public actual inline fun Long.rotateLeft(bitCount: Int): Long = java.lang.Long.rotateLeft(this, bitCount)
 
@@ -235,8 +235,8 @@ public actual inline fun Long.rotateLeft(bitCount: Int): Long = java.lang.Long.r
  * Rotating by a multiple of [Long.SIZE_BITS] (64) returns the same number, or more generally
  * `number.rotateRight(n) == number.rotateRight(n % 64)`
  */
-@SinceKotlin("1.3")
-@ExperimentalStdlibApi
+@SinceKotlin("1.6")
+@WasExperimental(ExperimentalStdlibApi::class)
 @kotlin.internal.InlineOnly
 public actual inline fun Long.rotateRight(bitCount: Int): Long = java.lang.Long.rotateRight(this, bitCount)
 

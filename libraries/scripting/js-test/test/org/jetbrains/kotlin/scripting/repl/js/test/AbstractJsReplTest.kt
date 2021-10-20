@@ -10,7 +10,6 @@ import org.jetbrains.kotlin.cli.common.CLIConfigurationKeys
 import org.jetbrains.kotlin.cli.common.messages.MessageCollector
 import org.jetbrains.kotlin.cli.common.repl.ReplCodeLine
 import org.jetbrains.kotlin.cli.common.repl.ReplCompileResult
-import org.jetbrains.kotlin.cli.common.repl.ReplCompiler
 import org.jetbrains.kotlin.cli.common.repl.ReplEvalResult
 import org.jetbrains.kotlin.cli.jvm.compiler.EnvironmentConfigFiles
 import org.jetbrains.kotlin.cli.jvm.compiler.KotlinCoreEnvironment
@@ -30,14 +29,14 @@ import kotlin.script.experimental.host.ScriptingHostConfiguration
 import kotlin.script.experimental.jvm.JsDependency
 
 abstract class AbstractJsReplTest : Closeable {
-    protected lateinit var compilationState: JsReplCompilationState
+    protected lateinit var compilerState: JsReplCompilerState
     protected lateinit var evaluationState: JsEvaluationState
 
-    protected abstract fun createCompilationState(): JsReplCompilationState
+    protected abstract fun createCompilationState(): JsReplCompilerState
     protected abstract fun createEvaluationState(): JsEvaluationState
 
     fun compile(codeLine: ReplCodeLine): ReplCompileResult {
-        return JsReplCompiler(environment).compile(compilationState, codeLine)
+        return JsReplCompiler(environment).compile(compilerState, codeLine)
     }
 
     fun evaluate(compileResult: ReplCompileResult.CompiledClasses): ReplEvalResult {
@@ -46,7 +45,7 @@ abstract class AbstractJsReplTest : Closeable {
 
     fun reset() {
         collector.clear()
-        compilationState = createCompilationState()
+        compilerState = createCompilationState()
         evaluationState = createEvaluationState()
     }
 
@@ -64,9 +63,10 @@ abstract class AbstractJsReplTest : Closeable {
         configuration.add(ComponentRegistrar.PLUGIN_COMPONENT_REGISTRARS, ScriptingCompilerConfigurationComponentRegistrar())
         configuration.put(CLIConfigurationKeys.MESSAGE_COLLECTOR_KEY, collector)
         configuration.put(CommonConfigurationKeys.MODULE_NAME, "repl.kts")
+        val stdlibPath = System.getProperty("kotlin.js.full.stdlib.path")
         val scriptConfiguration = ScriptCompilationConfiguration {
             baseClass("kotlin.Any")
-            dependencies.append(JsDependency("compiler/ir/serialization.js/build/fullRuntime/klib"))
+            dependencies.append(JsDependency(stdlibPath))
             platform.put("JS")
         }
         configuration.add(

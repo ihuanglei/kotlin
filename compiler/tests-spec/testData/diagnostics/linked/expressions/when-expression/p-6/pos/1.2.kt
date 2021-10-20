@@ -1,10 +1,11 @@
+// LANGUAGE: +WarnAboutNonExhaustiveWhenOnAlgebraicTypes
 // SKIP_TXT
 
 /*
  * KOTLIN DIAGNOSTICS SPEC TEST (POSITIVE)
  *
- * SPEC VERSION: 0.1-100
- * PLACE: expressions, when-expression -> paragraph 6 -> sentence 1
+ * SPEC VERSION: 0.1-296
+ * MAIN LINK: expressions, when-expression -> paragraph 6 -> sentence 1
  * NUMBER: 2
  * DESCRIPTION: 'When' with bound value and type test condition (invert type checking operator).
  * HELPERS: classes, sealedClasses, objects
@@ -41,7 +42,7 @@ fun case_3(value_1: SealedClass?): String = when (value_1) {
  * ISSUES: KT-22996
  */
 fun case_4(value_1: SealedClass?) {
-    when (value_1) {
+    <!NON_EXHAUSTIVE_WHEN_STATEMENT!>when<!> (value_1) {
         !is SealedChild2 -> {} // including null
         <!USELESS_IS_CHECK!>is SealedChild2?<!> -> {} // redundant nullable type check
     }

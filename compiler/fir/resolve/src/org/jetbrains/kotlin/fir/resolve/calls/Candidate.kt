@@ -5,93 +5,112 @@
 
 package org.jetbrains.kotlin.fir.resolve.calls
 
-import org.jetbrains.kotlin.fir.FirSession
-import org.jetbrains.kotlin.fir.declarations.FirDeclaration
-import org.jetbrains.kotlin.fir.declarations.FirFile
-import org.jetbrains.kotlin.fir.declarations.FirRegularClass
 import org.jetbrains.kotlin.fir.declarations.FirValueParameter
 import org.jetbrains.kotlin.fir.expressions.FirExpression
+import org.jetbrains.kotlin.fir.expressions.impl.FirExpressionStub
 import org.jetbrains.kotlin.fir.expressions.impl.FirNoReceiverExpression
-import org.jetbrains.kotlin.fir.resolve.BodyResolveComponents
-import org.jetbrains.kotlin.fir.resolve.DoubleColonLHS
-import org.jetbrains.kotlin.fir.resolve.ImplicitReceiverStack
+import org.jetbrains.kotlin.fir.resolve.inference.InferenceComponents
+import org.jetbrains.kotlin.fir.resolve.inference.PostponedResolvedAtom
 import org.jetbrains.kotlin.fir.resolve.substitution.ConeSubstitutor
-import org.jetbrains.kotlin.fir.symbols.AbstractFirBasedSymbol
+import org.jetbrains.kotlin.fir.scopes.FirScope
+import org.jetbrains.kotlin.fir.symbols.FirBasedSymbol
 import org.jetbrains.kotlin.fir.types.ConeKotlinType
-import org.jetbrains.kotlin.fir.types.FirTypeProjection
-import org.jetbrains.kotlin.fir.types.FirTypeRef
-import org.jetbrains.kotlin.resolve.calls.inference.ConstraintSystemBuilder
+import org.jetbrains.kotlin.fir.types.ConeTypeVariable
+import org.jetbrains.kotlin.resolve.calls.components.SuspendConversionStrategy
 import org.jetbrains.kotlin.resolve.calls.inference.ConstraintSystemOperation
 import org.jetbrains.kotlin.resolve.calls.inference.model.ConstraintStorage
-import org.jetbrains.kotlin.resolve.calls.model.PostponedResolvedAtomMarker
+import org.jetbrains.kotlin.resolve.calls.inference.model.NewConstraintSystemImpl
 import org.jetbrains.kotlin.resolve.calls.tasks.ExplicitReceiverKind
-
-class CallInfo(
-    val callKind: CallKind,
-
-    val explicitReceiver: FirExpression?,
-    val arguments: List<FirExpression>,
-    val isSafeCall: Boolean,
-
-    val typeArguments: List<FirTypeProjection>,
-    val session: FirSession,
-    val containingFile: FirFile,
-    val implicitReceiverStack: ImplicitReceiverStack,
-    val containingDeclaration: FirDeclaration,
-
-    // Three properties for callable references only
-    val expectedType: ConeKotlinType? = null,
-    val outerCSBuilder: ConstraintSystemBuilder? = null,
-    val lhs: DoubleColonLHS? = null,
-
-    val typeProvider: (FirExpression) -> FirTypeRef?
-) {
-    val argumentCount get() = arguments.size
-}
-
-enum class CandidateApplicability {
-    HIDDEN,
-    WRONG_RECEIVER,
-    PARAMETER_MAPPING_ERROR,
-    INAPPLICABLE,
-    SYNTHETIC_RESOLVED,
-    RESOLVED
-}
+import org.jetbrains.kotlin.resolve.calls.tower.CandidateApplicability
+import org.jetbrains.kotlin.resolve.calls.tower.isSuccess
 
 class Candidate(
-    val symbol: AbstractFirBasedSymbol<*>,
-    val dispatchReceiverValue: ClassDispatchReceiverValue?,
-    val implicitExtensionReceiverValue: ImplicitReceiverValue<*>?,
-    val explicitReceiverKind: ExplicitReceiverKind,
-    val bodyResolveComponents: BodyResolveComponents,
+    override val symbol: FirBasedSymbol<*>,
+    override val dispatchReceiverValue: ReceiverValue?,
+    override val extensionReceiverValue: ReceiverValue?,
+    override val explicitReceiverKind: ExplicitReceiverKind,
+    val constraintSystemFactory: InferenceComponents.ConstraintSystemFactory,
     private val baseSystem: ConstraintStorage,
-    val callInfo: CallInfo
-) {
+    override val callInfo: CallInfo,
+    val originScope: FirScope?,
+    val isFromCompanionObjectTypeScope: Boolean = false
+) : AbstractCandidate() {
 
     var systemInitialized: Boolean = false
-    val system by lazy {
-        val system = bodyResolveComponents.inferenceComponents.createConstraintSystem()
+    override val system: NewConstraintSystemImpl by lazy(LazyThreadSafetyMode.NONE) {
+        val system = constraintSystemFactory.createConstraintSystem()
         system.addOtherSystem(baseSystem)
         systemInitialized = true
         system
     }
 
-    val samResolver get() = bodyResolveComponents.samResolver
-
     lateinit var substitutor: ConeSubstitutor
+    lateinit var freshVariables: List<ConeTypeVariable>
     var resultingTypeForCallableReference: ConeKotlinType? = null
     var outerConstraintBuilderEffect: (ConstraintSystemOperation.() -> Unit)? = null
+    var usesSAM: Boolean = false
 
-    var argumentMapping: Map<FirExpression, FirValueParameter>? = null
-    val postponedAtoms = mutableListOf<PostponedResolvedAtomMarker>()
+    internal var callableReferenceAdaptation: CallableReferenceAdaptation? = null
+        set(value) {
+            field = value
+            usesSuspendConversion = value?.suspendConversionStrategy == SuspendConversionStrategy.SUSPEND_CONVERSION
+            if (value != null) {
+                numDefaults = value.defaults
+            }
+        }
 
-    fun dispatchReceiverExpression(): FirExpression = when (explicitReceiverKind) {
-        ExplicitReceiverKind.DISPATCH_RECEIVER, ExplicitReceiverKind.BOTH_RECEIVERS -> callInfo.explicitReceiver!!
-        else -> dispatchReceiverValue?.receiverExpression ?: FirNoReceiverExpression
+    var usesSuspendConversion: Boolean = false
+
+    var argumentMapping: LinkedHashMap<FirExpression, FirValueParameter>? = null
+    var numDefaults: Int = 0
+    lateinit var typeArgumentMapping: TypeArgumentMapping
+    val postponedAtoms = mutableListOf<PostponedResolvedAtom>()
+
+    var currentApplicability = CandidateApplicability.RESOLVED
+        private set
+
+    override val applicability: CandidateApplicability
+        get() = currentApplicability
+
+    private val _diagnostics: MutableList<ResolutionDiagnostic> = mutableListOf()
+    override val diagnostics: List<ResolutionDiagnostic>
+        get() = _diagnostics
+
+    fun addDiagnostic(diagnostic: ResolutionDiagnostic) {
+        _diagnostics += diagnostic
+        if (diagnostic.applicability < currentApplicability) {
+            currentApplicability = diagnostic.applicability
+        }
     }
 
-    fun extensionReceiverExpression(): FirExpression = when (explicitReceiverKind) {
-        ExplicitReceiverKind.EXTENSION_RECEIVER, ExplicitReceiverKind.BOTH_RECEIVERS -> callInfo.explicitReceiver!!
-        else -> implicitExtensionReceiverValue?.receiverExpression ?: FirNoReceiverExpression
+    val isSuccessful: Boolean
+        get() = currentApplicability.isSuccess && (!systemInitialized || !system.hasContradiction)
+
+    var passedStages: Int = 0
+
+    fun dispatchReceiverExpression(): FirExpression =
+        dispatchReceiverValue?.receiverExpression?.takeIf { it !is FirExpressionStub } ?: FirNoReceiverExpression
+
+    fun extensionReceiverExpression(): FirExpression =
+        extensionReceiverValue?.receiverExpression?.takeIf { it !is FirExpressionStub } ?: FirNoReceiverExpression
+
+    var hasVisibleBackingField = false
+
+    override fun equals(other: Any?): Boolean {
+        if (this === other) return true
+        if (javaClass != other?.javaClass) return false
+
+        other as Candidate
+
+        if (symbol != other.symbol) return false
+
+        return true
+    }
+
+    override fun hashCode(): Int {
+        return symbol.hashCode()
     }
 }
+
+val Candidate.fullyAnalyzed: Boolean
+    get() = passedStages == callInfo.callKind.resolutionSequence.size

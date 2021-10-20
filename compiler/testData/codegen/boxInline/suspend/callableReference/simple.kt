@@ -1,14 +1,12 @@
+// WITH_COROUTINES
+// WITH_RUNTIME
 // !LANGUAGE: +ReleaseCoroutines
-// IGNORE_BACKEND: JVM_IR
-// IGNORE_BACKEND_MULTI_MODULE: JVM_IR
 // NO_CHECK_LAMBDA_INLINING
 // FILE: test.kt
 
 inline suspend fun foo(x: suspend () -> String) = x()
 
 // FILE: box.kt
-// WITH_RUNTIME
-// WITH_COROUTINES
 
 import helpers.ContinuationAdapter
 import kotlin.coroutines.*

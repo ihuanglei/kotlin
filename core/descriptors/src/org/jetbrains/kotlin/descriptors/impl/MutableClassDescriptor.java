@@ -22,7 +22,7 @@ public class MutableClassDescriptor extends ClassDescriptorBase {
     private final boolean isInner;
 
     private Modality modality;
-    private Visibility visibility;
+    private DescriptorVisibility visibility;
     private TypeConstructor typeConstructor;
     private List<TypeParameterDescriptor> typeParameters;
     private final Collection<KotlinType> supertypes = new ArrayList<KotlinType>();
@@ -74,13 +74,13 @@ public class MutableClassDescriptor extends ClassDescriptorBase {
         return kind;
     }
 
-    public void setVisibility(@NotNull Visibility visibility) {
+    public void setVisibility(@NotNull DescriptorVisibility visibility) {
         this.visibility = visibility;
     }
 
     @NotNull
     @Override
-    public Visibility getVisibility() {
+    public DescriptorVisibility getVisibility() {
         return visibility;
     }
 
@@ -96,6 +96,16 @@ public class MutableClassDescriptor extends ClassDescriptorBase {
 
     @Override
     public boolean isInline() {
+        return false;
+    }
+
+    @Override
+    public boolean isFun() {
+        return false;
+    }
+
+    @Override
+    public boolean isValue() {
         return false;
     }
 
@@ -177,6 +187,12 @@ public class MutableClassDescriptor extends ClassDescriptorBase {
     @Override
     public Collection<ClassDescriptor> getSealedSubclasses() {
         return Collections.emptyList();
+    }
+
+    @Nullable
+    @Override
+    public InlineClassRepresentation<SimpleType> getInlineClassRepresentation() {
+        return null;
     }
 
     @Override

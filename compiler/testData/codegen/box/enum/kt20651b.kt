@@ -1,4 +1,4 @@
-// IGNORE_BACKEND_FIR: JVM_IR
+// SKIP_MANGLE_VERIFICATION
 interface Callback {
     fun invoke(): String
 }

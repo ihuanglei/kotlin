@@ -1,11 +1,12 @@
-// !LANGUAGE: +InlineClasses
-// IGNORE_BACKEND_FIR: JVM_IR
+// WITH_RUNTIME
 
 interface IFoo<T> {
     fun foo(x: T): String
 }
 
-inline class Z(val x: Int) : IFoo<Z> {
+@Suppress("OPTIONAL_DECLARATION_USAGE_IN_NON_COMMON_SOURCE")
+@kotlin.jvm.JvmInline
+value class Z(val x: Int) : IFoo<Z> {
     override fun foo(x: Z) = "OK"
 }
 

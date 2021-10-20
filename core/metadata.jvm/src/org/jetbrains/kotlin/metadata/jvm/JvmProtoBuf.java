@@ -18,6 +18,7 @@ public final class JvmProtoBuf {
     registry.add(org.jetbrains.kotlin.metadata.jvm.JvmProtoBuf.classModuleName);
     registry.add(org.jetbrains.kotlin.metadata.jvm.JvmProtoBuf.classLocalVariable);
     registry.add(org.jetbrains.kotlin.metadata.jvm.JvmProtoBuf.anonymousObjectOriginName);
+    registry.add(org.jetbrains.kotlin.metadata.jvm.JvmProtoBuf.jvmClassFlags);
     registry.add(org.jetbrains.kotlin.metadata.jvm.JvmProtoBuf.packageModuleName);
     registry.add(org.jetbrains.kotlin.metadata.jvm.JvmProtoBuf.packageLocalVariable);
   }
@@ -3067,6 +3068,25 @@ public final class JvmProtoBuf {
      * <code>optional .org.jetbrains.kotlin.metadata.jvm.JvmMethodSignature setter = 4;</code>
      */
     org.jetbrains.kotlin.metadata.jvm.JvmProtoBuf.JvmMethodSignature getSetter();
+
+    /**
+     * <code>optional .org.jetbrains.kotlin.metadata.jvm.JvmMethodSignature delegate_method = 5;</code>
+     *
+     * <pre>
+     * The delegate field of delegated properties may be optimized out; `getDelegate` should
+     * then call this method instead
+     * </pre>
+     */
+    boolean hasDelegateMethod();
+    /**
+     * <code>optional .org.jetbrains.kotlin.metadata.jvm.JvmMethodSignature delegate_method = 5;</code>
+     *
+     * <pre>
+     * The delegate field of delegated properties may be optimized out; `getDelegate` should
+     * then call this method instead
+     * </pre>
+     */
+    org.jetbrains.kotlin.metadata.jvm.JvmProtoBuf.JvmMethodSignature getDelegateMethod();
   }
   /**
    * Protobuf type {@code org.jetbrains.kotlin.metadata.jvm.JvmPropertySignature}
@@ -3168,6 +3188,19 @@ public final class JvmProtoBuf {
                 setter_ = subBuilder.buildPartial();
               }
               bitField0_ |= 0x00000008;
+              break;
+            }
+            case 42: {
+              org.jetbrains.kotlin.metadata.jvm.JvmProtoBuf.JvmMethodSignature.Builder subBuilder = null;
+              if (((bitField0_ & 0x00000010) == 0x00000010)) {
+                subBuilder = delegateMethod_.toBuilder();
+              }
+              delegateMethod_ = input.readMessage(org.jetbrains.kotlin.metadata.jvm.JvmProtoBuf.JvmMethodSignature.PARSER, extensionRegistry);
+              if (subBuilder != null) {
+                subBuilder.mergeFrom(delegateMethod_);
+                delegateMethod_ = subBuilder.buildPartial();
+              }
+              bitField0_ |= 0x00000010;
               break;
             }
           }
@@ -3272,11 +3305,37 @@ public final class JvmProtoBuf {
       return setter_;
     }
 
+    public static final int DELEGATE_METHOD_FIELD_NUMBER = 5;
+    private org.jetbrains.kotlin.metadata.jvm.JvmProtoBuf.JvmMethodSignature delegateMethod_;
+    /**
+     * <code>optional .org.jetbrains.kotlin.metadata.jvm.JvmMethodSignature delegate_method = 5;</code>
+     *
+     * <pre>
+     * The delegate field of delegated properties may be optimized out; `getDelegate` should
+     * then call this method instead
+     * </pre>
+     */
+    public boolean hasDelegateMethod() {
+      return ((bitField0_ & 0x00000010) == 0x00000010);
+    }
+    /**
+     * <code>optional .org.jetbrains.kotlin.metadata.jvm.JvmMethodSignature delegate_method = 5;</code>
+     *
+     * <pre>
+     * The delegate field of delegated properties may be optimized out; `getDelegate` should
+     * then call this method instead
+     * </pre>
+     */
+    public org.jetbrains.kotlin.metadata.jvm.JvmProtoBuf.JvmMethodSignature getDelegateMethod() {
+      return delegateMethod_;
+    }
+
     private void initFields() {
       field_ = org.jetbrains.kotlin.metadata.jvm.JvmProtoBuf.JvmFieldSignature.getDefaultInstance();
       syntheticMethod_ = org.jetbrains.kotlin.metadata.jvm.JvmProtoBuf.JvmMethodSignature.getDefaultInstance();
       getter_ = org.jetbrains.kotlin.metadata.jvm.JvmProtoBuf.JvmMethodSignature.getDefaultInstance();
       setter_ = org.jetbrains.kotlin.metadata.jvm.JvmProtoBuf.JvmMethodSignature.getDefaultInstance();
+      delegateMethod_ = org.jetbrains.kotlin.metadata.jvm.JvmProtoBuf.JvmMethodSignature.getDefaultInstance();
     }
     private byte memoizedIsInitialized = -1;
     public final boolean isInitialized() {
@@ -3303,6 +3362,9 @@ public final class JvmProtoBuf {
       if (((bitField0_ & 0x00000008) == 0x00000008)) {
         output.writeMessage(4, setter_);
       }
+      if (((bitField0_ & 0x00000010) == 0x00000010)) {
+        output.writeMessage(5, delegateMethod_);
+      }
       output.writeRawBytes(unknownFields);
     }
 
@@ -3327,6 +3389,10 @@ public final class JvmProtoBuf {
       if (((bitField0_ & 0x00000008) == 0x00000008)) {
         size += org.jetbrains.kotlin.protobuf.CodedOutputStream
           .computeMessageSize(4, setter_);
+      }
+      if (((bitField0_ & 0x00000010) == 0x00000010)) {
+        size += org.jetbrains.kotlin.protobuf.CodedOutputStream
+          .computeMessageSize(5, delegateMethod_);
       }
       size += unknownFields.size();
       memoizedSerializedSize = size;
@@ -3430,6 +3496,8 @@ public final class JvmProtoBuf {
         bitField0_ = (bitField0_ & ~0x00000004);
         setter_ = org.jetbrains.kotlin.metadata.jvm.JvmProtoBuf.JvmMethodSignature.getDefaultInstance();
         bitField0_ = (bitField0_ & ~0x00000008);
+        delegateMethod_ = org.jetbrains.kotlin.metadata.jvm.JvmProtoBuf.JvmMethodSignature.getDefaultInstance();
+        bitField0_ = (bitField0_ & ~0x00000010);
         return this;
       }
 
@@ -3469,6 +3537,10 @@ public final class JvmProtoBuf {
           to_bitField0_ |= 0x00000008;
         }
         result.setter_ = setter_;
+        if (((from_bitField0_ & 0x00000010) == 0x00000010)) {
+          to_bitField0_ |= 0x00000010;
+        }
+        result.delegateMethod_ = delegateMethod_;
         result.bitField0_ = to_bitField0_;
         return result;
       }
@@ -3486,6 +3558,9 @@ public final class JvmProtoBuf {
         }
         if (other.hasSetter()) {
           mergeSetter(other.getSetter());
+        }
+        if (other.hasDelegateMethod()) {
+          mergeDelegateMethod(other.getDelegateMethod());
         }
         setUnknownFields(
             getUnknownFields().concat(other.unknownFields));
@@ -3779,6 +3854,96 @@ public final class JvmProtoBuf {
         return this;
       }
 
+      private org.jetbrains.kotlin.metadata.jvm.JvmProtoBuf.JvmMethodSignature delegateMethod_ = org.jetbrains.kotlin.metadata.jvm.JvmProtoBuf.JvmMethodSignature.getDefaultInstance();
+      /**
+       * <code>optional .org.jetbrains.kotlin.metadata.jvm.JvmMethodSignature delegate_method = 5;</code>
+       *
+       * <pre>
+       * The delegate field of delegated properties may be optimized out; `getDelegate` should
+       * then call this method instead
+       * </pre>
+       */
+      public boolean hasDelegateMethod() {
+        return ((bitField0_ & 0x00000010) == 0x00000010);
+      }
+      /**
+       * <code>optional .org.jetbrains.kotlin.metadata.jvm.JvmMethodSignature delegate_method = 5;</code>
+       *
+       * <pre>
+       * The delegate field of delegated properties may be optimized out; `getDelegate` should
+       * then call this method instead
+       * </pre>
+       */
+      public org.jetbrains.kotlin.metadata.jvm.JvmProtoBuf.JvmMethodSignature getDelegateMethod() {
+        return delegateMethod_;
+      }
+      /**
+       * <code>optional .org.jetbrains.kotlin.metadata.jvm.JvmMethodSignature delegate_method = 5;</code>
+       *
+       * <pre>
+       * The delegate field of delegated properties may be optimized out; `getDelegate` should
+       * then call this method instead
+       * </pre>
+       */
+      public Builder setDelegateMethod(org.jetbrains.kotlin.metadata.jvm.JvmProtoBuf.JvmMethodSignature value) {
+        if (value == null) {
+          throw new NullPointerException();
+        }
+        delegateMethod_ = value;
+
+        bitField0_ |= 0x00000010;
+        return this;
+      }
+      /**
+       * <code>optional .org.jetbrains.kotlin.metadata.jvm.JvmMethodSignature delegate_method = 5;</code>
+       *
+       * <pre>
+       * The delegate field of delegated properties may be optimized out; `getDelegate` should
+       * then call this method instead
+       * </pre>
+       */
+      public Builder setDelegateMethod(
+          org.jetbrains.kotlin.metadata.jvm.JvmProtoBuf.JvmMethodSignature.Builder builderForValue) {
+        delegateMethod_ = builderForValue.build();
+
+        bitField0_ |= 0x00000010;
+        return this;
+      }
+      /**
+       * <code>optional .org.jetbrains.kotlin.metadata.jvm.JvmMethodSignature delegate_method = 5;</code>
+       *
+       * <pre>
+       * The delegate field of delegated properties may be optimized out; `getDelegate` should
+       * then call this method instead
+       * </pre>
+       */
+      public Builder mergeDelegateMethod(org.jetbrains.kotlin.metadata.jvm.JvmProtoBuf.JvmMethodSignature value) {
+        if (((bitField0_ & 0x00000010) == 0x00000010) &&
+            delegateMethod_ != org.jetbrains.kotlin.metadata.jvm.JvmProtoBuf.JvmMethodSignature.getDefaultInstance()) {
+          delegateMethod_ =
+            org.jetbrains.kotlin.metadata.jvm.JvmProtoBuf.JvmMethodSignature.newBuilder(delegateMethod_).mergeFrom(value).buildPartial();
+        } else {
+          delegateMethod_ = value;
+        }
+
+        bitField0_ |= 0x00000010;
+        return this;
+      }
+      /**
+       * <code>optional .org.jetbrains.kotlin.metadata.jvm.JvmMethodSignature delegate_method = 5;</code>
+       *
+       * <pre>
+       * The delegate field of delegated properties may be optimized out; `getDelegate` should
+       * then call this method instead
+       * </pre>
+       */
+      public Builder clearDelegateMethod() {
+        delegateMethod_ = org.jetbrains.kotlin.metadata.jvm.JvmProtoBuf.JvmMethodSignature.getDefaultInstance();
+
+        bitField0_ = (bitField0_ & ~0x00000010);
+        return this;
+      }
+
       // @@protoc_insertion_point(builder_scope:org.jetbrains.kotlin.metadata.jvm.JvmPropertySignature)
     }
 
@@ -3983,6 +4148,27 @@ public final class JvmProtoBuf {
         null,
         null,
         103,
+        org.jetbrains.kotlin.protobuf.WireFormat.FieldType.INT32,
+        java.lang.Integer.class);
+  public static final int JVM_CLASS_FLAGS_FIELD_NUMBER = 104;
+  /**
+   * <code>extend .org.jetbrains.kotlin.metadata.Class { ... }</code>
+   *
+   * <pre>
+   * first bit: isFunctionBodyInInterface: 0 if actual body generated in DefaultImpl, 1 - otherwise (in interface default method)
+   * second bit: is all-compatibility mode or not, 1 - yes, 0 - no
+   * </pre>
+   */
+  public static final
+    org.jetbrains.kotlin.protobuf.GeneratedMessageLite.GeneratedExtension<
+      org.jetbrains.kotlin.metadata.ProtoBuf.Class,
+      java.lang.Integer> jvmClassFlags = org.jetbrains.kotlin.protobuf.GeneratedMessageLite
+          .newSingularGeneratedExtension(
+        org.jetbrains.kotlin.metadata.ProtoBuf.Class.getDefaultInstance(),
+        0,
+        null,
+        null,
+        104,
         org.jetbrains.kotlin.protobuf.WireFormat.FieldType.INT32,
         java.lang.Integer.class);
   public static final int PACKAGE_MODULE_NAME_FIELD_NUMBER = 101;

@@ -1,4 +1,4 @@
-// IGNORE_BACKEND_FIR: JVM_IR
+
 inline fun catchAll(x: String, block: () -> Unit): String {
     try {
         block()

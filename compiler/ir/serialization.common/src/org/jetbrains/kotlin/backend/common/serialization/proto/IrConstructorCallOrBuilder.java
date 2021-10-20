@@ -8,13 +8,13 @@ public interface IrConstructorCallOrBuilder extends
     org.jetbrains.kotlin.protobuf.MessageLiteOrBuilder {
 
   /**
-   * <code>required int32 symbol = 1;</code>
+   * <code>required int64 symbol = 1;</code>
    */
   boolean hasSymbol();
   /**
-   * <code>required int32 symbol = 1;</code>
+   * <code>required int64 symbol = 1;</code>
    */
-  int getSymbol();
+  long getSymbol();
 
   /**
    * <code>required int32 constructor_type_arguments_count = 2;</code>
@@ -33,4 +33,13 @@ public interface IrConstructorCallOrBuilder extends
    * <code>required .org.jetbrains.kotlin.backend.common.serialization.proto.MemberAccessCommon member_access = 3;</code>
    */
   org.jetbrains.kotlin.backend.common.serialization.proto.MemberAccessCommon getMemberAccess();
+
+  /**
+   * <code>optional int32 origin_name = 4;</code>
+   */
+  boolean hasOriginName();
+  /**
+   * <code>optional int32 origin_name = 4;</code>
+   */
+  int getOriginName();
 }
